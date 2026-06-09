@@ -16,19 +16,19 @@ ROOT=$(odin root)
 # so libs.
 case $(uname) in
 "Darwin")
-    DLL_EXT=".dylib"
-    EXTRA_LINKER_FLAGS="-Wl,-rpath $ROOT/vendor/raylib/macos"
-    ;;
+	DLL_EXT=".dylib"
+	EXTRA_LINKER_FLAGS="-Wl,-rpath $ROOT/vendor/raylib/macos"
+	;;
 *)
-    DLL_EXT=".so"
-    EXTRA_LINKER_FLAGS="'-Wl,-rpath=\$ORIGIN/linux'"
+	DLL_EXT=".so"
+	EXTRA_LINKER_FLAGS="'-Wl,-rpath=\$ORIGIN/linux'"
 
-    # Copy the linux libraries into the project automatically.
-    if [ ! -d "$OUT_DIR/linux" ]; then
-        mkdir -p $OUT_DIR/linux
-        cp -r $ROOT/vendor/raylib/linux/libraylib*.so* $OUT_DIR/linux
-    fi
-    ;;
+	# Copy the linux libraries into the project automatically.
+	if [ ! -d "$OUT_DIR/linux" ]; then
+		mkdir -p $OUT_DIR/linux
+		cp -rs $ROOT/vendor/raylib/linux/libraylib*.so* $OUT_DIR/linux
+	fi
+	;;
 esac
 
 # Build the game. Note that the game goes into $OUT_DIR while the exe stays in
@@ -42,15 +42,16 @@ mv $OUT_DIR/game_tmp$DLL_EXT $OUT_DIR/game$DLL_EXT
 
 # If the executable is already running, then don't try to build and start it.
 # -f is there to make sure we match against full name, including .bin
-if pgrep -f $EXE > /dev/null; then
-    echo "Hot reloading..."
-    exit 0
+if pgrep -f $EXE >/dev/null; then
+	echo "Hot reloading..."
+	exit 0
 fi
 
 echo "Building $EXE"
 odin build source/main_hot_reload -out:$EXE -strict-style -vet -debug
 
 if [ $# -ge 1 ] && [ $1 == "run" ]; then
-    echo "Running $EXE"
-    ./$EXE &
+	echo "Running $EXE"
+	./$EXE &
+	echo $! >"$OUT_DIR/game.pid"
 fi

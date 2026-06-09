@@ -36,3 +36,4 @@ emcc -o $OUT_DIR/index.html $files $flags
 rm $OUT_DIR/game.wasm.o
 
 echo "Web build created in ${OUT_DIR}"
+
