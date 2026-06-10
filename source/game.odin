@@ -27,21 +27,15 @@ created.
 
 package game
 
-import "core:fmt"
-// import "core:math/linalg"
+import "state"
+import "ui/playground"
 import rl "vendor:raylib"
 
-PIXEL_WINDOW_HEIGHT :: 180
-
-Game_Memory :: struct {
-	run: bool,
-}
-
-gm: ^Game_Memory
+gm: ^state.Game_Memory
 
 update :: proc() {
 	if rl.IsKeyPressed(.ESCAPE) {
-		gm.run = false
+		gm.should_run = false
 	}
 }
 
@@ -49,23 +43,7 @@ draw :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground({16, 16, 16, 255})
 
-	if (rl.GuiButton(
-			   {25, 255, 125, 30},
-			   rl.GuiIconText(rl.GuiIconName.ICON_FILE_SAVE, "Save File"),
-		   )) {
-		fmt.println("hi")
-	}
-
-	// NOTE: `fmt.ctprintf` uses the temp allocator. The temp allocator is
-	// cleared at the end of the frame by the main application, meaning inside
-	// `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
-	// rl.DrawText(
-	// 	fmt.ctprintf("some_number: %v\nplayer_pos: %v", g.some_number, g.player_pos),
-	// 	5,
-	// 	5,
-	// 	8,
-	// 	rl.WHITE,
-	// )
+	playground.draw(gm)
 
 	rl.EndDrawing()
 }
@@ -90,11 +68,11 @@ game_init_window :: proc() {
 
 @(export)
 game_init :: proc() {
-	gm = new(Game_Memory)
-
-	gm^ = Game_Memory {
-		run = true,
+	gm = new(state.Game_Memory)
+	gm^ = state.Game_Memory {
+		should_run = true,
 	}
+	copy(gm.text_box_buffer[:], "starting text")
 
 	game_hot_reloaded(gm)
 }
@@ -108,7 +86,7 @@ game_should_run :: proc() -> bool {
 		}
 	}
 
-	return gm.run
+	return gm.should_run
 }
 
 @(export)
@@ -128,15 +106,15 @@ game_memory :: proc() -> rawptr {
 
 @(export)
 game_memory_size :: proc() -> int {
-	return size_of(Game_Memory)
+	return size_of(state.Game_Memory)
 }
 
 @(export)
 game_hot_reloaded :: proc(mem: rawptr) {
-	gm = (^Game_Memory)(mem)
+	gm = (^state.Game_Memory)(mem)
 
 	// Here you can also set your own global variables. A good idea is to make
-	// your global variables into pointers that point to something inside `g`.
+	// your global variables into pointers that point to something inside `gm`.
 }
 
 @(export)
