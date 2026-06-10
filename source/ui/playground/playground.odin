@@ -18,42 +18,50 @@ draw :: proc(gm: ^state.Game_Memory) {
 
 	rl.GuiToggle(
 		{165, 400, 140, 25},
-		gm.toggle_state.current ? "ON" : "OFF",
-		&gm.toggle_state.current,
+		gm.playground.toggle_state.current ? "ON" : "OFF",
+		&gm.playground.toggle_state.current,
 	)
-	if gm.toggle_state.current != gm.toggle_state.prev {
+	if gm.playground.toggle_state.current != gm.playground.toggle_state.prev {
 		fmt.println("changed toggle")
 	}
-	gm.toggle_state.prev = gm.toggle_state.current
+	gm.playground.toggle_state.prev = gm.playground.toggle_state.current
 
 	rl.GuiToggleGroup(
 		{350, 360, 140, 24},
 		"#1#ONE\n#3#TWO\n#8#THREE\n#23#",
-		&gm.toggle_group_active,
+		&gm.playground.toggle_group_active,
 	)
 
-	rl.GuiToggleSlider({165, 480, 140, 30}, "ON;OFF", &gm.toggle_slider_active)
+	rl.GuiToggleSlider({165, 480, 140, 30}, "ON;OFF", &gm.playground.toggle_slider_active)
 
-	rl.GuiCheckBox({25, 108, 15, 15}, "FORCE CHECK!", &gm.checked)
+	rl.GuiCheckBox({25, 108, 15, 15}, "FORCE CHECK!", &gm.playground.checked)
 
 	if (rl.GuiTextBox(
 			   {25, 215, 125, 30},
-			   cstring(&gm.text_box_buffer[0]),
-			   len(gm.text_box_buffer),
-			   gm.text_box_editing,
+			   cstring(&gm.playground.text_box_buffer[0]),
+			   i32(len(gm.playground.text_box_buffer)),
+			   gm.playground.text_box_editing,
 		   )) {
-		gm.text_box_editing = !gm.text_box_editing
+		gm.playground.text_box_editing = !gm.playground.text_box_editing
 	}
 
-	if (rl.GuiSpinner({25, 135, 125, 30}, nil, &gm.spinner, 0, 100, gm.spinner_editing)) > 0 {
-		gm.spinner_editing = !gm.spinner_editing
+	if (rl.GuiSpinner(
+			   {25, 135, 125, 30},
+			   nil,
+			   &gm.playground.spinner,
+			   0,
+			   100,
+			   gm.playground.spinner_editing,
+		   )) >
+	   0 {
+		gm.playground.spinner_editing = !gm.playground.spinner_editing
 	}
 
 	rl.GuiSlider(
 		{555, 400, 165, 20},
 		"TEST",
 		rl.TextFormat("%2.2f", 100.0),
-		&gm.slider_value,
+		&gm.playground.slider_value,
 		-50,
 		100,
 	)
@@ -62,17 +70,17 @@ draw :: proc(gm: ^state.Game_Memory) {
 		{855, 400, 165, 20},
 		"TEST",
 		rl.TextFormat("%2.2f", 100.0),
-		&gm.slider_value,
+		&gm.playground.slider_value,
 		-50,
 		100,
 	)
 
-	gm.progress_value = 0.4
+	gm.playground.progress_value = 0.4
 	rl.GuiProgressBar(
 		{320, 560, 200, 20},
 		nil,
-		rl.TextFormat("%2.0f%%", gm.progress_value * 100.0),
-		&gm.progress_value,
+		rl.TextFormat("%2.0f%%", gm.playground.progress_value * 100.0),
+		&gm.playground.progress_value,
 		0.0,
 		1.0,
 	)
@@ -80,16 +88,16 @@ draw :: proc(gm: ^state.Game_Memory) {
 	rl.GuiComboBox(
 		{25, 480, 125, 30},
 		"default;Jungle;Lavanda;Dark;Bluish;Cyber;Terminal;Candy;Cherry;Ashes;Enefete;Sunny;Amber",
-		&gm.visual_style,
+		&gm.playground.visual_style,
 	)
 
 	if (rl.GuiDropdownBox(
 			   {25, 100, 125, 30},
 			   "ONE;TWO;THREE",
-			   &gm.dropdown_active,
-			   gm.dropdown_edit,
+			   &gm.playground.dropdown_active,
+			   gm.playground.dropdown_edit,
 		   )) {
-		gm.dropdown_edit = !gm.dropdown_edit
+		gm.playground.dropdown_edit = !gm.playground.dropdown_edit
 	}
 
 	rl.GuiLabel({400, 300, 60, 25}, "File format:")
@@ -99,22 +107,22 @@ draw :: proc(gm: ^state.Game_Memory) {
 		"This is a status bar",
 	)
 
-	rl.GuiGrid({560, 100, 100, 120}, nil, 20, 3, &gm.active_cell)
+	rl.GuiGrid({560, 100, 100, 120}, nil, 20, 3, &gm.playground.active_cell)
 	// fmt.println(gm.active_cell)
 
 	tabs := [?]cstring{"General", "Controls", "Advanced"}
-	if (rl.GuiTabBar({20, 20, 300, 30}, raw_data(&tabs), 3, &gm.active_tab) != -1) {
+	if (rl.GuiTabBar({20, 20, 300, 30}, raw_data(&tabs), 3, &gm.playground.active_tab) != -1) {
 		// A tab was selected to be closed
 	}
 
 	rl.GuiListView(
 		{765, 25, 140, 124},
 		"Charmander;Bulbasaur;#18#Squirtel;Pikachu;Eevee;Pidgey",
-		&gm.list_view_scroll_index,
-		&gm.list_view_active,
+		&gm.playground.list_view_scroll_index,
+		&gm.playground.list_view_active,
 	)
 
-	rl.GuiColorPicker({720, 185, 196, 192}, nil, &gm.color_picker_value)
+	rl.GuiColorPicker({720, 185, 196, 192}, nil, &gm.playground.color_picker_value)
 
 	// exit_window := false
 	// result := rl.GuiMessageBox(

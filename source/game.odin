@@ -28,7 +28,8 @@ created.
 package game
 
 import "state"
-import "ui/playground"
+import "ui"
+// import "ui/playground"
 import rl "vendor:raylib"
 
 gm: ^state.Game_Memory
@@ -43,7 +44,8 @@ draw :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground({16, 16, 16, 255})
 
-	playground.draw(gm)
+	// playground.draw(gm)
+	ui.draw(gm.ui_controls)
 
 	rl.EndDrawing()
 }
@@ -60,19 +62,23 @@ game_update :: proc() {
 @(export)
 game_init_window :: proc() {
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
-	rl.InitWindow(1280, 720, "Odin + Raylib + Hot Reload template!")
+	rl.InitWindow(1280, 720, "Showtime")
 	rl.SetWindowPosition(200, 200)
+	// this is an app, not a game. need constant updates especially since some
+	// latency will occur between networked devices.
 	rl.SetTargetFPS(500)
 	rl.SetExitKey(nil)
+	rl.GuiLoadStyle("./source/cyber.rgs")
 }
 
 @(export)
 game_init :: proc() {
 	gm = new(state.Game_Memory)
 	gm^ = state.Game_Memory {
-		should_run = true,
+		should_run  = true,
+		ui_controls = ui.build_layout(),
 	}
-	copy(gm.text_box_buffer[:], "starting text")
+	copy(gm.playground.text_box_buffer[:], "starting text")
 
 	game_hot_reloaded(gm)
 }

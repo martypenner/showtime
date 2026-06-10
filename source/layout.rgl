@@ -1,0 +1,18 @@
+#
+# rgl layout text file (v4.0) - raygui layout file generated using rGuiLayout
+#
+# Number of controls:     7
+#
+# Ref. window:    r <x> <y> <width> <height>
+# Anchor info:    a <id> <name> <posx> <posy> <enabled>
+# Control info:   c <id> <type> <name> <rectangle> <anchor_id> <text>
+#
+r 0 40 -1 -1
+a 001 scenes 24 0 1
+c 000 5 preshow 0 24 96 48 1 Pre-show
+c 001 5 postshow 120 24 96 48 1 Post-show
+c 002 5 tohouse 0 96 96 48 1 To house
+c 003 5 sceneramp 120 96 96 48 1 Scene - ramp
+c 004 5 scenefade 240 96 96 48 1 Scene - fade
+c 005 5 dropneedle 360 96 96 48 1 Drop needle
+c 006 1 scenes 0 8 456 136 1 Scenes
