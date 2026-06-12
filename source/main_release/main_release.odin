@@ -4,11 +4,11 @@ For making a release exe that does not use hot reload.
 
 package main_release
 
+import game ".."
 import "core:log"
+import "core:mem"
 import "core:os"
 import "core:path/filepath"
-import "core:mem"
-import game ".."
 
 _ :: mem
 
@@ -17,10 +17,10 @@ USE_TRACKING_ALLOCATOR :: #config(USE_TRACKING_ALLOCATOR, false)
 main :: proc() {
 	// Set working dir to dir of executable.
 	exe_path := os.args[0]
-	exe_dir := filepath.dir(string(exe_path), context.temp_allocator)
+	exe_dir := filepath.dir(string(exe_path))
 	os.set_working_directory(exe_dir)
-	
-	mode := os.Permissions { .Read_User, .Write_User, .Read_Group, .Read_Other }
+
+	mode := os.Permissions{.Read_User, .Write_User, .Read_Group, .Read_Other}
 	logh, logh_err := os.open("log.txt", {.Create, .Trunc, .Read, .Write}, mode)
 
 	if logh_err == os.ERROR_NONE {
@@ -29,7 +29,8 @@ main :: proc() {
 	}
 
 	logger_alloc := context.allocator
-	logger := logh_err == os.ERROR_NONE ? log.create_file_logger(logh, allocator = logger_alloc) : log.create_console_logger(allocator = logger_alloc)
+	logger :=
+		logh_err == os.ERROR_NONE ? log.create_file_logger(logh, allocator = logger_alloc) : log.create_console_logger(allocator = logger_alloc)
 	context.logger = logger
 
 	when USE_TRACKING_ALLOCATOR {
@@ -70,3 +71,4 @@ NvOptimusEnablement: u32 = 1
 
 @(export)
 AmdPowerXpressRequestHighPerformance: i32 = 1
+

@@ -1,9 +1,14 @@
-.PHONY: build run
+.PHONY: all build build-web run
 
 PIDFILE=build/hot_reload/game.pid
 
+all: build build-web
+
 build:
-	./scripts/build_hot_reload.sh
+	./scripts/build_release.sh
+
+build-web:
+	./scripts/build_web.sh
 
 run:
 	@./scripts/build_hot_reload.sh run

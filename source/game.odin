@@ -28,7 +28,7 @@ created.
 
 package game
 
-import vmem "core:mem/virtual"
+import "core:mem"
 import "state"
 import "ui"
 import "ui/playground"
@@ -69,13 +69,13 @@ game_update :: proc() {
 game_init_window :: proc() {
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
 	rl.InitWindow(1280, 720, "Showtime")
-	rl.SetWindowPosition(200, 200)
+	when ODIN_OS != .JS do rl.SetWindowPosition(200, 200)
 	// This is an app, not a game. Needs constant updates since some latency will
 	// occur between networked devices.
 	rl.SetTargetFPS(500)
 	rl.SetExitKey(nil)
-	rl.GuiLoadStyle("resources/cyber.rgs")
-	font := rl.LoadFontEx("resources/quantico-regular.ttf", 18, nil, 0)
+	rl.GuiLoadStyle("assets/cyber.rgs")
+	font := rl.LoadFont("assets/quantico-regular.ttf")
 	rl.SetTextureFilter(font.texture, .BILINEAR)
 	rl.GuiSetStyle(.DEFAULT, i32(rl.GuiDefaultProperty.TEXT_SIZE), 18)
 	rl.GuiSetFont(font)
@@ -87,10 +87,9 @@ game_init :: proc() {
 	gm^ = state.Game_Memory {
 		should_run = true,
 	}
+	mem.dynamic_arena_init(&gm.ui_arena)
 	ui.build_layout(gm)
 	copy(gm.playground.text_box_buffer[:], "starting text")
-	arena_err := vmem.arena_init_growing(&gm.ui_arena)
-	ensure(arena_err == nil)
 
 	game_hot_reloaded(gm)
 }
@@ -109,7 +108,7 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
-	vmem.arena_destroy(&gm.ui_arena)
+	mem.dynamic_arena_destroy(&gm.ui_arena)
 	free(gm)
 }
 

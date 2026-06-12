@@ -8,7 +8,7 @@ Supported editors and debuggers: [Sublime Text](#sublime-text), [VS Code](#vs-co
 
 ![hot_reload gif](https://github.com/user-attachments/assets/18059ab2-0878-4617-971d-e629a969fc93)
 
-See The Legend of Tuna repository for an example project that also uses Box2D: https://github.com/karl-zylinski/the-legend-of-tuna
+See The Legend of Tuna repository for an example project that also uses Box2D: <https://github.com/karl-zylinski/the-legend-of-tuna>
 
 I used this kind of hot reloading while developing my game [CAT & ONION](https://store.steampowered.com/app/2781210/CAT__ONION/).
 
@@ -16,6 +16,7 @@ I used this kind of hot reloading while developing my game [CAT & ONION](https:/
 
 > [!NOTE]
 > These instructions use some Windows terminology. If you are on mac / linux, then replace these words:
+>
 > - `bat` -> `sh`
 > - `exe` -> `bin`
 > - `dll` -> `dylib` (mac), `so` (linux)
@@ -40,7 +41,7 @@ Run `build_release.bat` to create a release build in `build/release`. That exe d
 
 ### Web build requirements
 
-- Emscripten. Download and install somewhere on your computer. Follow the instructions here: https://emscripten.org/docs/getting_started/downloads.html (follow the stuff under "Installation instructions using the emsdk (recommended)").
+- Emscripten. Download and install somewhere on your computer. Follow the instructions here: <https://emscripten.org/docs/getting_started/downloads.html> (follow the stuff under "Installation instructions using the emsdk (recommended)").
 - Recent Odin compiler: This uses Raylib binding changes that were done on January 1, 2025.
 
 ### Web build quick start
@@ -54,6 +55,7 @@ Run `build_release.bat` to create a release build in `build/release`. That exe d
 
 > [!WARNING]
 > You can't run `build/web/index.html` directly due to "CORS policy" javascript errors. You can work around that by running a small python web server:
+>
 > - Go to `build/web` in a console.
 > - Run `python -m http.server`
 > - Go to `localhost:8000` in your browser.
@@ -62,13 +64,14 @@ Run `build_release.bat` to create a release build in `build/release`. That exe d
 
 Build a desktop executable using `build_desktop.bat/sh`. It will end up in the `build/desktop` folder.
 
-There's a wrapper for `read_entire_file` and `write_entire_file` from `core:os` that can files from `assets` directory, even on web. See `source/utils.odin`
+There's a wrapper for `read_entire_file` and `write_entire_file` from `core:os` that can read files from `assets` directory, even on web. See `source/utils.odin`
 
 ### Web build troubleshooting
 
 See the README of the [Odin + Raylib on the web repository](https://github.com/karl-zylinski/odin-raylib-web?tab=readme-ov-file#troubleshooting) for troubleshooting steps.
 
 ## Assets
+
 You can put assets such as textures, sounds and music in the `assets` folder. That folder will be copied when a release build is created and also integrated into the web build.
 
 The hot reload build doesn't do any copying, because the hot reload executable lives in the root of the repository, alongside the `assets` folder.
@@ -78,12 +81,14 @@ The hot reload build doesn't do any copying, because the hot reload executable l
 For those who use Sublime Text there's a project file: `project.sublime-project`.
 
 How to use:
+
 - Open the project file in sublime
 - Choose the build system `Main Menu -> Tools -> Build System -> Odin + Raylib + Hot Reload template` (you can rename the build system by editing `project.sublime-project` manually)
 - Compile and run by pressing using F7 / Ctrl + B / Cmd + B
 - After you make code changes and want to hot reload, just hit F7 / Ctrl + B / Cmd + B again
 
 ## RAD Debugger
+
 You can hot reload while attached to [RAD Debugger](https://github.com/EpicGamesExt/raddebugger). Attach to your `game_hot_reload` executable, make code changes in your code editor and re-run the the `build_hot_reload` script to build and hot reload.
 
 ## VS Code
@@ -91,6 +96,7 @@ You can hot reload while attached to [RAD Debugger](https://github.com/EpicGames
 You can build, debug and hot reload from within VS Code. Open the template using `File -> Open Folder...`.
 
 Requirements for debugging to work:
+
 - Windows: [C++ build tools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools)
 - Linux / Mac: [CodeLLDB](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb)
 
@@ -99,16 +105,18 @@ Requirements for debugging to work:
 Launch with `Run Hot Reload` launch task, see image above. After you make code changes press `Ctrl + Shift + B` to rebuild and hot reload.
 
 ## Windows Debugging hacks
+
 On Windows the degugging while hot reloading works by outputting a new PDB each time the game DLL is built. It cleans up the PDBs when you do a fresh start. See `build_hot_reload.bat` for details.
 
 ## Demo streams
 
 Streams that start from this template:
-- 48 hour "Odin Holiday Gamejam": https://www.youtube.com/playlist?list=PLxE7SoPYTef2XC-ObA811vIefj02uSGnB Every minute of the development is documented. The resulting game of the gamejam is here: https://zylinski.itch.io/the-legend-of-tuna
-- CAR RACER prototype: https://www.youtube.com/watch?v=KVbHJ_CLdkA
-- "point & click" prototype: https://www.youtube.com/watch?v=iRvs1Xr1W6o
-- Metroidvania / platform prototype: https://www.youtube.com/watch?v=kIxEMchPc3Y
-- Top-down adventure prototype: https://www.youtube.com/watch?v=cl8EOjOaoXc
+
+- 48 hour "Odin Holiday Gamejam": <https://www.youtube.com/playlist?list=PLxE7SoPYTef2XC-ObA811vIefj02uSGnB> Every minute of the development is documented. The resulting game of the gamejam is here: <https://zylinski.itch.io/the-legend-of-tuna>
+- CAR RACER prototype: <https://www.youtube.com/watch?v=KVbHJ_CLdkA>
+- "point & click" prototype: <https://www.youtube.com/watch?v=iRvs1Xr1W6o>
+- Metroidvania / platform prototype: <https://www.youtube.com/watch?v=kIxEMchPc3Y>
+- Top-down adventure prototype: <https://www.youtube.com/watch?v=cl8EOjOaoXc>
 
 ## Atlas builder
 
@@ -116,8 +124,8 @@ The template works nicely together with my [atlas builder](https://github.com/ka
 
 ## Questions?
 
-Ask questions in my gamedev Discord: https://discord.gg/4FsHgtBmFK
+Ask questions in my gamedev Discord: <https://discord.gg/4FsHgtBmFK>
 
-I have a blog post about Hot Reloading here: http://zylinski.se/posts/hot-reload-gameplay-code/
+I have a blog post about Hot Reloading here: <http://zylinski.se/posts/hot-reload-gameplay-code/>
 
 ## Have a nice day! /Karl Zylinski

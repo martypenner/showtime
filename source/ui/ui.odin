@@ -1,9 +1,9 @@
 package ui
 
 import "../state"
+import "../utils"
 import "core:log"
-import vmem "core:mem/virtual"
-import "core:os"
+import "core:mem"
 import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
@@ -34,7 +34,7 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 				rl.GuiSetStyle(
 					rl.GuiControl.BUTTON,
 					i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
-					i32(rl.ColorToInt(rl.Color{255, 0, 0, 255})),
+					i32(rl.ColorToInt(rl.Color{150, 0, 0, 255})),
 				)
 			}
 			button := rl.GuiButton(ui_control.rect, ui_control.text)
@@ -45,7 +45,7 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 			)
 
 			if (button) {
-				log.debugf("clicked button %s", ui_control.text)
+				log.debugf("clicked button %s", ui_control.name)
 			}
 		case .CheckBox:
 			rl.GuiCheckBox(ui_control.rect, ui_control.text, &ui_control.state.(bool))
@@ -112,11 +112,11 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 }
 
 build_layout :: proc(gm: ^state.Game_Memory) {
-	vmem.arena_free_all(&gm.ui_arena)
-	alloc := vmem.arena_allocator(&gm.ui_arena)
+	mem.dynamic_arena_free_all(&gm.ui_arena)
+	alloc := mem.dynamic_arena_allocator(&gm.ui_arena)
 
-	bytes, err := os.read_entire_file("resources/layout.rgl", context.temp_allocator)
-	log.ensuref(err == nil, "Error reading layout file")
+	bytes, layout_ok := utils.read_entire_file("assets/layout.rgl", context.temp_allocator)
+	ensure(layout_ok, "Failed to read layout file")
 	lines := string(bytes)
 
 	anchors := make(map[int][2]f32)
