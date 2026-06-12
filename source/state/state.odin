@@ -1,9 +1,11 @@
 package state
 
+import vmem "core:mem/virtual"
 import rl "vendor:raylib"
 
 Game_Memory :: struct {
 	should_run:  bool,
+	ui_arena:    vmem.Arena,
 	ui_controls: [dynamic]Control,
 	playground:  struct {
 		toggle_state:           struct {

@@ -27,6 +27,7 @@ created.
 
 package game
 
+import vmem "core:mem/virtual"
 import "state"
 import "ui"
 // import "ui/playground"
@@ -75,10 +76,12 @@ game_init_window :: proc() {
 game_init :: proc() {
 	gm = new(state.Game_Memory)
 	gm^ = state.Game_Memory {
-		should_run  = true,
-		ui_controls = ui.build_layout(),
+		should_run = true,
 	}
+	ui.build_layout(gm)
 	copy(gm.playground.text_box_buffer[:], "starting text")
+	arena_err := vmem.arena_init_growing(&gm.ui_arena)
+	ensure(arena_err == nil)
 
 	game_hot_reloaded(gm)
 }
@@ -97,6 +100,7 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
+	vmem.arena_destroy(&gm.ui_arena)
 	free(gm)
 }
 

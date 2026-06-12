@@ -2,6 +2,7 @@ package ui
 
 import "../state"
 import "core:log"
+import vmem "core:mem/virtual"
 import "core:os"
 import "core:strconv"
 import "core:strings"
@@ -92,14 +93,17 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 	}
 }
 
-build_layout :: proc() -> [dynamic]state.Control {
+build_layout :: proc(gm: ^state.Game_Memory) {
+	vmem.arena_free_all(&gm.ui_arena)
+	alloc := vmem.arena_allocator(&gm.ui_arena)
+
 	bytes, err := os.read_entire_file("source/layout.rgl", context.temp_allocator)
 	log.ensuref(err == nil, "Error reading layout file")
 	lines := string(bytes)
 
 	anchors := make(map[int][2]f32)
 	defer delete(anchors)
-	ui_controls := [dynamic]state.Control{}
+	ui_controls := make([dynamic]state.Control, alloc)
 
 	for line in strings.split_lines_iterator(&lines) {
 		type := str_to_layout_item(line[0])
@@ -141,15 +145,14 @@ build_layout :: proc() -> [dynamic]state.Control {
 
 			control := state.Control {
 				control_type = control_type,
-				text         = strings.clone_to_cstring(text),
+				text         = strings.clone_to_cstring(text, alloc),
 				rect         = rect,
 				state        = state.default_control_state(control_type),
 			}
 			append(&ui_controls, control)
 		}
 	}
-
-	return ui_controls
+	gm.ui_controls = ui_controls
 }
 
 str_to_layout_item :: proc(s: u8) -> state.Layout_Item {
