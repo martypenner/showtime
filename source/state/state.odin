@@ -69,6 +69,7 @@ Control_Type :: enum u8 {
 
 Control :: struct {
 	control_type: Control_Type,
+	name:         string,
 	text:         cstring,
 	rect:         rl.Rectangle,
 	state:        Control_State,

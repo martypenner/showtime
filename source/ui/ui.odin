@@ -26,7 +26,25 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 				log.debugf("clicked label button %s", ui_control.text)
 			}
 		case .Button:
-			if (rl.GuiButton(ui_control.rect, ui_control.text)) {
+			prev := rl.GuiGetStyle(
+				rl.GuiControl.BUTTON,
+				i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+			)
+			if ui_control.name == "dropneedle" {
+				rl.GuiSetStyle(
+					rl.GuiControl.BUTTON,
+					i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+					i32(rl.ColorToInt(rl.Color{255, 0, 0, 255})),
+				)
+			}
+			button := rl.GuiButton(ui_control.rect, ui_control.text)
+			rl.GuiSetStyle(
+				rl.GuiControl.BUTTON,
+				i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+				prev,
+			)
+
+			if (button) {
 				log.debugf("clicked button %s", ui_control.text)
 			}
 		case .CheckBox:
@@ -109,18 +127,14 @@ build_layout :: proc(gm: ^state.Game_Memory) {
 		type := str_to_layout_item(line[0])
 		#partial switch type {
 		case state.Layout_Item.Anchor:
-			parts := strings.split(line, " ")
-			defer delete(parts)
-
+			parts := strings.split(line, " ", context.temp_allocator)
 			id_str, x, y := parts[1], atof32(parts[3]), atof32(parts[4])
 			id, ok := strconv.parse_int(id_str)
 			log.ensuref(ok, "Error parsing control type: %s", id_str)
 			anchors[id] = [2]f32{x, y}
 		case state.Layout_Item.Component:
-			parts := strings.split_n(line[2:], " ", 9)
-			defer delete(parts)
-
-			type_str := parts[1]
+			parts := strings.split_n(line[2:], " ", 9, context.temp_allocator)
+			type_str, name := parts[1], parts[2]
 			type, ok := strconv.parse_int(type_str)
 			log.ensuref(ok, "Error parsing control type: %s", type_str)
 			control_type := state.Control_Type(type)
@@ -136,8 +150,9 @@ build_layout :: proc(gm: ^state.Game_Memory) {
 				rect.y += anchor.y
 			}
 			log.debugf(
-				"control_type: %s, text: %s, anchor_id: %i, %v",
+				"control_type: %s, name: %s, text: %s, anchor_id: %i, %v",
 				control_type,
+				name,
 				text,
 				anchor_id,
 				rect,
@@ -145,6 +160,7 @@ build_layout :: proc(gm: ^state.Game_Memory) {
 
 			control := state.Control {
 				control_type = control_type,
+				name         = strings.clone(name, alloc),
 				text         = strings.clone_to_cstring(text, alloc),
 				rect         = rect,
 				state        = state.default_control_state(control_type),
