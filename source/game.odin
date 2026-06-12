@@ -1,3 +1,4 @@
+#+vet !unused-imports
 /*
 This file is the starting point of your game.
 
@@ -30,8 +31,10 @@ package game
 import vmem "core:mem/virtual"
 import "state"
 import "ui"
-// import "ui/playground"
+import "ui/playground"
 import rl "vendor:raylib"
+
+PLAYGROUND :: #config(PLAYGROUND, false)
 
 gm: ^state.Game_Memory
 
@@ -45,7 +48,9 @@ draw :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground({16, 16, 16, 255})
 
-	// playground.draw(gm)
+	when PLAYGROUND {
+		playground.draw(gm)
+	}
 	ui.draw(gm.ui_controls)
 
 	rl.EndDrawing()
