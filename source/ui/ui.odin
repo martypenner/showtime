@@ -30,7 +30,7 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 				rl.GuiControl.BUTTON,
 				i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
 			)
-			if ui_control.name == "dropneedle" {
+			if ui_control.ui_type == .Destructive {
 				rl.GuiSetStyle(
 					rl.GuiControl.BUTTON,
 					i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
@@ -160,6 +160,7 @@ build_layout :: proc(gm: ^state.Game_Memory) {
 
 			control := state.Control {
 				control_type = control_type,
+				ui_type      = name == "dropneedle" ? .Destructive : .Default,
 				name         = strings.clone(name, alloc),
 				text         = strings.clone_to_cstring(text, alloc),
 				rect         = rect,

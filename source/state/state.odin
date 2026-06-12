@@ -67,8 +67,14 @@ Control_Type :: enum u8 {
 	DummyRect,
 }
 
+UI_Type :: enum u8 {
+	Default,
+	Destructive,
+}
+
 Control :: struct {
 	control_type: Control_Type,
+	ui_type:      UI_Type,
 	name:         string,
 	text:         cstring,
 	rect:         rl.Rectangle,
