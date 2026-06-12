@@ -70,11 +70,15 @@ game_init_window :: proc() {
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
 	rl.InitWindow(1280, 720, "Showtime")
 	rl.SetWindowPosition(200, 200)
-	// this is an app, not a game. need constant updates especially since some
-	// latency will occur between networked devices.
+	// This is an app, not a game. Needs constant updates since some latency will
+	// occur between networked devices.
 	rl.SetTargetFPS(500)
 	rl.SetExitKey(nil)
 	rl.GuiLoadStyle("resources/cyber.rgs")
+	font := rl.LoadFontEx("resources/quantico-regular.ttf", 18, nil, 0)
+	rl.SetTextureFilter(font.texture, .BILINEAR)
+	rl.GuiSetStyle(.DEFAULT, i32(rl.GuiDefaultProperty.TEXT_SIZE), 18)
+	rl.GuiSetFont(font)
 }
 
 @(export)
