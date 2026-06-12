@@ -89,7 +89,9 @@ game_init :: proc() {
 	}
 	mem.dynamic_arena_init(&gm.ui_arena)
 	ui.build_layout(gm)
-	copy(gm.playground.text_box_buffer[:], "starting text")
+	when PLAYGROUND {
+		copy(gm.playground.text_box_buffer[:], "starting text")
+	}
 
 	game_hot_reloaded(gm)
 }
