@@ -11,8 +11,8 @@ import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:os"
-import "core:path/filepath"
 import "core:time"
+import rl "vendor:raylib"
 
 when ODIN_OS == .Windows {
 	DLL_EXT :: ".dll"
@@ -100,10 +100,9 @@ unload_game_api :: proc(api: ^Game_API) {
 }
 
 main :: proc() {
-	// Set working dir to dir of executable.
-	exe_path := os.args[0]
-	exe_dir := filepath.dir(string(exe_path))
-	os.set_working_directory(exe_dir)
+	// Set working dir to dir of executable so relative asset paths resolve
+	// regardless of where the app is launched from.
+	rl.ChangeDirectory(rl.GetApplicationDirectory())
 
 	context.logger = log.create_console_logger()
 

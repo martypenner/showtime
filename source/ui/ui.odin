@@ -2,7 +2,6 @@ package ui
 
 import "../sound"
 import "../state"
-import "../utils"
 import "core:log"
 import "core:mem"
 import "core:strconv"
@@ -48,7 +47,7 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 			if button {
 				log.debugf("clicked button %s", ui_control.name)
 				if ui_control.name == "dropneedle" {
-					sound.play_sound("resources/sounds/fx/cat-meow.mp3")
+					sound.play_sound("assets/sounds/fx/cat-meow.mp3")
 				}
 			}
 		case .CheckBox:
@@ -119,8 +118,7 @@ build_layout :: proc(gm: ^state.Game_Memory) {
 	mem.dynamic_arena_free_all(&gm.ui_arena)
 	alloc := mem.dynamic_arena_allocator(&gm.ui_arena)
 
-	bytes, layout_ok := utils.read_entire_file("assets/layout.rgl", context.temp_allocator)
-	ensure(layout_ok, "Failed to read layout file")
+	bytes := #load("../../resources/layout.rgl")
 	lines := string(bytes)
 
 	anchors := make(map[int][2]f32)

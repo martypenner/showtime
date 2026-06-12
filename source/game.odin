@@ -74,8 +74,14 @@ game_init_window :: proc() {
 	// occur between networked devices.
 	rl.SetTargetFPS(500)
 	rl.SetExitKey(nil)
-	rl.GuiLoadStyle("assets/cyber.rgs")
-	font := rl.LoadFont("assets/quantico-regular.ttf")
+
+	style_raw := #load("../resources/cyber.rgs")
+	rl.SaveFileData("cyber.rgs", raw_data(style_raw), i32(len(style_raw)))
+	rl.GuiLoadStyle("cyber.rgs")
+
+	font_raw := #load("../resources/quantico-regular.ttf")
+	rl.SaveFileData("quantico-regular.ttf", raw_data(font_raw), i32(len(font_raw)))
+	font := rl.LoadFontEx("quantico-regular.ttf", 18, nil, 0)
 	rl.SetTextureFilter(font.texture, .BILINEAR)
 	rl.GuiSetStyle(.DEFAULT, i32(rl.GuiDefaultProperty.TEXT_SIZE), 18)
 	rl.GuiSetFont(font)

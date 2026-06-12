@@ -4,7 +4,7 @@ PIDFILE=build/hot_reload/game.pid
 
 all: build
 
-build:
+build: clean
 	./scripts/build_release.sh
 
 build-web:
@@ -21,3 +21,6 @@ run:
 	done; \
 	echo "Game window closed, stopping watch."; \
 	rm -f $(PIDFILE)
+
+clean:
+	@rm -rf build

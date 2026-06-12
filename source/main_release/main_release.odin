@@ -8,17 +8,16 @@ import game ".."
 import "core:log"
 import "core:mem"
 import "core:os"
-import "core:path/filepath"
+import rl "vendor:raylib"
 
 _ :: mem
 
 USE_TRACKING_ALLOCATOR :: #config(USE_TRACKING_ALLOCATOR, false)
 
 main :: proc() {
-	// Set working dir to dir of executable.
-	exe_path := os.args[0]
-	exe_dir := filepath.dir(string(exe_path))
-	os.set_working_directory(exe_dir)
+	// Set working dir to dir of executable so relative asset paths resolve
+	// regardless of where the app is launched from.
+	rl.ChangeDirectory(rl.GetApplicationDirectory())
 
 	mode := os.Permissions{.Read_User, .Write_User, .Read_Group, .Read_Other}
 	logh, logh_err := os.open("log.txt", {.Create, .Trunc, .Read, .Write}, mode)
