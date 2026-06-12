@@ -74,7 +74,7 @@ game_init_window :: proc() {
 	// latency will occur between networked devices.
 	rl.SetTargetFPS(500)
 	rl.SetExitKey(nil)
-	rl.GuiLoadStyle("./source/cyber.rgs")
+	rl.GuiLoadStyle("resources/cyber.rgs")
 }
 
 @(export)

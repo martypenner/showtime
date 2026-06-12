@@ -97,7 +97,7 @@ build_layout :: proc(gm: ^state.Game_Memory) {
 	vmem.arena_free_all(&gm.ui_arena)
 	alloc := vmem.arena_allocator(&gm.ui_arena)
 
-	bytes, err := os.read_entire_file("source/layout.rgl", context.temp_allocator)
+	bytes, err := os.read_entire_file("resources/layout.rgl", context.temp_allocator)
 	log.ensuref(err == nil, "Error reading layout file")
 	lines := string(bytes)
 
