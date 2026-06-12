@@ -87,6 +87,9 @@ game_init :: proc() {
 	gm^ = state.Game_Memory {
 		should_run = true,
 	}
+
+	rl.InitAudioDevice()
+
 	mem.dynamic_arena_init(&gm.ui_arena)
 	ui.build_layout(gm)
 	when PLAYGROUND {
@@ -112,6 +115,7 @@ game_should_run :: proc() -> bool {
 game_shutdown :: proc() {
 	mem.dynamic_arena_destroy(&gm.ui_arena)
 	free(gm)
+	rl.CloseAudioDevice()
 }
 
 @(export)

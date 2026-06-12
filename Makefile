@@ -2,7 +2,7 @@
 
 PIDFILE=build/hot_reload/game.pid
 
-all: build build-web
+all: build
 
 build:
 	./scripts/build_release.sh

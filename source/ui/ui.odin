@@ -1,5 +1,6 @@
 package ui
 
+import "../sound"
 import "../state"
 import "../utils"
 import "core:log"
@@ -44,8 +45,11 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 				prev,
 			)
 
-			if (button) {
+			if button {
 				log.debugf("clicked button %s", ui_control.name)
+				if ui_control.name == "dropneedle" {
+					sound.play_sound("resources/sounds/fx/cat-meow.mp3")
+				}
 			}
 		case .CheckBox:
 			rl.GuiCheckBox(ui_control.rect, ui_control.text, &ui_control.state.(bool))
