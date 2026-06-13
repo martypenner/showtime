@@ -12,7 +12,6 @@ import "core:log"
 import "core:mem"
 import "core:os"
 import "core:time"
-import rl "vendor:raylib"
 
 when ODIN_OS == .Windows {
 	DLL_EXT :: ".dll"
@@ -100,9 +99,12 @@ unload_game_api :: proc(api: ^Game_API) {
 }
 
 main :: proc() {
-	// Set working dir to dir of executable so relative asset paths resolve
-	// regardless of where the app is launched from.
-	rl.ChangeDirectory(rl.GetApplicationDirectory())
+	// Note: unlike the release build, we do NOT chdir to the exe's directory.
+	// The hot reload exe lives in build/ but loads the game DLL from
+	// build/hot_reload/ and assets from assets/, both of which are relative to
+	// the project root. It is always launched from the project root (via the
+	// build scripts / `make run`), so leaving the working directory alone is
+	// what makes those relative paths resolve.
 
 	context.logger = log.create_console_logger()
 

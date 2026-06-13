@@ -2,12 +2,15 @@
 
 set GAME_RUNNING=false
 
-:: OUT_DIR is for everything except the exe. The exe needs to stay in root
-:: folder so it sees the assets folder, without having to copy it.
+:: OUT_DIR is for the game DLL and friends. The exe goes in build\ too, but must
+:: be run from the project root so it finds the assets\ and build\hot_reload\
+:: folders, which it locates via paths relative to the current directory.
 set OUT_DIR=build\hot_reload
 set GAME_PDBS_DIR=%OUT_DIR%\game_pdbs
 
+:: EXE is the bare image name (used by tasklist); EXE_PATH is where it's built.
 set EXE=game_hot_reload.exe
+set EXE_PATH=build\game_hot_reload.exe
 
 :: Check if game is running
 FOR /F %%x IN ('tasklist /NH /FI "IMAGENAME eq %EXE%"') DO IF %%x == %EXE% set GAME_RUNNING=true
@@ -57,25 +60,27 @@ if %GAME_RUNNING% == true (
 
 :: Build game.exe, which starts the program and loads game.dll och does the logic for hot reloading.
 echo Building %EXE%
-odin build source\main_hot_reload -strict-style -vet -debug -out:%EXE% -pdb-name:%OUT_DIR%\main_hot_reload.pdb
+odin build source\main_hot_reload -strict-style -vet -debug -out:%EXE_PATH% -pdb-name:%OUT_DIR%\main_hot_reload.pdb
 IF %ERRORLEVEL% NEQ 0 exit /b 1
 
 set ODIN_PATH=
 for /f "delims=" %%i in ('odin root') do set "ODIN_PATH=%%i"
 
-if not exist "raylib.dll" (
+:: raylib.dll must sit next to the exe (in build\) because Windows searches the
+:: executable's own directory when game.dll loads its raylib dependency.
+if not exist "build\raylib.dll" (
 	if exist "%ODIN_PATH%\vendor\raylib\windows\raylib.dll" (
-		echo raylib.dll not found in current directory. Copying from %ODIN_PATH%\vendor\raylib\windows\raylib.dll
-		copy "%ODIN_PATH%\vendor\raylib\windows\raylib.dll" .
+		echo raylib.dll not found in build\. Copying from %ODIN_PATH%\vendor\raylib\windows\raylib.dll
+		copy "%ODIN_PATH%\vendor\raylib\windows\raylib.dll" build\
 		IF %ERRORLEVEL% NEQ 0 exit /b 1
 	) else (
-		echo "Please copy raylib.dll from <your_odin_compiler>/vendor/raylib/windows/raylib.dll to the same directory as game.exe"
+		echo "Please copy raylib.dll from <your_odin_compiler>/vendor/raylib/windows/raylib.dll into the build\ directory"
 		exit /b 1
 	)
 )
 
 if "%~1"=="run" (
 	echo Running %EXE%...
-	start %EXE%
+	start %EXE_PATH%
 )
 

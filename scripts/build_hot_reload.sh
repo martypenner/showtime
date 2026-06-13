@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -eu
 
-# OUT_DIR is for everything except the exe. The exe needs to stay in root
-# folder so it sees the assets folder, without having to copy it.
+# OUT_DIR is for the game DLL and friends. The exe goes in build/ too, but must
+# be run from the project root so it finds the assets/ and build/hot_reload/
+# folders, which it locates via paths relative to the current directory.
 OUT_DIR=build/hot_reload
-EXE=game_hot_reload.bin
+EXE=build/game_hot_reload.bin
 
 mkdir -p $OUT_DIR
 
@@ -31,8 +32,8 @@ case $(uname) in
 	;;
 esac
 
-# Build the game. Note that the game goes into $OUT_DIR while the exe stays in
-# the root folder.
+# Build the game. Note that the game goes into $OUT_DIR while the exe goes into
+# build/.
 echo "Building game$DLL_EXT"
 odin build source -extra-linker-flags:"$EXTRA_LINKER_FLAGS" -define:RAYLIB_SHARED=true -build-mode:dll -out:$OUT_DIR/game_tmp$DLL_EXT -strict-style -vet -debug
 

@@ -75,13 +75,16 @@ game_init_window :: proc() {
 	rl.SetTargetFPS(500)
 	rl.SetExitKey(nil)
 
+	// GuiLoadStyle only accepts a file path, so write the embedded style next to
+	// the running executable (resolves regardless of the working directory).
 	style_raw := #load("../resources/cyber.rgs")
-	rl.SaveFileData("cyber.rgs", raw_data(style_raw), i32(len(style_raw)))
-	rl.GuiLoadStyle("cyber.rgs")
+	style_path := rl.TextFormat("%scyber.rgs", rl.GetApplicationDirectory())
+	rl.SaveFileData(style_path, raw_data(style_raw), i32(len(style_raw)))
+	rl.GuiLoadStyle(style_path)
 
+	// The font can be loaded straight from the embedded bytes, no temp file.
 	font_raw := #load("../resources/quantico-regular.ttf")
-	rl.SaveFileData("quantico-regular.ttf", raw_data(font_raw), i32(len(font_raw)))
-	font := rl.LoadFontEx("quantico-regular.ttf", 18, nil, 0)
+	font := rl.LoadFontFromMemory(".ttf", raw_data(font_raw), i32(len(font_raw)), 18, nil, 0)
 	rl.SetTextureFilter(font.texture, .BILINEAR)
 	rl.GuiSetStyle(.DEFAULT, i32(rl.GuiDefaultProperty.TEXT_SIZE), 18)
 	rl.GuiSetFont(font)
