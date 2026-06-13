@@ -4,7 +4,7 @@ import "../../state"
 import "core:fmt"
 import rl "vendor:raylib"
 
-draw :: proc(gm: ^state.Game_Memory) {
+draw :: proc(gm: ^state.GameMemory) {
 	if (rl.GuiButton(
 			   {25, 255, 125, 30},
 			   rl.GuiIconText(rl.GuiIconName.ICON_FILE_SAVE, "Save File"),

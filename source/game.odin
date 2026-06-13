@@ -29,6 +29,7 @@ created.
 package game
 
 import "core:mem"
+import "sound"
 import "state"
 import "ui"
 import "ui/playground"
@@ -36,12 +37,14 @@ import rl "vendor:raylib"
 
 PLAYGROUND :: #config(PLAYGROUND, false)
 
-gm: ^state.Game_Memory
+gm: ^state.GameMemory
 
 update :: proc() {
 	if rl.IsKeyPressed(.ESCAPE) {
 		gm.should_run = false
 	}
+
+	sound.update(gm)
 }
 
 draw :: proc() {
@@ -51,7 +54,7 @@ draw :: proc() {
 	when PLAYGROUND {
 		playground.draw(gm)
 	}
-	ui.draw(gm.ui_controls)
+	ui.draw(gm)
 
 	rl.EndDrawing()
 }
@@ -92,14 +95,15 @@ game_init_window :: proc() {
 
 @(export)
 game_init :: proc() {
-	gm = new(state.Game_Memory)
-	gm^ = state.Game_Memory {
+	gm = new(state.GameMemory)
+	gm^ = state.GameMemory {
 		should_run = true,
 	}
+	mem.dynamic_arena_init(&gm.arena)
 
 	rl.InitAudioDevice()
+	sound.init_settings(gm)
 
-	mem.dynamic_arena_init(&gm.ui_arena)
 	ui.build_layout(gm)
 	when PLAYGROUND {
 		copy(gm.playground.text_box_buffer[:], "starting text")
@@ -122,7 +126,8 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
-	mem.dynamic_arena_destroy(&gm.ui_arena)
+	sound.shutdown(gm)
+	mem.dynamic_arena_destroy(&gm.arena)
 	free(gm)
 	rl.CloseAudioDevice()
 }
@@ -139,12 +144,12 @@ game_memory :: proc() -> rawptr {
 
 @(export)
 game_memory_size :: proc() -> int {
-	return size_of(state.Game_Memory)
+	return size_of(state.GameMemory)
 }
 
 @(export)
 game_hot_reloaded :: proc(mem: rawptr) {
-	gm = (^state.Game_Memory)(mem)
+	gm = (^state.GameMemory)(mem)
 
 	// Here you can also set your own global variables. A good idea is to make
 	// your global variables into pointers that point to something inside `gm`.

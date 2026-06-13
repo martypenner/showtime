@@ -3,11 +3,12 @@ package state
 import "core:mem"
 import rl "vendor:raylib"
 
-Game_Memory :: struct {
-	should_run:  bool,
-	ui_arena:    mem.Dynamic_Arena,
-	ui_controls: [dynamic]Control,
-	playground:  struct {
+GameMemory :: struct {
+	should_run:     bool,
+	arena:          mem.Dynamic_Arena,
+	ui_controls:    [dynamic]Control,
+	sound_settings: SoundSettings,
+	playground:     struct {
 		toggle_state:           struct {
 			current: bool,
 			prev:    bool,
@@ -151,4 +152,55 @@ default_control_state :: proc(type: Control_Type) -> Control_State {
 		return nil
 	}
 	return nil
+}
+
+DefaultSoundSettings := SoundSettings {
+	volume           = 0.1,
+	fade_in_time     = 2.0,
+	fade_out_time    = 2.0,
+	stop_fade_time   = 2.0,
+	start_next_time  = 4.0,
+	shuffle          = true,
+	loop             = true,
+	normalize_volume = true,
+	target_loudness  = -12,
+}
+
+SoundSettings :: struct {
+	volume:                   f16,
+	fade_in_time:             f16,
+	fade_out_time:            f16,
+	stop_fade_time:           f16,
+	start_next_time:          f16,
+	shuffle:                  bool,
+	loop:                     bool,
+	normalize_volume:         bool,
+	target_loudness:          f16,
+	playlists:                [dynamic]Playlist,
+	current_playing_playlist: ^Playlist,
+	current_music:            rl.Music,
+	is_music_playing:         bool,
+}
+
+Playlist :: struct {
+	name:                  string,
+	// this should probably be hm.Dynamic_Handle_Map(Track, TrackHandle), but
+	// then we have to store the handles and pass them around.
+	tracks:                [dynamic]Track,
+	// indices into tracks. Handle maps are more stable, but I don't want to pass
+	// around handles everywhere.
+	played_tracks:         [dynamic]int,
+	current_playing_track: ^Track,
+}
+
+Track :: struct {
+	title:         string,
+	path:          string,
+
+	// The actual portion of the track to play. If it's been edited, this will be
+	// the "slice" to play. If not, this is the full track length.
+	slice_to_play: struct {
+		start_time: f16,
+		end_time:   f16,
+	},
 }

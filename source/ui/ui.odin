@@ -8,8 +8,8 @@ import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
 
-draw :: proc(ui_controls: [dynamic]state.Control) {
-	for &ui_control in ui_controls {
+draw :: proc(gm: ^state.GameMemory) {
+	for &ui_control in gm.ui_controls {
 		switch ui_control.control_type {
 		case .WindowBox:
 			rl.GuiWindowBox(ui_control.rect, ui_control.text)
@@ -34,7 +34,7 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 				rl.GuiSetStyle(
 					rl.GuiControl.BUTTON,
 					i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
-					i32(rl.ColorToInt(rl.Color{150, 0, 0, 255})),
+					i32(rl.ColorToInt(rl.Color{100, 0, 0, 255})),
 				)
 			}
 			button := rl.GuiButton(ui_control.rect, ui_control.text)
@@ -48,6 +48,9 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 				log.debugf("clicked button %s", ui_control.name)
 				if ui_control.name == "catmeow" {
 					sound.play_sound("assets/sounds/fx/cat-meow.mp3")
+				}
+				if ui_control.name == "dropneedle" {
+					sound.play_playlist("Needle Droppers", &gm.sound_settings)
 				}
 			}
 		case .CheckBox:
@@ -114,9 +117,8 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 	}
 }
 
-build_layout :: proc(gm: ^state.Game_Memory) {
-	mem.dynamic_arena_free_all(&gm.ui_arena)
-	alloc := mem.dynamic_arena_allocator(&gm.ui_arena)
+build_layout :: proc(gm: ^state.GameMemory) {
+	alloc := mem.dynamic_arena_allocator(&gm.arena)
 
 	bytes := #load("../../resources/layout.rgl")
 	lines := string(bytes)
