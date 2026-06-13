@@ -46,7 +46,7 @@ draw :: proc(ui_controls: [dynamic]state.Control) {
 
 			if button {
 				log.debugf("clicked button %s", ui_control.name)
-				if ui_control.name == "dropneedle" {
+				if ui_control.name == "catmeow" {
 					sound.play_sound("assets/sounds/fx/cat-meow.mp3")
 				}
 			}
