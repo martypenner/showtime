@@ -2,6 +2,7 @@ package sound
 
 import "../state"
 import "core:log"
+import "core:math/rand"
 import "core:mem"
 import "core:os"
 import "core:strings"
@@ -97,10 +98,13 @@ play_playlist :: proc(playlist_name: string, sound_settings: ^state.SoundSetting
 
 	log.debugf("Playing playlist %s", playlist_name)
 	sound_settings.current_playing_playlist = found_playlist
+	chosen_track := rand.choice(found_playlist.tracks[:])
+	log.debugf("Chosen random track: %v", chosen_track)
 	music := rl.LoadMusicStream(
-		strings.clone_to_cstring(found_playlist.tracks[0].path, context.temp_allocator),
+		strings.clone_to_cstring(chosen_track.path, context.temp_allocator),
 	)
 	volume := normalize_volume(music)
+	log.debugf("Normalizing volume to: %2.2f", volume)
 	rl.SetMusicVolume(music, volume)
 	rl.PlayMusicStream(music)
 	sound_settings.current_music = music
