@@ -14,20 +14,34 @@ MAX_START_NEXT_TIME :: 10
 MIN_TARGET_LOUDNESS :: -24
 MAX_TARGET_LOUDNESS :: -6
 
-init_settings :: proc(gm: ^state.GameMemory) {
-	gm.sound_settings = state.DefaultSoundSettings
-	load_playlists(gm)
+
+DefaultSoundSettings := state.SoundSettings {
+	volume           = 0.1,
+	fade_in_time     = 2.0,
+	fade_out_time    = 2.0,
+	stop_fade_time   = 2.0,
+	start_next_time  = 4.0,
+	shuffle          = true,
+	loop             = true,
+	normalize_volume = true,
+	target_loudness  = -12,
 }
 
-load_playlists :: proc(gm: ^state.GameMemory) {
+init_settings :: proc(sound_settings: ^state.SoundSettings, arena: ^mem.Dynamic_Arena) {
+	rl.InitAudioDevice()
+	sound_settings^ = DefaultSoundSettings
+	sound_settings.playlists = load_playlists(arena)
+}
+
+load_playlists :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Playlist {
 	potential_playlists, err := os.read_all_directory_by_path(
 		"assets/sounds/music",
 		context.temp_allocator,
 	)
 	log.ensuref(err == nil, "Error reading music dir: %s", err)
 
-	alloc := mem.dynamic_arena_allocator(&gm.arena)
-	gm.sound_settings.playlists = make([dynamic]state.Playlist, alloc)
+	alloc := mem.dynamic_arena_allocator(arena)
+	playlists := make([dynamic]state.Playlist, alloc)
 
 	for playlist_dir in potential_playlists {
 		if playlist_dir.type != .Directory && playlist_dir.type != .Symlink do continue
@@ -53,8 +67,10 @@ load_playlists :: proc(gm: ^state.GameMemory) {
 			}
 		}
 
-		append(&gm.sound_settings.playlists, playlist)
+		append(&playlists, playlist)
 	}
+
+	return playlists
 }
 
 play_sound :: proc(filepath: string) -> rl.Sound {
@@ -111,7 +127,8 @@ update :: proc(gm: ^state.GameMemory) {
 	rl.UpdateMusicStream(gm.sound_settings.current_music)
 }
 
-shutdown :: proc(gm: ^state.GameMemory) {
-	rl.StopMusicStream(gm.sound_settings.current_music)
-	rl.UnloadMusicStream(gm.sound_settings.current_music)
+shutdown :: proc(sound_settings: ^state.SoundSettings) {
+	rl.StopMusicStream(sound_settings.current_music)
+	rl.UnloadMusicStream(sound_settings.current_music)
+	rl.CloseAudioDevice()
 }

@@ -154,18 +154,6 @@ default_control_state :: proc(type: Control_Type) -> Control_State {
 	return nil
 }
 
-DefaultSoundSettings := SoundSettings {
-	volume           = 0.1,
-	fade_in_time     = 2.0,
-	fade_out_time    = 2.0,
-	stop_fade_time   = 2.0,
-	start_next_time  = 4.0,
-	shuffle          = true,
-	loop             = true,
-	normalize_volume = true,
-	target_loudness  = -12,
-}
-
 SoundSettings :: struct {
 	volume:                   f16,
 	fade_in_time:             f16,

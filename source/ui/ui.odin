@@ -117,8 +117,8 @@ draw :: proc(gm: ^state.GameMemory) {
 	}
 }
 
-build_layout :: proc(gm: ^state.GameMemory) {
-	alloc := mem.dynamic_arena_allocator(&gm.arena)
+build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Control {
+	alloc := mem.dynamic_arena_allocator(arena)
 
 	bytes := #load("../../resources/layout.rgl")
 	lines := string(bytes)
@@ -173,7 +173,8 @@ build_layout :: proc(gm: ^state.GameMemory) {
 			append(&ui_controls, control)
 		}
 	}
-	gm.ui_controls = ui_controls
+
+	return ui_controls
 }
 
 str_to_layout_item :: proc(s: u8) -> state.Layout_Item {
