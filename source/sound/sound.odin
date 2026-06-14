@@ -8,6 +8,8 @@ import "core:os"
 import "core:strings"
 import rl "vendor:raylib"
 
+sound_settings: ^state.SoundSettings
+
 MAX_FADE_IN_TIME :: 10
 MAX_FADE_OUT_TIME :: 10
 MAX_STOP_FADE_TIME :: 10
@@ -15,9 +17,8 @@ MAX_START_NEXT_TIME :: 10
 MIN_TARGET_LOUDNESS :: -24
 MAX_TARGET_LOUDNESS :: -6
 
-
 DefaultSoundSettings := state.SoundSettings {
-	volume           = 0.1,
+	volume           = 1.0,
 	fade_in_time     = 2.0,
 	fade_out_time    = 2.0,
 	stop_fade_time   = 2.0,
@@ -28,10 +29,22 @@ DefaultSoundSettings := state.SoundSettings {
 	target_loudness  = -12,
 }
 
-init_settings :: proc(sound_settings: ^state.SoundSettings, arena: ^mem.Dynamic_Arena) {
+init_settings :: proc(arena: ^mem.Dynamic_Arena) -> ^state.SoundSettings {
 	rl.InitAudioDevice()
+
+	alloc := mem.dynamic_arena_allocator(arena)
+	sound_settings = new(state.SoundSettings, alloc)
+
 	sound_settings^ = DefaultSoundSettings
 	sound_settings.playlists = load_playlists(arena)
+	rl.SetMasterVolume(f32(sound_settings.volume))
+
+	return sound_settings
+}
+
+set_volume :: proc(volume: f32) {
+	sound_settings.volume = volume
+	rl.SetMasterVolume(volume)
 }
 
 load_playlists :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Playlist {
@@ -83,7 +96,7 @@ stop_sound :: proc(sound: rl.Sound) {
 	rl.StopSound(sound)
 }
 
-play_playlist :: proc(playlist_name: string, sound_settings: ^state.SoundSettings) {
+play_playlist :: proc(playlist_name: string) {
 	found_playlist: ^state.Playlist
 	for &playlist in sound_settings.playlists {
 		if playlist.name == playlist_name {
@@ -126,18 +139,18 @@ clamp_track_end_time :: proc() {}
 
 // TODO: implement
 normalize_volume :: proc(music: rl.Music) -> f32 {
-	return 1.0
+	return min(sound_settings.volume, 1)
 }
 
 // Must be called every frame. It keeps raylib's music stream buffers filled,
 // but only actually refills at most every MUSIC_UPDATE_INTERVAL seconds. Without
 // this, a Music stream produces no sound.
-update :: proc(gm: ^state.GameMemory) {
-	if !gm.sound_settings.is_music_playing do return
-	rl.UpdateMusicStream(gm.sound_settings.current_music)
+update :: proc() {
+	if !sound_settings.is_music_playing do return
+	rl.UpdateMusicStream(sound_settings.current_music)
 }
 
-shutdown :: proc(sound_settings: ^state.SoundSettings) {
+shutdown :: proc() {
 	rl.StopMusicStream(sound_settings.current_music)
 	rl.UnloadMusicStream(sound_settings.current_music)
 	rl.CloseAudioDevice()

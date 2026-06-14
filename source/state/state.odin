@@ -7,7 +7,7 @@ GameMemory :: struct {
 	should_run:     bool,
 	arena:          mem.Dynamic_Arena,
 	ui_controls:    [dynamic]Control,
-	sound_settings: SoundSettings,
+	sound_settings: ^SoundSettings,
 	playground:     struct {
 		toggle_state:           struct {
 			current: bool,
@@ -126,7 +126,7 @@ default_control_state :: proc(type: Control_Type) -> Control_State {
 	case .ToggleGroup, .ComboBox:
 		return 0
 	case .Slider, .SliderBar, .ProgressBar:
-		return 0
+		return 1.0
 	case .ColorPicker:
 		return rl.Color{}
 	case .DropdownBox:
@@ -155,7 +155,7 @@ default_control_state :: proc(type: Control_Type) -> Control_State {
 }
 
 SoundSettings :: struct {
-	volume:                   f16,
+	volume:                   f32,
 	fade_in_time:             f16,
 	fade_out_time:            f16,
 	stop_fade_time:           f16,

@@ -44,7 +44,7 @@ update :: proc() {
 		gm.should_run = false
 	}
 
-	sound.update(gm)
+	sound.update()
 }
 
 draw :: proc() {
@@ -100,7 +100,7 @@ game_init :: proc() {
 		should_run = true,
 	}
 	mem.dynamic_arena_init(&gm.arena)
-	sound.init_settings(&gm.sound_settings, &gm.arena)
+	gm.sound_settings = sound.init_settings(&gm.arena)
 	gm.ui_controls = ui.build_layout(&gm.arena)
 	when PLAYGROUND {
 		copy(gm.playground.text_box_buffer[:], "starting text")
@@ -123,7 +123,7 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
-	sound.shutdown(&gm.sound_settings)
+	sound.shutdown()
 	mem.dynamic_arena_destroy(&gm.arena)
 	free(gm)
 }

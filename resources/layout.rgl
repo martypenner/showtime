@@ -1,7 +1,7 @@
 #
 # rgl layout text file (v4.0) - raygui layout file generated using rGuiLayout
 #
-# Number of controls:     8
+# Number of controls:     12
 #
 # Ref. window:    r <x> <y> <width> <height>
 # Anchor info:    a <id> <name> <posx> <posy> <enabled>
@@ -17,3 +17,7 @@ c 004 5 scenefade 240 96 96 48 1 Scene - fade
 c 005 5 dropneedle 360 96 96 48 1 Drop needle
 c 006 1 scenes 0 8 456 136 1 Scenes
 c 007 5 catmeow 0 600 96 48 1 Cat meow
+c 008 4 volumelabel 480 0 120 24 1 Volume
+c 009 19 statusbar -24 720 1104 24 1 Status
+c 010 7 usehousemusic 264 24 24 24 0 Use house music
+c 011 17 mastervolume 504 24 144 24 0 

@@ -50,7 +50,7 @@ draw :: proc(gm: ^state.GameMemory) {
 					sound.play_sound("assets/sounds/fx/cat-meow.mp3")
 				}
 				if ui_control.name == "dropneedle" {
-					sound.play_playlist("Needle Droppers", &gm.sound_settings)
+					sound.play_playlist("Needle Droppers")
 				}
 			}
 		case .CheckBox:
@@ -90,11 +90,14 @@ draw :: proc(gm: ^state.GameMemory) {
 				s.edit_mode = !s.edit_mode
 			}
 		case .Slider:
-			rl.GuiSlider(ui_control.rect, ui_control.text, nil, &ui_control.state.(f32), 0, 100)
+			rl.GuiSlider(ui_control.rect, nil, nil, &ui_control.state.(f32), 0, 1)
 		case .SliderBar:
-			rl.GuiSliderBar(ui_control.rect, ui_control.text, nil, &ui_control.state.(f32), 0, 100)
+			rl.GuiSliderBar(ui_control.rect, nil, nil, &ui_control.state.(f32), 0, 1)
+			if ui_control.name == "mastervolume" {
+				sound.set_volume(ui_control.state.(f32))
+			}
 		case .ProgressBar:
-			rl.GuiProgressBar(ui_control.rect, ui_control.text, nil, &ui_control.state.(f32), 0, 1)
+			rl.GuiProgressBar(ui_control.rect, nil, nil, &ui_control.state.(f32), 0, 1)
 		case .StatusBar:
 			rl.GuiStatusBar(ui_control.rect, ui_control.text)
 		case .ScrollPanel:
