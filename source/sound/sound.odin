@@ -100,7 +100,8 @@ play_playlist :: proc(playlist_name: string, sound_settings: ^state.SoundSetting
 	music := rl.LoadMusicStream(
 		strings.clone_to_cstring(found_playlist.tracks[0].path, context.temp_allocator),
 	)
-	rl.SetMusicVolume(music, 1.0)
+	volume := normalize_volume(music)
+	rl.SetMusicVolume(music, volume)
 	rl.PlayMusicStream(music)
 	sound_settings.current_music = music
 	sound_settings.is_music_playing = true
@@ -118,6 +119,11 @@ clamp_min_target_loudness :: proc() {}
 clamp_max_target_loudness :: proc() {}
 clamp_track_start_time :: proc() {}
 clamp_track_end_time :: proc() {}
+
+// TODO: implement
+normalize_volume :: proc(music: rl.Music) -> f32 {
+	return 1.0
+}
 
 // Must be called every frame. It keeps raylib's music stream buffers filled,
 // but only actually refills at most every MUSIC_UPDATE_INTERVAL seconds. Without
