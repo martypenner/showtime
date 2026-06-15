@@ -24,7 +24,8 @@ SoundSettings :: struct {
 	playlists:                [dynamic]Playlist,
 	current_playing_playlist: ^Playlist,
 	current_music:            rl.Music,
-	is_music_playing:         bool,
+	current_sounds:           [dynamic]rl.Sound,
+	is_sound_playing:         bool,
 }
 
 Playlist :: struct {
@@ -78,7 +79,8 @@ init_settings :: proc(arena: ^mem.Dynamic_Arena) -> ^SoundSettings {
 	sound_settings = new(SoundSettings, alloc)
 
 	sound_settings^ = DefaultSoundSettings
-	sound_settings.playlists = load_playlists(arena)
+	sound_settings.playlists = load_playlists(alloc)
+	sound_settings.current_sounds = make([dynamic]rl.Sound, alloc)
 	rl.SetMasterVolume(f32(sound_settings.volume))
 
 	return sound_settings
@@ -98,16 +100,14 @@ set_volume :: proc(volume: f32) {
 	rl.SetMasterVolume(volume)
 }
 
-load_playlists :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]Playlist {
+load_playlists :: proc(alloc: mem.Allocator) -> [dynamic]Playlist {
 	potential_playlists, err := os.read_all_directory_by_path(
 		"assets/sounds/music",
 		context.temp_allocator,
 	)
 	log.ensuref(err == nil, "Error reading music dir: %s", err)
 
-	alloc := mem.dynamic_arena_allocator(arena)
 	playlists := make([dynamic]Playlist, alloc)
-
 	for playlist_dir in potential_playlists {
 		if playlist_dir.type != .Directory && playlist_dir.type != .Symlink do continue
 
@@ -141,6 +141,8 @@ load_playlists :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]Playlist {
 play_sound :: proc(filepath: string) -> rl.Sound {
 	sound := rl.LoadSound(strings.clone_to_cstring(filepath, context.temp_allocator))
 	rl.PlaySound(sound)
+	sound_settings.is_sound_playing = true
+	append(&sound_settings.current_sounds, sound)
 	return sound
 }
 stop_sound :: proc(sound: rl.Sound) {
@@ -167,17 +169,24 @@ play_playlist :: proc(playlist_name: string) {
 	music := rl.LoadMusicStream(
 		strings.clone_to_cstring(chosen_track.path, context.temp_allocator),
 	)
+	music.looping = false
 	volume := normalize_volume(music)
 	log.debugf("Normalizing volume to: %2.2f", volume)
 	rl.SetMusicVolume(music, volume)
-	rl.PlayMusicStream(music)
+	if music_is_loaded(sound_settings.current_music) {
+		rl.StopMusicStream(sound_settings.current_music)
+		rl.UnloadMusicStream(sound_settings.current_music)
+	}
 	sound_settings.current_music = music
-	sound_settings.is_music_playing = true
-	// TODO: track when playlist + track are done and set current playlist + track back to nil
+	rl.PlayMusicStream(music)
 }
 
 pause_playlist :: proc() {}
 stop_playlist :: proc() {}
+
+music_is_loaded :: proc(music: rl.Music) -> bool {
+	return music.stream.buffer != nil
+}
 
 clamp_fade_in_time :: proc() {}
 clamp_fade_out_time :: proc() {}
@@ -193,16 +202,34 @@ normalize_volume :: proc(music: rl.Music) -> f32 {
 	return min(sound_settings.volume, 1)
 }
 
-// Must be called every frame. It keeps raylib's music stream buffers filled,
-// but only actually refills at most every MUSIC_UPDATE_INTERVAL seconds. Without
-// this, a Music stream produces no sound.
+// Must be called every frame. It keeps raylib's music stream buffers filled.
+// Without this, a Music stream produces no sound.
 update :: proc() {
-	if !sound_settings.is_music_playing do return
-	rl.UpdateMusicStream(sound_settings.current_music)
+	for sound, index in sound_settings.current_sounds {
+		if !rl.IsSoundPlaying(sound) {
+			rl.UnloadSound(sound)
+			unordered_remove(&sound_settings.current_sounds, index)
+		}
+
+	}
+
+	if music_is_loaded(sound_settings.current_music) {
+		if rl.IsMusicStreamPlaying(sound_settings.current_music) {
+			rl.UpdateMusicStream(sound_settings.current_music)
+		} else {
+			rl.StopMusicStream(sound_settings.current_music)
+			rl.UnloadMusicStream(sound_settings.current_music)
+			sound_settings.current_music = {}
+			sound_settings.current_playing_playlist = &Playlist{}
+		}
+	}
 }
 
 shutdown :: proc() {
-	rl.StopMusicStream(sound_settings.current_music)
-	rl.UnloadMusicStream(sound_settings.current_music)
+	if music_is_loaded(sound_settings.current_music) {
+		rl.StopMusicStream(sound_settings.current_music)
+		rl.UnloadMusicStream(sound_settings.current_music)
+		sound_settings.current_music = {}
+	}
 	rl.CloseAudioDevice()
 }
