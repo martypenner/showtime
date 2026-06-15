@@ -233,11 +233,7 @@ render_control :: proc(control: ^Control) -> Maybe(UI_Event) {
 		rl.GuiSlider(control.rect, nil, nil, &control.state.(f32), 0, 1)
 	case .SliderBar:
 		rl.GuiSliderBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
-		return UI_Event {
-			name = control.name,
-			kind = .Value_Changed,
-			value = control.state.(f32),
-		}
+		return UI_Event{name = control.name, kind = .Value_Changed, value = control.state.(f32)}
 	case .ProgressBar:
 		rl.GuiProgressBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
 	case .StatusBar:
@@ -301,9 +297,6 @@ Layout_Error_Kind :: enum {
 	Invalid_Float,
 }
 
-// A parse failure located in the source layout. detail is a borrowed slice of
-// the offending input (the whole line or the bad token), valid for as long as
-// the input string is.
 Layout_Error :: struct {
 	line:   int, // 1-based line number in the layout source
 	kind:   Layout_Error_Kind,
@@ -365,8 +358,6 @@ parse_layout :: proc(
 			}
 
 			control_type := Control_Type(type)
-			// Presentation style (e.g. destructive) is an app-owned decision
-			// applied after parsing; generic layout parsing stays neutral.
 			append(
 				&controls,
 				Control {
