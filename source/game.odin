@@ -28,6 +28,7 @@ created.
 
 package game
 
+import "core:fmt"
 import "core:log"
 import "core:mem"
 import "sound"
@@ -50,29 +51,13 @@ Show_Action :: enum {
 	Master_Volume,
 }
 
-// Resolves a layout control name to a show action. Keeping this mapping in one
-// place makes typos and layout/code mismatches easy to detect, and lets the
-// action Seam be tested without Raylib drawing.
-resolve_show_action :: proc(name: string) -> Show_Action {
-	switch name {
-	case "catmeow":
-		return .Cat_Meow
-	case "dropneedle":
-		return .Drop_Needle
-	case "mastervolume":
-		return .Master_Volume
-	case:
-		return .Unknown
-	}
-}
-
 // Resolves a layout control name to its presentation style. Destructive styling
 // is an app concern (which controls are dangerous to the show), so this mapping
 // lives here rather than in generic UI/layout code. Keeping it pure lets the
 // styling Seam be verified without Raylib drawing.
 resolve_ui_type :: proc(name: string) -> ui.UI_Type {
 	switch name {
-	case "dropneedle":
+	case "Drop_Needle":
 		return .Destructive
 	case:
 		return .Default
@@ -81,7 +66,9 @@ resolve_ui_type :: proc(name: string) -> ui.UI_Type {
 
 dispatch_ui_events :: proc(events: ^[dynamic]ui.UI_Event) {
 	for event in events {
-		switch resolve_show_action(event.name) {
+		val, ok := fmt.string_to_enum_value(Show_Action, event.name)
+		if !ok do val = .Unknown
+		switch val {
 		case .Cat_Meow:
 			sound.play_sound("assets/sounds/fx/cat-meow.mp3")
 		case .Drop_Needle:

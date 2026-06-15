@@ -182,7 +182,7 @@ render_control :: proc(control: ^Control) -> Maybe(UI_Event) {
 		rl.GuiLabel(control.rect, control.text)
 	case .LabelButton:
 		if (rl.GuiLabelButton(control.rect, control.text)) {
-			log.debugf("clicked label button %s", control.text)
+			log.debugf("Clicked label button %s", control.text)
 		}
 	case .Button:
 		prev := rl.GuiGetStyle(rl.GuiControl.BUTTON, i32(rl.GuiControlProperty.BASE_COLOR_NORMAL))
@@ -197,7 +197,7 @@ render_control :: proc(control: ^Control) -> Maybe(UI_Event) {
 		rl.GuiSetStyle(rl.GuiControl.BUTTON, i32(rl.GuiControlProperty.BASE_COLOR_NORMAL), prev)
 
 		if button {
-			log.debugf("clicked button %s", control.name)
+			log.debugf("Clicked button %s", control.name)
 			return UI_Event{name = control.name, kind = .Clicked}
 		}
 	case .CheckBox:

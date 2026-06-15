@@ -27,18 +27,18 @@ build_layout_matches_committed_golden :: proc(t: ^testing.T) {
 	// scenes anchor is at (24, 0); controls anchored to it have that offset
 	// folded into their rect. anchor_id 0 means no anchor (no offset).
 	expected := []Expected {
-		{"preshow", .Button, "Pre-show", {24, 24, 96, 48}},
-		{"postshow", .Button, "Post-show", {144, 24, 96, 48}},
-		{"tohouse", .Button, "To house", {24, 96, 96, 48}},
-		{"sceneramp", .Button, "Scene - ramp", {144, 96, 96, 48}},
-		{"scenefade", .Button, "Scene - fade", {264, 96, 96, 48}},
-		{"dropneedle", .Button, "Drop needle", {384, 96, 96, 48}},
-		{"scenes", .GroupBox, "Scenes", {24, 8, 456, 136}},
-		{"catmeow", .Button, "Cat meow", {24, 600, 96, 48}},
-		{"volumelabel", .Label, "Volume", {504, 0, 144, 24}},
-		{"statusbar", .StatusBar, "Status", {0, -24, 0, 24}},
-		{"usehousemusic", .CheckBox, "Use house music", {264, 24, 24, 24}},
-		{"mastervolume", .SliderBar, "", {504, 24, 144, 24}},
+		{"Pre_Show", .Button, "Pre-show", {24, 24, 96, 48}},
+		{"Post_Show", .Button, "Post-show", {144, 24, 96, 48}},
+		{"To_House", .Button, "To house", {24, 96, 96, 48}},
+		{"Scene_Ramp", .Button, "Scene - ramp", {144, 96, 96, 48}},
+		{"Scene_Fade", .Button, "Scene - fade", {264, 96, 96, 48}},
+		{"Drop_Needle", .Button, "Drop needle", {384, 96, 96, 48}},
+		{"Scenes", .GroupBox, "Scenes", {24, 8, 456, 136}},
+		{"Cat_Meow", .Button, "Cat meow", {24, 600, 96, 48}},
+		{"Volume_Label", .Label, "Volume", {504, 0, 144, 24}},
+		{"Status_Bar", .StatusBar, "Status", {0, -24, 0, 24}},
+		{"Use_House_Music", .CheckBox, "Use house music", {264, 24, 24, 24}},
+		{"Master_Volume", .SliderBar, " ", {504, 24, 144, 24}},
 	}
 
 	testing.expect_value(t, len(controls), len(expected))
@@ -127,7 +127,7 @@ default_control_state_matches_each_control_type :: proc(t: ^testing.T) {
 status_bars_appear_at_bottom :: proc(t: ^testing.T) {
 	controls := [1]Control {
 		{
-			name = "statusbar",
+			name = "Status_Bar",
 			rect = rl.Rectangle{100, 100, 100, 100},
 			state = default_control_state(.StatusBar),
 			ui_type = .Default,

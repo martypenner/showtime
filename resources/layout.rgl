@@ -9,15 +9,15 @@
 #
 r 0 40 -1 -1
 a 001 scenes 24 0 1
-c 000 5 preshow 0 24 96 48 1 Pre-show
-c 001 5 postshow 120 24 96 48 1 Post-show
-c 002 5 tohouse 0 96 96 48 1 To house
-c 003 5 sceneramp 120 96 96 48 1 Scene - ramp
-c 004 5 scenefade 240 96 96 48 1 Scene - fade
-c 005 5 dropneedle 360 96 96 48 1 Drop needle
-c 006 1 scenes 0 8 456 136 1 Scenes
-c 007 5 catmeow 0 600 96 48 1 Cat meow
-c 008 4 volumelabel 480 0 144 24 1 Volume
-c 009 19 statusbar 0 720 2400 24 0 Status
-c 010 7 usehousemusic 240 24 24 24 1 Use house music
-c 011 17 mastervolume 480 24 144 24 1 
+c 000 5 Pre_Show 0 24 96 48 1 Pre-show
+c 001 5 Post_Show 120 24 96 48 1 Post-show
+c 002 5 To_House 0 96 96 48 1 To house
+c 003 5 Scene_Ramp 120 96 96 48 1 Scene - ramp
+c 004 5 Scene_Fade 240 96 96 48 1 Scene - fade
+c 005 5 Drop_Needle 360 96 96 48 1 Drop needle
+c 006 1 Scenes 0 8 456 136 1 Scenes
+c 007 5 Cat_Meow 0 600 96 48 1 Cat meow
+c 008 4 Volume_Label 480 0 144 24 1 Volume
+c 009 19 Status_Bar 0 720 2400 24 0 Status
+c 010 7 Use_House_Music 240 24 24 24 1 Use house music
+c 011 17 Master_Volume 480 24 144 24 1  
