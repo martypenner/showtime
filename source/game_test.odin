@@ -1,6 +1,7 @@
 package game
 
 import "core:testing"
+import "state"
 
 // The app layer owns the mapping from layout control names to show-control
 // actions. Resolving names in one place keeps typos and layout/code mismatches
@@ -20,4 +21,15 @@ resolve_known_show_actions :: proc(t: ^testing.T) {
 resolve_unknown_show_action_is_deliberate :: proc(t: ^testing.T) {
 	testing.expect_value(t, resolve_show_action("not-a-real-control"), Show_Action.Unknown)
 	testing.expect_value(t, resolve_show_action(""), Show_Action.Unknown)
+}
+
+// Destructive presentation is an app-owned decision, not something the generic
+// UI/layout code special-cases by name. Dropping the needle is destructive (it
+// interrupts the show), so it must resolve to the destructive style while
+// ordinary controls stay default.
+@(test)
+resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
+	testing.expect_value(t, resolve_ui_type("dropneedle"), state.UI_Type.Destructive)
+	testing.expect_value(t, resolve_ui_type("catmeow"), state.UI_Type.Default)
+	testing.expect_value(t, resolve_ui_type(""), state.UI_Type.Default)
 }

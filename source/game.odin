@@ -66,6 +66,19 @@ resolve_show_action :: proc(name: string) -> Show_Action {
 	}
 }
 
+// Resolves a layout control name to its presentation style. Destructive styling
+// is an app concern (which controls are dangerous to the show), so this mapping
+// lives here rather than in generic UI/layout code. Keeping it pure lets the
+// styling Seam be verified without Raylib drawing.
+resolve_ui_type :: proc(name: string) -> state.UI_Type {
+	switch name {
+	case "dropneedle":
+		return .Destructive
+	case:
+		return .Default
+	}
+}
+
 dispatch_ui_event :: proc(event: ui.UI_Event) {
 	switch resolve_show_action(event.name) {
 	case .Cat_Meow:
@@ -146,6 +159,11 @@ game_init :: proc() {
 	mem.dynamic_arena_init(&gm.arena)
 	gm.sound_settings = sound.init_settings(&gm.arena)
 	gm.ui_controls = ui.build_layout(&gm.arena)
+	// Generic layout parsing leaves presentation neutral; the app applies its
+	// own styling metadata (e.g. destructive controls) here.
+	for &control in gm.ui_controls {
+		control.ui_type = resolve_ui_type(control.name)
+	}
 	when PLAYGROUND {
 		copy(gm.playground.text_box_buffer[:], "starting text")
 	}

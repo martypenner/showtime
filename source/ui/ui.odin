@@ -185,9 +185,10 @@ build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Control {
 				rect,
 			)
 
+			// Presentation style (e.g. destructive) is an app-owned decision
+			// applied after parsing; generic layout parsing stays neutral.
 			control := state.Control {
 				control_type = control_type,
-				ui_type      = name == "dropneedle" ? .Destructive : .Default,
 				name         = strings.clone(name, alloc),
 				text         = strings.clone_to_cstring(text, alloc),
 				rect         = rect,
