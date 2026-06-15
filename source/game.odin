@@ -68,6 +68,8 @@ dispatch_ui_events :: proc(events: ^[dynamic]ui.UI_Event) {
 	for event in events {
 		val, ok := fmt.string_to_enum_value(Show_Action, event.name)
 		if !ok do val = .Unknown
+		if val != .Unknown do sound.save_settings()
+
 		switch val {
 		case .Cat_Meow:
 			sound.play_sound("assets/sounds/fx/cat-meow.mp3")
@@ -76,7 +78,7 @@ dispatch_ui_events :: proc(events: ^[dynamic]ui.UI_Event) {
 		case .Master_Volume:
 			sound.set_volume(event.value)
 		case .Unknown:
-			log.warnf("no app behavior mapped for UI control %q", event.name)
+			log.warnf("No app behavior mapped for UI control %q", event.name)
 		}
 	}
 }

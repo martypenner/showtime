@@ -2,6 +2,10 @@
 
 package utils
 
+import "core:crypto/hash"
+import "core:encoding/hex"
+import "core:io"
+
 @(require_results)
 read_entire_file :: proc(
 	name: string,
@@ -18,3 +22,11 @@ write_entire_file :: proc(name: string, data: []byte, truncate := true) -> (succ
 	return _write_entire_file(name, data, truncate)
 }
 
+hash_file_by_path :: proc(path: string) -> (string, io.Error) {
+	file_hash, err := hash.hash_file_by_name(hash.Algorithm.SHA256, path, false, context.temp_allocator)
+	if err != nil do return "", err
+
+	hex_hash, hex_err := hex.encode(file_hash, context.temp_allocator)
+	if hex_err != nil do return "", io.Error.Unknown
+	return string(hex_hash), nil
+}

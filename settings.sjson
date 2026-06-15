@@ -1,0 +1,9 @@
+"fade_in_time" = 2.00000000
+"fade_out_time" = 2.00000000
+"stop_fade_time" = 2.00000000
+"start_next_time" = 4.00000000
+"shuffle" = true
+"loop" = true
+"normalize_volume" = true
+"target_loudness" = -8.00000000
+"track_loudness" = {}
