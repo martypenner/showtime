@@ -2,6 +2,7 @@ package sound
 
 import hm "core:container/handle_map"
 import "core:log"
+import "core:math"
 import "core:math/rand"
 import "core:mem"
 import "core:os"
@@ -58,8 +59,11 @@ MAX_FADE_IN_TIME :: 10
 MAX_FADE_OUT_TIME :: 10
 MAX_STOP_FADE_TIME :: 10
 MAX_START_NEXT_TIME :: 10
-MIN_TARGET_LOUDNESS :: -24
+MIN_TARGET_LOUDNESS :: -12
 MAX_TARGET_LOUDNESS :: -6
+MUSIC_ACTIVE_SAMPLE_GATE :: f32(0.02)
+MUSIC_MIN_NORMALIZED_GAIN :: f32(0.05)
+MUSIC_MAX_NORMALIZED_GAIN :: f32(4.0)
 
 DefaultSoundSettings := SoundSettings {
 	volume           = 1.0,
@@ -70,7 +74,7 @@ DefaultSoundSettings := SoundSettings {
 	shuffle          = true,
 	loop             = true,
 	normalize_volume = true,
-	target_loudness  = -12,
+	target_loudness  = -8,
 }
 
 init_settings :: proc(alloc: mem.Allocator) -> ^SoundSettings {
@@ -208,8 +212,8 @@ stop_playlist :: proc() {}
 play_music :: proc(track: Track) {
 	music := rl.LoadMusicStream(strings.clone_to_cstring(track.path, context.temp_allocator))
 	music.looping = false
-	volume := normalize_volume(music)
-	log.debugf("Normalizing volume to: %2.2f", volume)
+	volume := normalize_volume(track)
+	log.debugf("Normalizing music %q to gain: %2.2f", track.title, volume)
 	rl.SetMusicVolume(music, volume)
 
 	if music_is_loaded(sound_settings.current_music) {
@@ -235,9 +239,63 @@ clamp_max_target_loudness :: proc() {}
 clamp_track_start_time :: proc() {}
 clamp_track_end_time :: proc() {}
 
-// TODO: implement
-normalize_volume :: proc(music: rl.Music) -> f32 {
-	return min(sound_settings.volume, 1)
+dbfs_to_linear :: proc(db: f32) -> f32 {
+	return math.pow(f32(10), db / 20)
+}
+
+normalized_music_gain :: proc(active_rms, target_loudness: f32) -> f32 {
+	if active_rms <= 0 do return 1
+
+	clamped_target := min(max(target_loudness, f32(MIN_TARGET_LOUDNESS)), f32(MAX_TARGET_LOUDNESS))
+	target_rms := dbfs_to_linear(clamped_target)
+	return min(max(target_rms / active_rms, MUSIC_MIN_NORMALIZED_GAIN), MUSIC_MAX_NORMALIZED_GAIN)
+}
+
+normalize_volume :: proc(track: Track) -> f32 {
+	if !sound_settings.normalize_volume do return 1
+
+	wave := rl.LoadWave(strings.clone_to_cstring(track.path, context.temp_allocator))
+	if !rl.IsWaveValid(wave) {
+		log.warnf("Couldn't analyze music loudness, using unity gain: %s", track.path)
+		return 1
+	}
+	defer rl.UnloadWave(wave)
+
+	samples := rl.LoadWaveSamples(wave)
+	if samples == nil {
+		log.warnf("Couldn't read music samples, using unity gain: %s", track.path)
+		return 1
+	}
+	defer rl.UnloadWaveSamples(samples)
+
+	sample_count := int(wave.frameCount) * int(wave.channels)
+	if sample_count == 0 do return 1
+
+	active_sum_squares: f64
+	active_sample_count := 0
+	all_sum_squares: f64
+
+	for index := 0; index < sample_count; index += 1 {
+		sample := samples[index]
+		magnitude := sample
+		if magnitude < 0 do magnitude = -magnitude
+
+		sample_f64 := f64(sample)
+		all_sum_squares += sample_f64 * sample_f64
+
+		if magnitude >= MUSIC_ACTIVE_SAMPLE_GATE {
+			active_sum_squares += sample_f64 * sample_f64
+			active_sample_count += 1
+		}
+	}
+
+	if active_sample_count == 0 {
+		active_sum_squares = all_sum_squares
+		active_sample_count = sample_count
+	}
+
+	active_rms := f32(math.sqrt(active_sum_squares / f64(active_sample_count)))
+	return normalized_music_gain(active_rms, sound_settings.target_loudness)
 }
 
 // Must be called every frame. It keeps raylib's music stream buffers filled.
