@@ -1,5 +1,6 @@
 package sound
 
+import hm "core:container/handle_map"
 import "core:log"
 import "core:math/rand"
 import "core:mem"
@@ -13,14 +14,14 @@ import rl "vendor:raylib"
 
 SoundSettings :: struct {
 	volume:                   f32,
-	fade_in_time:             f16,
-	fade_out_time:            f16,
-	stop_fade_time:           f16,
-	start_next_time:          f16,
+	fade_in_time:             f32,
+	fade_out_time:            f32,
+	stop_fade_time:           f32,
+	start_next_time:          f32,
 	shuffle:                  bool,
 	loop:                     bool,
 	normalize_volume:         bool,
-	target_loudness:          f16,
+	target_loudness:          f32,
 	playlists:                [dynamic]Playlist,
 	current_playing_playlist: ^Playlist,
 	current_music:            rl.Music,
@@ -30,16 +31,15 @@ SoundSettings :: struct {
 
 Playlist :: struct {
 	name:                  string,
-	// this should probably be hm.Dynamic_Handle_Map(Track, TrackHandle), but
-	// then we have to store the handles and pass them around.
-	tracks:                [dynamic]Track,
-	// indices into tracks. Handle maps are more stable, but I don't want to pass
-	// around handles everywhere.
-	played_tracks:         [dynamic]int,
+	tracks:                hm.Dynamic_Handle_Map(Track, TrackHandle),
+	played_track_count:    int,
 	current_playing_track: ^Track,
 }
 
+TrackHandle :: hm.Handle32
+
 Track :: struct {
+	handle:        TrackHandle,
 	title:         string,
 	path:          string,
 
@@ -49,6 +49,7 @@ Track :: struct {
 		start_time: f16,
 		end_time:   f16,
 	},
+	played:        bool,
 }
 
 sound_settings: ^SoundSettings
@@ -72,10 +73,9 @@ DefaultSoundSettings := SoundSettings {
 	target_loudness  = -12,
 }
 
-init_settings :: proc(arena: ^mem.Dynamic_Arena) -> ^SoundSettings {
+init_settings :: proc(alloc: mem.Allocator) -> ^SoundSettings {
 	rl.InitAudioDevice()
 
-	alloc := mem.dynamic_arena_allocator(arena)
 	sound_settings = new(SoundSettings, alloc)
 
 	sound_settings^ = DefaultSoundSettings
@@ -113,7 +113,7 @@ load_playlists :: proc(alloc: mem.Allocator) -> [dynamic]Playlist {
 
 		playlist := Playlist{}
 		playlist.name = strings.clone(playlist_dir.name, alloc)
-		playlist.tracks = make([dynamic]Track, alloc)
+		hm.dynamic_init(&playlist.tracks, alloc)
 		track_files, tracks_err := os.read_all_directory_by_path(
 			playlist_dir.fullpath,
 			context.temp_allocator,
@@ -124,11 +124,14 @@ load_playlists :: proc(alloc: mem.Allocator) -> [dynamic]Playlist {
 			if track_file.type != .Regular do continue
 			name := strings.clone_to_cstring(track_file.name, context.temp_allocator)
 			if rl.IsFileExtension(name, ".wav;.mp3;.ogg;.flac") {
-				track := Track {
-					title = strings.clone(os.stem(track_file.name), alloc),
-					path  = strings.clone(track_file.fullpath, alloc),
-				}
-				append(&playlist.tracks, track)
+				_, err := hm.add(
+					&playlist.tracks,
+					Track {
+						title = strings.clone(os.stem(track_file.name), alloc),
+						path = strings.clone(track_file.fullpath, alloc),
+					},
+				)
+				log.ensuref(err == nil, "Error adding track handle: %v", err)
 			}
 		}
 
@@ -145,9 +148,7 @@ play_sound :: proc(filepath: string) -> rl.Sound {
 	append(&sound_settings.current_sounds, sound)
 	return sound
 }
-stop_sound :: proc(sound: rl.Sound) {
-	rl.StopSound(sound)
-}
+stop_sound :: proc(sound: rl.Sound) {}
 
 play_playlist :: proc(playlist_name: string) {
 	found_playlist: ^Playlist
@@ -163,26 +164,63 @@ play_playlist :: proc(playlist_name: string) {
 	}
 
 	log.debugf("Playing playlist %s", playlist_name)
-	sound_settings.current_playing_playlist = found_playlist
-	chosen_track := rand.choice(found_playlist.tracks[:])
-	log.debugf("Chosen random track: %v", chosen_track)
-	music := rl.LoadMusicStream(
-		strings.clone_to_cstring(chosen_track.path, context.temp_allocator),
-	)
-	music.looping = false
-	volume := normalize_volume(music)
-	log.debugf("Normalizing volume to: %2.2f", volume)
-	rl.SetMusicVolume(music, volume)
-	if music_is_loaded(sound_settings.current_music) {
-		rl.StopMusicStream(sound_settings.current_music)
-		rl.UnloadMusicStream(sound_settings.current_music)
+	track_count := int(hm.len(found_playlist.tracks))
+	if track_count == 0 {
+		log.warnf("Playlist has no tracks, skipping: %s", playlist_name)
+		return
 	}
-	sound_settings.current_music = music
-	rl.PlayMusicStream(music)
+
+	if found_playlist.played_track_count >= track_count {
+		it := hm.iterator_make(&found_playlist.tracks)
+		for track, _ in hm.iterate(&it) {
+			track.played = false
+		}
+		found_playlist.played_track_count = 0
+	}
+
+	chosen_track: ^Track
+	unplayed_seen := 0
+	it := hm.iterator_make(&found_playlist.tracks)
+	for track, _ in hm.iterate(&it) {
+		if track.played do continue
+
+		unplayed_seen += 1
+		if rand.int_max(unplayed_seen) == 0 {
+			chosen_track = track
+		}
+	}
+	if chosen_track == nil {
+		log.warnf("Couldn't choose track from playlist, skipping: %s", playlist_name)
+		return
+	}
+
+	log.debugf("Chosen random track: %v", chosen_track^)
+	sound_settings.current_playing_playlist = found_playlist
+	found_playlist.current_playing_track = chosen_track
+	chosen_track.played = true
+	found_playlist.played_track_count += 1
+	play_music(chosen_track^)
 }
 
 pause_playlist :: proc() {}
 stop_playlist :: proc() {}
+
+play_music :: proc(track: Track) {
+	music := rl.LoadMusicStream(strings.clone_to_cstring(track.path, context.temp_allocator))
+	music.looping = false
+	volume := normalize_volume(music)
+	log.debugf("Normalizing volume to: %2.2f", volume)
+	rl.SetMusicVolume(music, volume)
+
+	if music_is_loaded(sound_settings.current_music) {
+		rl.StopMusicStream(sound_settings.current_music)
+		rl.UnloadMusicStream(sound_settings.current_music)
+	}
+
+	sound_settings.current_music = music
+
+	rl.PlayMusicStream(music)
+}
 
 music_is_loaded :: proc(music: rl.Music) -> bool {
 	return music.stream.buffer != nil
@@ -220,7 +258,7 @@ update :: proc() {
 			rl.StopMusicStream(sound_settings.current_music)
 			rl.UnloadMusicStream(sound_settings.current_music)
 			sound_settings.current_music = {}
-			sound_settings.current_playing_playlist = &Playlist{}
+			sound_settings.current_playing_playlist = nil
 		}
 	}
 }

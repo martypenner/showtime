@@ -164,7 +164,8 @@ game_init :: proc() {
 		should_run = true,
 	}
 	mem.dynamic_arena_init(&gm.arena)
-	gm.sound_settings = sound.init_settings(&gm.arena)
+	arena_alloc := mem.dynamic_arena_allocator(&gm.arena)
+	gm.sound_settings = sound.init_settings(arena_alloc)
 	gm.ui_controls = ui.build_layout(&gm.arena)
 	// Generic layout parsing leaves presentation neutral; the app applies its
 	// own styling metadata (e.g. destructive controls) here.
