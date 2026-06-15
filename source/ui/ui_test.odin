@@ -1,4 +1,4 @@
-package state
+package ui
 
 import "core:testing"
 import rl "vendor:raylib"

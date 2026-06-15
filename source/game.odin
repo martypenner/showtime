@@ -70,7 +70,7 @@ resolve_show_action :: proc(name: string) -> Show_Action {
 // is an app concern (which controls are dangerous to the show), so this mapping
 // lives here rather than in generic UI/layout code. Keeping it pure lets the
 // styling Seam be verified without Raylib drawing.
-resolve_ui_type :: proc(name: string) -> state.UI_Type {
+resolve_ui_type :: proc(name: string) -> ui.UI_Type {
 	switch name {
 	case "dropneedle":
 		return .Destructive
@@ -108,7 +108,7 @@ draw :: proc() {
 		playground.draw(gm)
 	}
 
-	events := ui.draw(gm)
+	events := ui.draw(gm.ui_controls[:])
 	for event in events {
 		dispatch_ui_event(event)
 	}

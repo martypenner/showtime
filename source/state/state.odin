@@ -1,13 +1,14 @@
 package state
 
 import "../sound"
+import "../ui"
 import "core:mem"
 import rl "vendor:raylib"
 
 GameMemory :: struct {
 	should_run:     bool,
 	arena:          mem.Dynamic_Arena,
-	ui_controls:    [dynamic]Control,
+	ui_controls:    [dynamic]ui.Control,
 	sound_settings: ^sound.SoundSettings,
 	playground:     struct {
 		toggle_state:           struct {
@@ -33,124 +34,4 @@ GameMemory :: struct {
 		color_picker_value:     rl.Color,
 		text_input:             [dynamic]u8,
 	},
-}
-
-Layout_Item :: enum u8 {
-	RefWindow,
-	Anchor,
-	Component,
-	Unknown,
-}
-
-Control_Type :: enum u8 {
-	WindowBox,
-	GroupBox,
-	Line,
-	Panel,
-	Label,
-	Button,
-	LabelButton,
-	CheckBox,
-	Toggle,
-	ToggleGroup,
-	ComboBox,
-	DropdownBox,
-	TextBox,
-	ValueBox,
-	TextMultiBox,
-	Spinner,
-	Slider,
-	SliderBar,
-	ProgressBar,
-	StatusBar,
-	ScrollPanel,
-	ListView,
-	ColorPicker,
-	DummyRect,
-}
-
-UI_Type :: enum u8 {
-	Default,
-	Destructive,
-}
-
-Control :: struct {
-	control_type: Control_Type,
-	ui_type:      UI_Type,
-	name:         string,
-	text:         cstring,
-	rect:         rl.Rectangle,
-	state:        Control_State,
-}
-
-// Mutable per-control state. Each control kind stores only the variant it
-// needs; stateless controls (Button, Label, ...) leave this nil.
-
-Choice_State :: struct {
-	active:    i32,
-	edit_mode: bool,
-}
-Number_State :: struct {
-	value:     i32,
-	edit_mode: bool,
-}
-Text_State :: struct {
-	buffer:    [dynamic]u8,
-	edit_mode: bool,
-}
-List_State :: struct {
-	scroll_index: i32,
-	active:       i32,
-}
-Scroll_State :: struct {
-	scroll: rl.Vector2,
-	view:   rl.Rectangle,
-}
-
-Control_State :: union {
-	bool, // CheckBox, Toggle
-	i32, // ToggleGroup, ComboBox
-	f32, // Slider, SliderBar, ProgressBar
-	rl.Color, // ColorPicker
-	Choice_State, // DropdownBox
-	Number_State, // Spinner, ValueBox
-	Text_State, // TextBox
-	List_State, // ListView
-	Scroll_State, // ScrollPanel
-}
-
-// Returns the initial state variant a control needs, or nil if stateless.
-default_control_state :: proc(type: Control_Type) -> Control_State {
-	switch type {
-	case .CheckBox, .Toggle:
-		return false
-	case .ToggleGroup, .ComboBox:
-		return 0
-	case .Slider, .SliderBar, .ProgressBar:
-		return 1.0
-	case .ColorPicker:
-		return rl.Color{}
-	case .DropdownBox:
-		return Choice_State{}
-	case .Spinner, .ValueBox:
-		return Number_State{}
-	case .TextBox:
-		return Text_State{}
-	case .ListView:
-		return List_State{}
-	case .ScrollPanel:
-		return Scroll_State{}
-	case .WindowBox,
-	     .GroupBox,
-	     .Line,
-	     .Panel,
-	     .Label,
-	     .Button,
-	     .LabelButton,
-	     .TextMultiBox,
-	     .StatusBar,
-	     .DummyRect:
-		return nil
-	}
-	return nil
 }

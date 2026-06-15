@@ -1,7 +1,7 @@
 package game
 
 import "core:testing"
-import "state"
+import "ui"
 
 // The app layer owns the mapping from layout control names to show-control
 // actions. Resolving names in one place keeps typos and layout/code mismatches
@@ -29,7 +29,7 @@ resolve_unknown_show_action_is_deliberate :: proc(t: ^testing.T) {
 // ordinary controls stay default.
 @(test)
 resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
-	testing.expect_value(t, resolve_ui_type("dropneedle"), state.UI_Type.Destructive)
-	testing.expect_value(t, resolve_ui_type("catmeow"), state.UI_Type.Default)
-	testing.expect_value(t, resolve_ui_type(""), state.UI_Type.Default)
+	testing.expect_value(t, resolve_ui_type("dropneedle"), ui.UI_Type.Destructive)
+	testing.expect_value(t, resolve_ui_type("catmeow"), ui.UI_Type.Default)
+	testing.expect_value(t, resolve_ui_type(""), ui.UI_Type.Default)
 }

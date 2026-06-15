@@ -1,11 +1,135 @@
 package ui
 
-import "../state"
 import "core:log"
 import "core:mem"
 import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
+
+// UI-owned data lives here, next to the behavior that reads and mutates it. The
+// shared GameMemory holds the controls (the hot-reload persistence shell) but
+// the definitions are owned by the UI Module, so the dependency runs
+// state -> ui and ui imports nothing from state.
+
+Layout_Item :: enum u8 {
+	RefWindow,
+	Anchor,
+	Component,
+	Unknown,
+}
+
+Control_Type :: enum u8 {
+	WindowBox,
+	GroupBox,
+	Line,
+	Panel,
+	Label,
+	Button,
+	LabelButton,
+	CheckBox,
+	Toggle,
+	ToggleGroup,
+	ComboBox,
+	DropdownBox,
+	TextBox,
+	ValueBox,
+	TextMultiBox,
+	Spinner,
+	Slider,
+	SliderBar,
+	ProgressBar,
+	StatusBar,
+	ScrollPanel,
+	ListView,
+	ColorPicker,
+	DummyRect,
+}
+
+UI_Type :: enum u8 {
+	Default,
+	Destructive,
+}
+
+Control :: struct {
+	control_type: Control_Type,
+	ui_type:      UI_Type,
+	name:         string,
+	text:         cstring,
+	rect:         rl.Rectangle,
+	state:        Control_State,
+}
+
+// Mutable per-control state. Each control kind stores only the variant it
+// needs; stateless controls (Button, Label, ...) leave this nil.
+
+Choice_State :: struct {
+	active:    i32,
+	edit_mode: bool,
+}
+Number_State :: struct {
+	value:     i32,
+	edit_mode: bool,
+}
+Text_State :: struct {
+	buffer:    [dynamic]u8,
+	edit_mode: bool,
+}
+List_State :: struct {
+	scroll_index: i32,
+	active:       i32,
+}
+Scroll_State :: struct {
+	scroll: rl.Vector2,
+	view:   rl.Rectangle,
+}
+
+Control_State :: union {
+	bool, // CheckBox, Toggle
+	i32, // ToggleGroup, ComboBox
+	f32, // Slider, SliderBar, ProgressBar
+	rl.Color, // ColorPicker
+	Choice_State, // DropdownBox
+	Number_State, // Spinner, ValueBox
+	Text_State, // TextBox
+	List_State, // ListView
+	Scroll_State, // ScrollPanel
+}
+
+// Returns the initial state variant a control needs, or nil if stateless.
+default_control_state :: proc(type: Control_Type) -> Control_State {
+	switch type {
+	case .CheckBox, .Toggle:
+		return false
+	case .ToggleGroup, .ComboBox:
+		return 0
+	case .Slider, .SliderBar, .ProgressBar:
+		return 1.0
+	case .ColorPicker:
+		return rl.Color{}
+	case .DropdownBox:
+		return Choice_State{}
+	case .Spinner, .ValueBox:
+		return Number_State{}
+	case .TextBox:
+		return Text_State{}
+	case .ListView:
+		return List_State{}
+	case .ScrollPanel:
+		return Scroll_State{}
+	case .WindowBox,
+	     .GroupBox,
+	     .Line,
+	     .Panel,
+	     .Label,
+	     .Button,
+	     .LabelButton,
+	     .TextMultiBox,
+	     .StatusBar,
+	     .DummyRect:
+		return nil
+	}
+	return nil
+}
 
 // What a control reported this frame. Generic rendering stays free of
 // app-specific behavior: it names the control and the kind of interaction, and
@@ -28,10 +152,10 @@ UI_Event :: struct {
 // This is the thin interaction-collection phase: per-control Raygui drawing and
 // Raygui-owned state handling live in render_control, so this loop only gathers
 // the events the app layer needs to act on.
-draw :: proc(gm: ^state.GameMemory) -> [dynamic]UI_Event {
+draw :: proc(controls: []Control) -> [dynamic]UI_Event {
 	events := make([dynamic]UI_Event, context.temp_allocator)
 
-	for &ui_control in gm.ui_controls {
+	for &ui_control in controls {
 		if event, ok := render_control(&ui_control).?; ok {
 			append(&events, event)
 		}
@@ -44,7 +168,7 @@ draw :: proc(gm: ^state.GameMemory) -> [dynamic]UI_Event {
 // changes (edit-mode toggles, slider values, ...) back to the control. This is
 // where Raygui-specific handling is hidden; it reports an interaction to the app
 // layer by returning a UI_Event, or nil when the control did nothing this frame.
-render_control :: proc(control: ^state.Control) -> Maybe(UI_Event) {
+render_control :: proc(control: ^Control) -> Maybe(UI_Event) {
 	switch control.control_type {
 	case .WindowBox:
 		rl.GuiWindowBox(control.rect, control.text)
@@ -85,23 +209,23 @@ render_control :: proc(control: ^state.Control) -> Maybe(UI_Event) {
 	case .ComboBox:
 		rl.GuiComboBox(control.rect, control.text, &control.state.(i32))
 	case .DropdownBox:
-		s := &control.state.(state.Choice_State)
+		s := &control.state.(Choice_State)
 		if (rl.GuiDropdownBox(control.rect, control.text, &s.active, s.edit_mode)) {
 			s.edit_mode = !s.edit_mode
 		}
 	case .TextBox:
-		s := &control.state.(state.Text_State)
+		s := &control.state.(Text_State)
 		if (rl.GuiTextBox(control.rect, cstring(&s.buffer[0]), i32(len(s.buffer)), s.edit_mode)) {
 			s.edit_mode = !s.edit_mode
 		}
 	case .ValueBox:
-		s := &control.state.(state.Number_State)
+		s := &control.state.(Number_State)
 		if (rl.GuiValueBox(control.rect, control.text, &s.value, 0, 100, s.edit_mode)) > 0 {
 			s.edit_mode = !s.edit_mode
 		}
 	case .TextMultiBox:
 	case .Spinner:
-		s := &control.state.(state.Number_State)
+		s := &control.state.(Number_State)
 		if (rl.GuiSpinner(control.rect, control.text, &s.value, 0, 100, s.edit_mode)) > 0 {
 			s.edit_mode = !s.edit_mode
 		}
@@ -119,10 +243,10 @@ render_control :: proc(control: ^state.Control) -> Maybe(UI_Event) {
 	case .StatusBar:
 		rl.GuiStatusBar(control.rect, control.text)
 	case .ScrollPanel:
-		s := &control.state.(state.Scroll_State)
+		s := &control.state.(Scroll_State)
 		rl.GuiScrollPanel(control.rect, control.text, control.rect, &s.scroll, &s.view)
 	case .ListView:
-		s := &control.state.(state.List_State)
+		s := &control.state.(List_State)
 		rl.GuiListView(control.rect, control.text, &s.scroll_index, &s.active)
 	case .ColorPicker:
 		rl.GuiColorPicker(control.rect, control.text, &control.state.(rl.Color))
@@ -133,7 +257,7 @@ render_control :: proc(control: ^state.Control) -> Maybe(UI_Event) {
 	return nil
 }
 
-build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Control {
+build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]Control {
 	alloc := mem.dynamic_arena_allocator(arena)
 
 	bytes := #load("../../resources/layout.rgl")
@@ -141,23 +265,23 @@ build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Control {
 
 	anchors := make(map[int][2]f32)
 	defer delete(anchors)
-	ui_controls := make([dynamic]state.Control, alloc)
+	ui_controls := make([dynamic]Control, alloc)
 
 	for line in strings.split_lines_iterator(&lines) {
 		type := str_to_layout_item(line[0])
 		#partial switch type {
-		case state.Layout_Item.Anchor:
+		case Layout_Item.Anchor:
 			parts := strings.split(line, " ", context.temp_allocator)
 			id_str, x, y := parts[1], atof32(parts[3]), atof32(parts[4])
 			id, ok := strconv.parse_int(id_str)
 			log.ensuref(ok, "Error parsing control type: %s", id_str)
 			anchors[id] = [2]f32{x, y}
-		case state.Layout_Item.Component:
+		case Layout_Item.Component:
 			parts := strings.split_n(line[2:], " ", 9, context.temp_allocator)
 			type_str, name := parts[1], parts[2]
 			type, ok := strconv.parse_int(type_str)
 			log.ensuref(ok, "Error parsing control type: %s", type_str)
-			control_type := state.Control_Type(type)
+			control_type := Control_Type(type)
 
 			x, y, w, h := atof32(parts[3]), atof32(parts[4]), atof32(parts[5]), atof32(parts[6])
 			rect := rl.Rectangle{x, y, w, h}
@@ -180,12 +304,12 @@ build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Control {
 
 			// Presentation style (e.g. destructive) is an app-owned decision
 			// applied after parsing; generic layout parsing stays neutral.
-			control := state.Control {
+			control := Control {
 				control_type = control_type,
 				name         = strings.clone(name, alloc),
 				text         = strings.clone_to_cstring(text, alloc),
 				rect         = rect,
-				state        = state.default_control_state(control_type),
+				state        = default_control_state(control_type),
 			}
 			append(&ui_controls, control)
 		}
@@ -194,19 +318,19 @@ build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Control {
 	return ui_controls
 }
 
-str_to_layout_item :: proc(s: u8) -> state.Layout_Item {
+str_to_layout_item :: proc(s: u8) -> Layout_Item {
 	switch s {
 	case 'r':
-		return state.Layout_Item.RefWindow
+		return Layout_Item.RefWindow
 	case 'a':
-		return state.Layout_Item.Anchor
+		return Layout_Item.Anchor
 	case 'c':
-		return state.Layout_Item.Component
+		return Layout_Item.Component
 	case '#':
-		return state.Layout_Item.Unknown
+		return Layout_Item.Unknown
 	case:
 		log.debugf("Unknown layout item: %s", s)
-		return state.Layout_Item.Unknown
+		return Layout_Item.Unknown
 	}
 }
 
