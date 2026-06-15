@@ -253,6 +253,17 @@ render_control :: proc(control: ^Control) -> Maybe(UI_Event) {
 	return nil
 }
 
+prepare_controls_for_render :: proc(controls: []Control, render_width: i32, render_height: i32) {
+	for &control in controls {
+		#partial switch control.control_type {
+		case .StatusBar:
+			control.rect.x = 0
+			control.rect.y = f32(render_height) - control.rect.height
+			control.rect.width = f32(render_width)
+		}
+	}
+}
+
 // build_layout is the Adapter Seam: it loads the committed rGuiLayout file and
 // turns it into the internal Control list. Malformed layout data is a build-time
 // asset bug, so a parse failure aborts loudly here with a located message rather
@@ -263,6 +274,7 @@ build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]Control {
 	if e, bad := err.?; bad {
 		log.panicf("layout.rgl: %v at line %d: %q", e.kind, e.line, e.detail)
 	}
+	prepare_controls_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
 	return controls
 }
 
@@ -356,8 +368,8 @@ parse_layout :: proc(
 				rect.x += anchor.x
 				rect.y += anchor.y
 			}
-
 			control_type := Control_Type(type)
+
 			append(
 				&controls,
 				Control {

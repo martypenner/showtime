@@ -98,6 +98,13 @@ update :: proc() {
 	if rl.IsKeyPressed(.ESCAPE) {
 		gm.should_run = false
 	}
+	if rl.IsWindowResized() {
+		ui.prepare_controls_for_render(
+			gm.ui_controls[:],
+			rl.GetRenderWidth(),
+			rl.GetRenderHeight(),
+		)
+	}
 
 	sound.update()
 }

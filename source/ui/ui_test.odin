@@ -35,8 +35,8 @@ build_layout_matches_committed_golden :: proc(t: ^testing.T) {
 		{"dropneedle", .Button, "Drop needle", {384, 96, 96, 48}},
 		{"scenes", .GroupBox, "Scenes", {24, 8, 456, 136}},
 		{"catmeow", .Button, "Cat meow", {24, 600, 96, 48}},
-		{"volumelabel", .Label, "Volume", {504, 0, 120, 24}},
-		{"statusbar", .StatusBar, "Status", {0, 720, 1104, 24}},
+		{"volumelabel", .Label, "Volume", {504, 0, 144, 24}},
+		{"statusbar", .StatusBar, "Status", {0, -24, 0, 24}},
 		{"usehousemusic", .CheckBox, "Use house music", {264, 24, 24, 24}},
 		{"mastervolume", .SliderBar, "", {504, 24, 144, 24}},
 	}
@@ -121,4 +121,20 @@ default_control_state_matches_each_control_type :: proc(t: ^testing.T) {
 	expect_stateless(t, .TextMultiBox)
 	expect_stateless(t, .StatusBar)
 	expect_stateless(t, .DummyRect)
+}
+
+@(test)
+status_bars_appear_at_bottom :: proc(t: ^testing.T) {
+	controls := [1]Control {
+		{
+			name = "statusbar",
+			rect = rl.Rectangle{100, 100, 100, 100},
+			state = default_control_state(.StatusBar),
+			ui_type = .Default,
+			control_type = .StatusBar,
+			text = "",
+		},
+	}
+	prepare_controls_for_render(controls[:], 100, 200)
+	testing.expect(t, controls[0].rect == rl.Rectangle{0, 100, 100, 100})
 }
