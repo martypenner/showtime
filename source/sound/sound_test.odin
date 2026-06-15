@@ -1,6 +1,5 @@
 package sound
 
-import "../state"
 import "core:testing"
 
 // After a hot reload the freshly-loaded DLL starts with a nil package global,
@@ -12,7 +11,7 @@ hot_reloaded_restores_settings_pointer :: proc(t: ^testing.T) {
 	// Simulate the new DLL: its copy of the package global is uninitialized.
 	sound_settings = nil
 
-	settings := state.SoundSettings {
+	settings := SoundSettings {
 		volume = 0.5,
 	}
 	hot_reloaded(&settings)

@@ -1,6 +1,5 @@
 package sound
 
-import "../state"
 import "core:log"
 import "core:math/rand"
 import "core:mem"
@@ -8,7 +7,50 @@ import "core:os"
 import "core:strings"
 import rl "vendor:raylib"
 
-sound_settings: ^state.SoundSettings
+// Sound-owned data lives here, next to the behavior that reads and mutates it.
+// The shared GameMemory holds only a pointer to SoundSettings (the hot-reload
+// persistence shell), so these definitions stay local to the sound Module.
+
+SoundSettings :: struct {
+	volume:                   f32,
+	fade_in_time:             f16,
+	fade_out_time:            f16,
+	stop_fade_time:           f16,
+	start_next_time:          f16,
+	shuffle:                  bool,
+	loop:                     bool,
+	normalize_volume:         bool,
+	target_loudness:          f16,
+	playlists:                [dynamic]Playlist,
+	current_playing_playlist: ^Playlist,
+	current_music:            rl.Music,
+	is_music_playing:         bool,
+}
+
+Playlist :: struct {
+	name:                  string,
+	// this should probably be hm.Dynamic_Handle_Map(Track, TrackHandle), but
+	// then we have to store the handles and pass them around.
+	tracks:                [dynamic]Track,
+	// indices into tracks. Handle maps are more stable, but I don't want to pass
+	// around handles everywhere.
+	played_tracks:         [dynamic]int,
+	current_playing_track: ^Track,
+}
+
+Track :: struct {
+	title:         string,
+	path:          string,
+
+	// The actual portion of the track to play. If it's been edited, this will be
+	// the "slice" to play. If not, this is the full track length.
+	slice_to_play: struct {
+		start_time: f16,
+		end_time:   f16,
+	},
+}
+
+sound_settings: ^SoundSettings
 
 MAX_FADE_IN_TIME :: 10
 MAX_FADE_OUT_TIME :: 10
@@ -17,7 +59,7 @@ MAX_START_NEXT_TIME :: 10
 MIN_TARGET_LOUDNESS :: -24
 MAX_TARGET_LOUDNESS :: -6
 
-DefaultSoundSettings := state.SoundSettings {
+DefaultSoundSettings := SoundSettings {
 	volume           = 1.0,
 	fade_in_time     = 2.0,
 	fade_out_time    = 2.0,
@@ -29,11 +71,11 @@ DefaultSoundSettings := state.SoundSettings {
 	target_loudness  = -12,
 }
 
-init_settings :: proc(arena: ^mem.Dynamic_Arena) -> ^state.SoundSettings {
+init_settings :: proc(arena: ^mem.Dynamic_Arena) -> ^SoundSettings {
 	rl.InitAudioDevice()
 
 	alloc := mem.dynamic_arena_allocator(arena)
-	sound_settings = new(state.SoundSettings, alloc)
+	sound_settings = new(SoundSettings, alloc)
 
 	sound_settings^ = DefaultSoundSettings
 	sound_settings.playlists = load_playlists(arena)
@@ -47,7 +89,7 @@ init_settings :: proc(arena: ^mem.Dynamic_Arena) -> ^state.SoundSettings {
 // but this package caches a pointer to them. A freshly loaded DLL starts with
 // that pointer nil, so the hot-reload path must call this before any other
 // sound proc runs (otherwise update() would dereference nil).
-hot_reloaded :: proc(settings: ^state.SoundSettings) {
+hot_reloaded :: proc(settings: ^SoundSettings) {
 	sound_settings = settings
 }
 
@@ -56,7 +98,7 @@ set_volume :: proc(volume: f32) {
 	rl.SetMasterVolume(volume)
 }
 
-load_playlists :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Playlist {
+load_playlists :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]Playlist {
 	potential_playlists, err := os.read_all_directory_by_path(
 		"assets/sounds/music",
 		context.temp_allocator,
@@ -64,14 +106,14 @@ load_playlists :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Playlist {
 	log.ensuref(err == nil, "Error reading music dir: %s", err)
 
 	alloc := mem.dynamic_arena_allocator(arena)
-	playlists := make([dynamic]state.Playlist, alloc)
+	playlists := make([dynamic]Playlist, alloc)
 
 	for playlist_dir in potential_playlists {
 		if playlist_dir.type != .Directory && playlist_dir.type != .Symlink do continue
 
-		playlist := state.Playlist{}
+		playlist := Playlist{}
 		playlist.name = strings.clone(playlist_dir.name, alloc)
-		playlist.tracks = make([dynamic]state.Track, alloc)
+		playlist.tracks = make([dynamic]Track, alloc)
 		track_files, tracks_err := os.read_all_directory_by_path(
 			playlist_dir.fullpath,
 			context.temp_allocator,
@@ -82,7 +124,7 @@ load_playlists :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Playlist {
 			if track_file.type != .Regular do continue
 			name := strings.clone_to_cstring(track_file.name, context.temp_allocator)
 			if rl.IsFileExtension(name, ".wav;.mp3;.ogg;.flac") {
-				track := state.Track {
+				track := Track {
 					title = strings.clone(os.stem(track_file.name), alloc),
 					path  = strings.clone(track_file.fullpath, alloc),
 				}
@@ -106,7 +148,7 @@ stop_sound :: proc(sound: rl.Sound) {
 }
 
 play_playlist :: proc(playlist_name: string) {
-	found_playlist: ^state.Playlist
+	found_playlist: ^Playlist
 	for &playlist in sound_settings.playlists {
 		if playlist.name == playlist_name {
 			found_playlist = &playlist
