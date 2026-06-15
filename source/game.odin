@@ -79,16 +79,18 @@ resolve_ui_type :: proc(name: string) -> ui.UI_Type {
 	}
 }
 
-dispatch_ui_event :: proc(event: ui.UI_Event) {
-	switch resolve_show_action(event.name) {
-	case .Cat_Meow:
-		sound.play_sound("assets/sounds/fx/cat-meow.mp3")
-	case .Drop_Needle:
-		sound.play_playlist("Needle Droppers")
-	case .Master_Volume:
-		sound.set_volume(event.value)
-	case .Unknown:
-		log.warnf("no app behavior mapped for UI control %q", event.name)
+dispatch_ui_events :: proc(events: ^[dynamic]ui.UI_Event) {
+	for event in events {
+		switch resolve_show_action(event.name) {
+		case .Cat_Meow:
+			sound.play_sound("assets/sounds/fx/cat-meow.mp3")
+		case .Drop_Needle:
+			sound.play_playlist("Needle Droppers")
+		case .Master_Volume:
+			sound.set_volume(event.value)
+		case .Unknown:
+			log.warnf("no app behavior mapped for UI control %q", event.name)
+		}
 	}
 }
 
@@ -109,9 +111,7 @@ draw :: proc() {
 	}
 
 	events := ui.draw(gm.ui_controls[:])
-	for event in events {
-		dispatch_ui_event(event)
-	}
+	dispatch_ui_events(&events)
 
 	rl.EndDrawing()
 }
