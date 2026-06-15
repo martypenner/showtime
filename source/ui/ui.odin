@@ -24,120 +24,113 @@ UI_Event :: struct {
 // Renders the controls and returns the interactions observed this frame. Events
 // are allocated in the temp allocator, so callers must consume them before the
 // end-of-frame temp reset.
+//
+// This is the thin interaction-collection phase: per-control Raygui drawing and
+// Raygui-owned state handling live in render_control, so this loop only gathers
+// the events the app layer needs to act on.
 draw :: proc(gm: ^state.GameMemory) -> [dynamic]UI_Event {
 	events := make([dynamic]UI_Event, context.temp_allocator)
 
 	for &ui_control in gm.ui_controls {
-		switch ui_control.control_type {
-		case .WindowBox:
-			rl.GuiWindowBox(ui_control.rect, ui_control.text)
-		case .GroupBox:
-			rl.GuiGroupBox(ui_control.rect, ui_control.text)
-		case .Line:
-			rl.GuiLine(ui_control.rect, ui_control.text)
-		case .Panel:
-			rl.GuiPanel(ui_control.rect, ui_control.text)
-		case .Label:
-			rl.GuiLabel(ui_control.rect, ui_control.text)
-		case .LabelButton:
-			if (rl.GuiLabelButton(ui_control.rect, ui_control.text)) {
-				log.debugf("clicked label button %s", ui_control.text)
-			}
-		case .Button:
-			prev := rl.GuiGetStyle(
-				rl.GuiControl.BUTTON,
-				i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
-			)
-			if ui_control.ui_type == .Destructive {
-				rl.GuiSetStyle(
-					rl.GuiControl.BUTTON,
-					i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
-					i32(rl.ColorToInt(rl.Color{100, 0, 0, 255})),
-				)
-			}
-			button := rl.GuiButton(ui_control.rect, ui_control.text)
-			rl.GuiSetStyle(
-				rl.GuiControl.BUTTON,
-				i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
-				prev,
-			)
-
-			if button {
-				log.debugf("clicked button %s", ui_control.name)
-				append(&events, UI_Event{name = ui_control.name, kind = .Clicked})
-			}
-		case .CheckBox:
-			rl.GuiCheckBox(ui_control.rect, ui_control.text, &ui_control.state.(bool))
-		case .Toggle:
-			rl.GuiToggle(ui_control.rect, ui_control.text, &ui_control.state.(bool))
-		case .ToggleGroup:
-			rl.GuiToggleGroup(ui_control.rect, ui_control.text, &ui_control.state.(i32))
-		case .ComboBox:
-			rl.GuiComboBox(ui_control.rect, ui_control.text, &ui_control.state.(i32))
-		case .DropdownBox:
-			s := &ui_control.state.(state.Choice_State)
-			if (rl.GuiDropdownBox(ui_control.rect, ui_control.text, &s.active, s.edit_mode)) {
-				s.edit_mode = !s.edit_mode
-			}
-		case .TextBox:
-			s := &ui_control.state.(state.Text_State)
-			if (rl.GuiTextBox(
-					   ui_control.rect,
-					   cstring(&s.buffer[0]),
-					   i32(len(s.buffer)),
-					   s.edit_mode,
-				   )) {
-				s.edit_mode = !s.edit_mode
-			}
-		case .ValueBox:
-			s := &ui_control.state.(state.Number_State)
-			if (rl.GuiValueBox(ui_control.rect, ui_control.text, &s.value, 0, 100, s.edit_mode)) >
-			   0 {
-				s.edit_mode = !s.edit_mode
-			}
-		case .TextMultiBox:
-		case .Spinner:
-			s := &ui_control.state.(state.Number_State)
-			if (rl.GuiSpinner(ui_control.rect, ui_control.text, &s.value, 0, 100, s.edit_mode)) >
-			   0 {
-				s.edit_mode = !s.edit_mode
-			}
-		case .Slider:
-			rl.GuiSlider(ui_control.rect, nil, nil, &ui_control.state.(f32), 0, 1)
-		case .SliderBar:
-			rl.GuiSliderBar(ui_control.rect, nil, nil, &ui_control.state.(f32), 0, 1)
-			append(
-				&events,
-				UI_Event {
-					name = ui_control.name,
-					kind = .Value_Changed,
-					value = ui_control.state.(f32),
-				},
-			)
-		case .ProgressBar:
-			rl.GuiProgressBar(ui_control.rect, nil, nil, &ui_control.state.(f32), 0, 1)
-		case .StatusBar:
-			rl.GuiStatusBar(ui_control.rect, ui_control.text)
-		case .ScrollPanel:
-			s := &ui_control.state.(state.Scroll_State)
-			rl.GuiScrollPanel(
-				ui_control.rect,
-				ui_control.text,
-				ui_control.rect,
-				&s.scroll,
-				&s.view,
-			)
-		case .ListView:
-			s := &ui_control.state.(state.List_State)
-			rl.GuiListView(ui_control.rect, ui_control.text, &s.scroll_index, &s.active)
-		case .ColorPicker:
-			rl.GuiColorPicker(ui_control.rect, ui_control.text, &ui_control.state.(rl.Color))
-		case .DummyRect:
-			rl.GuiDummyRec(ui_control.rect, ui_control.text)
+		if event, ok := render_control(&ui_control).?; ok {
+			append(&events, event)
 		}
 	}
 
 	return events
+}
+
+// Renders a single control with Raygui and applies any Raygui-owned state
+// changes (edit-mode toggles, slider values, ...) back to the control. This is
+// where Raygui-specific handling is hidden; it reports an interaction to the app
+// layer by returning a UI_Event, or nil when the control did nothing this frame.
+render_control :: proc(control: ^state.Control) -> Maybe(UI_Event) {
+	switch control.control_type {
+	case .WindowBox:
+		rl.GuiWindowBox(control.rect, control.text)
+	case .GroupBox:
+		rl.GuiGroupBox(control.rect, control.text)
+	case .Line:
+		rl.GuiLine(control.rect, control.text)
+	case .Panel:
+		rl.GuiPanel(control.rect, control.text)
+	case .Label:
+		rl.GuiLabel(control.rect, control.text)
+	case .LabelButton:
+		if (rl.GuiLabelButton(control.rect, control.text)) {
+			log.debugf("clicked label button %s", control.text)
+		}
+	case .Button:
+		prev := rl.GuiGetStyle(rl.GuiControl.BUTTON, i32(rl.GuiControlProperty.BASE_COLOR_NORMAL))
+		if control.ui_type == .Destructive {
+			rl.GuiSetStyle(
+				rl.GuiControl.BUTTON,
+				i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+				i32(rl.ColorToInt(rl.Color{100, 0, 0, 255})),
+			)
+		}
+		button := rl.GuiButton(control.rect, control.text)
+		rl.GuiSetStyle(rl.GuiControl.BUTTON, i32(rl.GuiControlProperty.BASE_COLOR_NORMAL), prev)
+
+		if button {
+			log.debugf("clicked button %s", control.name)
+			return UI_Event{name = control.name, kind = .Clicked}
+		}
+	case .CheckBox:
+		rl.GuiCheckBox(control.rect, control.text, &control.state.(bool))
+	case .Toggle:
+		rl.GuiToggle(control.rect, control.text, &control.state.(bool))
+	case .ToggleGroup:
+		rl.GuiToggleGroup(control.rect, control.text, &control.state.(i32))
+	case .ComboBox:
+		rl.GuiComboBox(control.rect, control.text, &control.state.(i32))
+	case .DropdownBox:
+		s := &control.state.(state.Choice_State)
+		if (rl.GuiDropdownBox(control.rect, control.text, &s.active, s.edit_mode)) {
+			s.edit_mode = !s.edit_mode
+		}
+	case .TextBox:
+		s := &control.state.(state.Text_State)
+		if (rl.GuiTextBox(control.rect, cstring(&s.buffer[0]), i32(len(s.buffer)), s.edit_mode)) {
+			s.edit_mode = !s.edit_mode
+		}
+	case .ValueBox:
+		s := &control.state.(state.Number_State)
+		if (rl.GuiValueBox(control.rect, control.text, &s.value, 0, 100, s.edit_mode)) > 0 {
+			s.edit_mode = !s.edit_mode
+		}
+	case .TextMultiBox:
+	case .Spinner:
+		s := &control.state.(state.Number_State)
+		if (rl.GuiSpinner(control.rect, control.text, &s.value, 0, 100, s.edit_mode)) > 0 {
+			s.edit_mode = !s.edit_mode
+		}
+	case .Slider:
+		rl.GuiSlider(control.rect, nil, nil, &control.state.(f32), 0, 1)
+	case .SliderBar:
+		rl.GuiSliderBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
+		return UI_Event {
+			name = control.name,
+			kind = .Value_Changed,
+			value = control.state.(f32),
+		}
+	case .ProgressBar:
+		rl.GuiProgressBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
+	case .StatusBar:
+		rl.GuiStatusBar(control.rect, control.text)
+	case .ScrollPanel:
+		s := &control.state.(state.Scroll_State)
+		rl.GuiScrollPanel(control.rect, control.text, control.rect, &s.scroll, &s.view)
+	case .ListView:
+		s := &control.state.(state.List_State)
+		rl.GuiListView(control.rect, control.text, &s.scroll_index, &s.active)
+	case .ColorPicker:
+		rl.GuiColorPicker(control.rect, control.text, &control.state.(rl.Color))
+	case .DummyRect:
+		rl.GuiDummyRec(control.rect, control.text)
+	}
+
+	return nil
 }
 
 build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Control {
