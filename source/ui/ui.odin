@@ -257,65 +257,148 @@ render_control :: proc(control: ^Control) -> Maybe(UI_Event) {
 	return nil
 }
 
+// build_layout is the Adapter Seam: it loads the committed rGuiLayout file and
+// turns it into the internal Control list. Malformed layout data is a build-time
+// asset bug, so a parse failure aborts loudly here with a located message rather
+// than producing a half-built UI.
 build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]Control {
-	alloc := mem.dynamic_arena_allocator(arena)
-
 	bytes := #load("../../resources/layout.rgl")
-	lines := string(bytes)
+	controls, err := parse_layout(string(bytes), mem.dynamic_arena_allocator(arena))
+	if e, bad := err.?; bad {
+		log.panicf("layout.rgl: %v at line %d: %q", e.kind, e.line, e.detail)
+	}
+	return controls
+}
 
-	anchors := make(map[int][2]f32)
-	defer delete(anchors)
-	ui_controls := make([dynamic]Control, alloc)
+// Field positions within an rGuiLayout record line. Naming the positions keeps
+// parsing intent clear instead of relying on bare numeric indices, and the enum
+// length doubles as the minimum field count each record needs.
+Anchor_Field :: enum {
+	Tag, // 'a'
+	Id,
+	Name,
+	Pos_X,
+	Pos_Y,
+	Enabled, // ignored: enable/disable is out of scope
+}
 
-	for line in strings.split_lines_iterator(&lines) {
-		type := str_to_layout_item(line[0])
-		#partial switch type {
-		case Layout_Item.Anchor:
-			parts := strings.split(line, " ", context.temp_allocator)
-			id_str, x, y := parts[1], atof32(parts[3]), atof32(parts[4])
-			id, ok := strconv.parse_int(id_str)
-			log.ensuref(ok, "Error parsing control type: %s", id_str)
-			anchors[id] = [2]f32{x, y}
-		case Layout_Item.Component:
-			parts := strings.split_n(line[2:], " ", 9, context.temp_allocator)
-			type_str, name := parts[1], parts[2]
-			type, ok := strconv.parse_int(type_str)
-			log.ensuref(ok, "Error parsing control type: %s", type_str)
-			control_type := Control_Type(type)
+Component_Field :: enum {
+	Tag, // 'c'
+	Id,
+	Type,
+	Name,
+	Rect_X,
+	Rect_Y,
+	Rect_W,
+	Rect_H,
+	Anchor_Id,
+	Text,
+}
 
-			x, y, w, h := atof32(parts[3]), atof32(parts[4]), atof32(parts[5]), atof32(parts[6])
+Layout_Error_Kind :: enum {
+	Too_Few_Fields,
+	Invalid_Int,
+	Invalid_Float,
+}
+
+// A parse failure located in the source layout. detail is a borrowed slice of
+// the offending input (the whole line or the bad token), valid for as long as
+// the input string is.
+Layout_Error :: struct {
+	line:   int, // 1-based line number in the layout source
+	kind:   Layout_Error_Kind,
+	detail: string,
+}
+
+// Parses the rGuiLayout text format into internal controls. Anchor offsets are
+// folded into each control's rect so callers receive ready-to-render rects.
+// Enable/disable fields (anchor <enabled>) are parsed past but never acted on;
+// changing visibility/activation is out of scope. Returns a located error
+// instead of panicking so the Adapter's failure mode is testable.
+parse_layout :: proc(
+	text: string,
+	allocator: mem.Allocator,
+) -> (
+	controls: [dynamic]Control,
+	err: Maybe(Layout_Error),
+) {
+	controls = make([dynamic]Control, allocator)
+	anchors := make(map[int][2]f32, context.temp_allocator)
+
+	remaining := text
+	line_no := 0
+	for line in strings.split_lines_iterator(&remaining) {
+		line_no += 1
+		if len(line) == 0 {
+			continue
+		}
+
+		#partial switch str_to_layout_item(line[0]) {
+		case .Anchor:
+			// a <id> <name> <posx> <posy> <enabled>
+			parts := strings.split_n(line, " ", len(Anchor_Field), context.temp_allocator)
+			if len(parts) < len(Anchor_Field) {
+				return controls, Layout_Error{line_no, .Too_Few_Fields, line}
+			}
+			id := parse_int(parts[Anchor_Field.Id], line_no) or_return
+			x := parse_f32(parts[Anchor_Field.Pos_X], line_no) or_return
+			y := parse_f32(parts[Anchor_Field.Pos_Y], line_no) or_return
+			anchors[id] = {x, y}
+
+		case .Component:
+			// c <id> <type> <name> <x> <y> <w> <h> <anchor_id> <text>
+			parts := strings.split_n(line, " ", len(Component_Field), context.temp_allocator)
+			if len(parts) < len(Component_Field) {
+				return controls, Layout_Error{line_no, .Too_Few_Fields, line}
+			}
+			type := parse_int(parts[Component_Field.Type], line_no) or_return
+			x := parse_f32(parts[Component_Field.Rect_X], line_no) or_return
+			y := parse_f32(parts[Component_Field.Rect_Y], line_no) or_return
+			w := parse_f32(parts[Component_Field.Rect_W], line_no) or_return
+			h := parse_f32(parts[Component_Field.Rect_H], line_no) or_return
+			anchor_id := parse_int(parts[Component_Field.Anchor_Id], line_no) or_return
+
 			rect := rl.Rectangle{x, y, w, h}
-			anchor_id_str, text := parts[7], parts[8]
-			anchor_id, anchor_id_ok := strconv.parse_int(anchor_id_str)
-			log.ensuref(anchor_id_ok, "Error parsing anchor id: %s", anchor_id_str)
-			anchor, has_anchor := anchors[anchor_id]
-			if has_anchor {
+			if anchor, has_anchor := anchors[anchor_id]; has_anchor {
 				rect.x += anchor.x
 				rect.y += anchor.y
 			}
-			log.debugf(
-				"control_type: %s, name: %s, text: %s, anchor_id: %i, %v",
-				control_type,
-				name,
-				text,
-				anchor_id,
-				rect,
-			)
 
+			control_type := Control_Type(type)
 			// Presentation style (e.g. destructive) is an app-owned decision
 			// applied after parsing; generic layout parsing stays neutral.
-			control := Control {
-				control_type = control_type,
-				name         = strings.clone(name, alloc),
-				text         = strings.clone_to_cstring(text, alloc),
-				rect         = rect,
-				state        = default_control_state(control_type),
-			}
-			append(&ui_controls, control)
+			append(
+				&controls,
+				Control {
+					control_type = control_type,
+					name = strings.clone(parts[Component_Field.Name], allocator),
+					text = strings.clone_to_cstring(parts[Component_Field.Text], allocator),
+					rect = rect,
+					state = default_control_state(control_type),
+				},
+			)
 		}
 	}
 
-	return ui_controls
+	return controls, nil
+}
+
+@(private)
+parse_int :: proc(s: string, line_no: int) -> (int, Maybe(Layout_Error)) {
+	value, ok := strconv.parse_int(s)
+	if !ok {
+		return 0, Layout_Error{line_no, .Invalid_Int, s}
+	}
+	return value, nil
+}
+
+@(private)
+parse_f32 :: proc(s: string, line_no: int) -> (f32, Maybe(Layout_Error)) {
+	value, ok := strconv.parse_f64(s)
+	if !ok {
+		return 0, Layout_Error{line_no, .Invalid_Float, s}
+	}
+	return f32(value), nil
 }
 
 str_to_layout_item :: proc(s: u8) -> Layout_Item {
@@ -332,10 +415,4 @@ str_to_layout_item :: proc(s: u8) -> Layout_Item {
 		log.debugf("Unknown layout item: %s", s)
 		return Layout_Item.Unknown
 	}
-}
-
-atof32 :: proc(s: string) -> f32 {
-	res, ok := strconv.parse_f64(s)
-	log.ensuref(ok, "Error parsing float: %s", s)
-	return f32(res)
 }

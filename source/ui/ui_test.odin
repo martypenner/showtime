@@ -1,7 +1,82 @@
 package ui
 
+import "core:mem"
 import "core:testing"
 import rl "vendor:raylib"
+
+// Golden-style check: the committed layout.rgl must keep producing the same
+// visible controls. build_layout is the Adapter Seam (external rGuiLayout format
+// -> internal Control list), so asserting its output here pins parser behavior
+// without reaching into private parsing helpers. Anchor offsets are folded into
+// each rect, matching what the app renders. Enable/disable fields are
+// deliberately not asserted: enable/disable semantics are out of scope.
+@(test)
+build_layout_matches_committed_golden :: proc(t: ^testing.T) {
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+
+	controls := build_layout(&arena)
+
+	Expected :: struct {
+		name: string,
+		type: Control_Type,
+		text: string,
+		rect: rl.Rectangle,
+	}
+	// scenes anchor is at (24, 0); controls anchored to it have that offset
+	// folded into their rect. anchor_id 0 means no anchor (no offset).
+	expected := []Expected {
+		{"preshow", .Button, "Pre-show", {24, 24, 96, 48}},
+		{"postshow", .Button, "Post-show", {144, 24, 96, 48}},
+		{"tohouse", .Button, "To house", {24, 96, 96, 48}},
+		{"sceneramp", .Button, "Scene - ramp", {144, 96, 96, 48}},
+		{"scenefade", .Button, "Scene - fade", {264, 96, 96, 48}},
+		{"dropneedle", .Button, "Drop needle", {384, 96, 96, 48}},
+		{"scenes", .GroupBox, "Scenes", {24, 8, 456, 136}},
+		{"catmeow", .Button, "Cat meow", {24, 600, 96, 48}},
+		{"volumelabel", .Label, "Volume", {504, 0, 120, 24}},
+		{"statusbar", .StatusBar, "Status", {0, 720, 1104, 24}},
+		{"usehousemusic", .CheckBox, "Use house music", {264, 24, 24, 24}},
+		{"mastervolume", .SliderBar, "", {504, 24, 144, 24}},
+	}
+
+	testing.expect_value(t, len(controls), len(expected))
+	if len(controls) != len(expected) {
+		return
+	}
+
+	for exp, i in expected {
+		got := controls[i]
+		testing.expect_value(t, got.name, exp.name)
+		testing.expect_value(t, got.control_type, exp.type)
+		testing.expect_value(t, string(got.text), exp.text)
+		testing.expect_value(t, got.rect, exp.rect)
+	}
+}
+
+// Malformed layout data must fail at the Adapter Seam with a clear, located
+// error rather than an opaque index-out-of-range panic. parse_layout returns
+// the error so the failure mode is testable at the Module Interface.
+@(test)
+parse_layout_reports_malformed_lines :: proc(t: ^testing.T) {
+	{
+		// Component line missing its rect/anchor/text fields.
+		_, err := parse_layout("c 000 5 preshow 0 24 96", context.temp_allocator)
+		e, bad := err.?
+		testing.expect(t, bad, "expected an error for a truncated component line")
+		testing.expect_value(t, e.kind, Layout_Error_Kind.Too_Few_Fields)
+		testing.expect_value(t, e.line, 1)
+	}
+	{
+		// Anchor position that is not a number.
+		_, err := parse_layout("a 1 scenes x 0 1", context.temp_allocator)
+		e, bad := err.?
+		testing.expect(t, bad, "expected an error for a non-numeric anchor field")
+		testing.expect_value(t, e.kind, Layout_Error_Kind.Invalid_Float)
+		testing.expect_value(t, e.line, 1)
+	}
+}
 
 // Each control kind reads exactly one state variant while rendering, so
 // default_control_state must seed that same variant up front. A mismatch would
