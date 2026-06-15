@@ -1,4 +1,4 @@
-.PHONY: all build build-web run
+.PHONY: all build build-web run test
 
 PIDFILE=build/hot_reload/game.pid
 
@@ -21,6 +21,9 @@ run:
 	done; \
 	echo "Game window closed, stopping watch."; \
 	rm -f $(PIDFILE)
+
+test:
+	./scripts/test.sh
 
 clean:
 	@rm -rf build

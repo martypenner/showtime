@@ -147,8 +147,10 @@ game_memory_size :: proc() -> int {
 game_hot_reloaded :: proc(mem: rawptr) {
 	gm = (^state.GameMemory)(mem)
 
-	// Here you can also set your own global variables. A good idea is to make
-	// your global variables into pointers that point to something inside `gm`.
+	// Restore Module-level pointers that point into `gm`. A freshly loaded DLL
+	// starts these globals nil, so they must be re-pointed here before the next
+	// frame uses them.
+	sound.hot_reloaded(gm.sound_settings)
 }
 
 @(export)

@@ -42,6 +42,15 @@ init_settings :: proc(arena: ^mem.Dynamic_Arena) -> ^state.SoundSettings {
 	return sound_settings
 }
 
+// Re-points the Module at the persistent settings after a hot reload. The
+// settings themselves live in GameMemory (the hot-reload persistence shell),
+// but this package caches a pointer to them. A freshly loaded DLL starts with
+// that pointer nil, so the hot-reload path must call this before any other
+// sound proc runs (otherwise update() would dereference nil).
+hot_reloaded :: proc(settings: ^state.SoundSettings) {
+	sound_settings = settings
+}
+
 set_volume :: proc(volume: f32) {
 	sound_settings.volume = volume
 	rl.SetMasterVolume(volume)
