@@ -24,7 +24,7 @@ esac
 # build/hot_reload/ so the $ORIGIN/linux rpath above resolves to the libs copied
 # in there. (The sound package tree-shakes Raylib away, but this is harmless.)
 mkdir -p build/hot_reload
-for pkg in source/sound source/ui source; do
+for pkg in source/sound source/ui source/state source; do
 	name=$(basename "$pkg")
 	odin test "$pkg" \
 		-out:"build/hot_reload/${name}_test.bin" \

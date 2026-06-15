@@ -105,7 +105,7 @@ draw :: proc() {
 	rl.ClearBackground({16, 16, 16, 255})
 
 	when PLAYGROUND {
-		playground.draw(gm)
+		playground.draw(&gm.playground)
 	}
 
 	events := ui.draw(gm.ui_controls[:])

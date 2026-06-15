@@ -2,36 +2,33 @@ package state
 
 import "../sound"
 import "../ui"
+// Only referenced from the PLAYGROUND branch below; @(require) keeps the import
+// valid when playground state is gated out.
+@(require) import "../ui/playground"
 import "core:mem"
-import rl "vendor:raylib"
+
+// PLAYGROUND mirrors the game package's compile-time flag so playground-only
+// state can be gated out of shared game memory when the experiments are not
+// compiled in.
+PLAYGROUND :: #config(PLAYGROUND, false)
+
+// Playground_Memory gates the development-only playground state out of the
+// shared, hot-reloaded GameMemory. Odin has no `when` inside a struct body, so
+// the gating lives in this config-selected wrapper that GameMemory embeds: with
+// PLAYGROUND enabled it carries the playground state, otherwise it is empty and
+// the release memory shape contains only genuinely shared state.
+when PLAYGROUND {
+	Playground_Memory :: struct {
+		playground: playground.State,
+	}
+} else {
+	Playground_Memory :: struct {}
+}
 
 GameMemory :: struct {
 	should_run:     bool,
 	arena:          mem.Dynamic_Arena,
 	ui_controls:    [dynamic]ui.Control,
 	sound_settings: ^sound.SoundSettings,
-	playground:     struct {
-		toggle_state:           struct {
-			current: bool,
-			prev:    bool,
-		},
-		toggle_group_active:    i32,
-		toggle_slider_active:   i32,
-		checked:                bool,
-		text_box_buffer:        [dynamic]u8,
-		text_box_editing:       bool,
-		spinner:                i32,
-		spinner_editing:        bool,
-		slider_value:           f32,
-		progress_value:         f32,
-		visual_style:           i32,
-		dropdown_active:        i32,
-		dropdown_edit:          bool,
-		active_cell:            rl.Vector2,
-		active_tab:             i32,
-		list_view_scroll_index: i32,
-		list_view_active:       i32,
-		color_picker_value:     rl.Color,
-		text_input:             [dynamic]u8,
-	},
+	using _:        Playground_Memory,
 }
