@@ -19,7 +19,16 @@ case $(uname) in
 	;;
 esac
 
-odin test source/sound \
-	-define:RAYLIB_SHARED=true \
-	-extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
-	-strict-style -vet
+# The game package (source) exports procs that reference Raylib, so its test
+# binary links libraylib and needs it at runtime. Emit each test binary into
+# build/hot_reload/ so the $ORIGIN/linux rpath above resolves to the libs copied
+# in there. (The sound package tree-shakes Raylib away, but this is harmless.)
+mkdir -p build/hot_reload
+for pkg in source/sound source; do
+	name=$(basename "$pkg")
+	odin test "$pkg" \
+		-out:"build/hot_reload/${name}_test.bin" \
+		-define:RAYLIB_SHARED=true \
+		-extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
+		-strict-style -vet
+done

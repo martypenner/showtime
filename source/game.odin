@@ -28,6 +28,7 @@ created.
 
 package game
 
+import "core:log"
 import "core:mem"
 import "sound"
 import "state"
@@ -38,6 +39,45 @@ import rl "vendor:raylib"
 PLAYGROUND :: #config(PLAYGROUND, false)
 
 gm: ^state.GameMemory
+
+// Show-control behaviors the app knows how to perform. Generic UI rendering
+// reports interactions by control name; this is the one place that turns those
+// names into app behavior.
+Show_Action :: enum {
+	Unknown,
+	Cat_Meow,
+	Drop_Needle,
+	Master_Volume,
+}
+
+// Resolves a layout control name to a show action. Keeping this mapping in one
+// place makes typos and layout/code mismatches easy to detect, and lets the
+// action Seam be tested without Raylib drawing.
+resolve_show_action :: proc(name: string) -> Show_Action {
+	switch name {
+	case "catmeow":
+		return .Cat_Meow
+	case "dropneedle":
+		return .Drop_Needle
+	case "mastervolume":
+		return .Master_Volume
+	case:
+		return .Unknown
+	}
+}
+
+dispatch_ui_event :: proc(event: ui.UI_Event) {
+	switch resolve_show_action(event.name) {
+	case .Cat_Meow:
+		sound.play_sound("assets/sounds/fx/cat-meow.mp3")
+	case .Drop_Needle:
+		sound.play_playlist("Needle Droppers")
+	case .Master_Volume:
+		sound.set_volume(event.value)
+	case .Unknown:
+		log.warnf("no app behavior mapped for UI control %q", event.name)
+	}
+}
 
 update :: proc() {
 	if rl.IsKeyPressed(.ESCAPE) {
@@ -54,7 +94,11 @@ draw :: proc() {
 	when PLAYGROUND {
 		playground.draw(gm)
 	}
-	ui.draw(gm)
+
+	events := ui.draw(gm)
+	for event in events {
+		dispatch_ui_event(event)
+	}
 
 	rl.EndDrawing()
 }

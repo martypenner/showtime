@@ -1,6 +1,5 @@
 package ui
 
-import "../sound"
 import "../state"
 import "core:log"
 import "core:mem"
@@ -8,7 +7,26 @@ import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
 
-draw :: proc(gm: ^state.GameMemory) {
+// What a control reported this frame. Generic rendering stays free of
+// app-specific behavior: it names the control and the kind of interaction, and
+// the app layer decides what (if anything) that means.
+UI_Event_Kind :: enum u8 {
+	Clicked,
+	Value_Changed,
+}
+
+UI_Event :: struct {
+	name:  string,
+	kind:  UI_Event_Kind,
+	value: f32,
+}
+
+// Renders the controls and returns the interactions observed this frame. Events
+// are allocated in the temp allocator, so callers must consume them before the
+// end-of-frame temp reset.
+draw :: proc(gm: ^state.GameMemory) -> [dynamic]UI_Event {
+	events := make([dynamic]UI_Event, context.temp_allocator)
+
 	for &ui_control in gm.ui_controls {
 		switch ui_control.control_type {
 		case .WindowBox:
@@ -46,12 +64,7 @@ draw :: proc(gm: ^state.GameMemory) {
 
 			if button {
 				log.debugf("clicked button %s", ui_control.name)
-				if ui_control.name == "catmeow" {
-					sound.play_sound("assets/sounds/fx/cat-meow.mp3")
-				}
-				if ui_control.name == "dropneedle" {
-					sound.play_playlist("Needle Droppers")
-				}
+				append(&events, UI_Event{name = ui_control.name, kind = .Clicked})
 			}
 		case .CheckBox:
 			rl.GuiCheckBox(ui_control.rect, ui_control.text, &ui_control.state.(bool))
@@ -93,9 +106,14 @@ draw :: proc(gm: ^state.GameMemory) {
 			rl.GuiSlider(ui_control.rect, nil, nil, &ui_control.state.(f32), 0, 1)
 		case .SliderBar:
 			rl.GuiSliderBar(ui_control.rect, nil, nil, &ui_control.state.(f32), 0, 1)
-			if ui_control.name == "mastervolume" {
-				sound.set_volume(ui_control.state.(f32))
-			}
+			append(
+				&events,
+				UI_Event {
+					name = ui_control.name,
+					kind = .Value_Changed,
+					value = ui_control.state.(f32),
+				},
+			)
 		case .ProgressBar:
 			rl.GuiProgressBar(ui_control.rect, nil, nil, &ui_control.state.(f32), 0, 1)
 		case .StatusBar:
@@ -118,6 +136,8 @@ draw :: proc(gm: ^state.GameMemory) {
 			rl.GuiDummyRec(ui_control.rect, ui_control.text)
 		}
 	}
+
+	return events
 }
 
 build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]state.Control {
