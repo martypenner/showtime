@@ -240,9 +240,14 @@ game_init_window :: proc() {
 	// occur between networked devices.
 	rl.SetTargetFPS(500)
 	rl.SetExitKey(nil)
+	load_ui_style()
+}
 
-	// GuiLoadStyle only accepts a file path, so write the embedded style next to
-	// the running executable (resolves regardless of the working directory).
+// GuiLoadStyle only accepts a file path, so write the embedded style next to
+// the running executable (resolves regardless of the working directory). Raygui
+// style is global module state, so hot reload must apply it again after loading
+// a fresh game DLL.
+load_ui_style :: proc() {
 	style_raw := #load("../resources/cyber.rgs")
 	style_path := fmt.ctprint(rl.GetApplicationDirectory(), "cyber.rgs", sep = "")
 	rl.SaveFileData(style_path, raw_data(style_raw), i32(len(style_raw)))
@@ -313,6 +318,8 @@ game_memory_size :: proc() -> int {
 @(export)
 game_hot_reloaded :: proc(mem: rawptr) {
 	gm = (^state.GameMemory)(mem)
+
+	load_ui_style()
 
 	// Restore Module-level pointers that point into `gm`. A freshly loaded DLL
 	// starts these globals nil, so they must be re-pointed here before the next
