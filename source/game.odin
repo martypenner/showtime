@@ -141,19 +141,20 @@ dispatch_ui_events :: proc(events: ^[dynamic]ui.UI_Event) {
 			sound.save_settings()
 		case .Pre_Show:
 			vol := f32(0.5)
-			sound.set_music_volume(vol)
 			ui.set_volume_value(vol, gm.ui_controls[:])
-			sound.play_playlist("Happy Beats")
+			// Pass the volume to play_playlist so it cross-fades in with the new
+			// track rather than jumping the outgoing track to it.
+			sound.play_playlist("Happy Beats", vol)
 		case .Post_Show:
 			vol := f32(0.8)
-			sound.set_music_volume(vol)
 			ui.set_volume_value(vol, gm.ui_controls[:])
-			sound.play_playlist("Happy Beats")
+			sound.play_playlist("Happy Beats", vol)
 		case .Drop_Needle:
 			vol := f32(1.0)
-			sound.set_music_volume(vol)
 			ui.set_volume_value(vol, gm.ui_controls[:])
-			sound.play_playlist("Needle Droppers")
+			// Drop the needle: hard-cut all music and slam in at full volume,
+			// bypassing the cross-fade the other scene switches use.
+			sound.play_playlist("Needle Droppers", vol, true)
 		case .Cat_Meow:
 			// Sound effects carry their own volume, independent of music_volume.
 			sound.play_sound("assets/sounds/fx/cat-meow.mp3", 0.6)

@@ -130,6 +130,69 @@ playback_gain_clamps_target_loudness :: proc(t: ^testing.T) {
 }
 
 @(test)
+fade_amplitude_is_silent_at_zero_and_full_at_one :: proc(t: ^testing.T) {
+	testing.expect_value(t, music_fade_amplitude(0), f32(0))
+	testing.expect_value(t, music_fade_amplitude(1), f32(1))
+}
+
+@(test)
+fade_amplitude_clamps_out_of_range_positions :: proc(t: ^testing.T) {
+	testing.expect_value(t, music_fade_amplitude(-0.5), f32(0))
+	testing.expect_value(t, music_fade_amplitude(1.5), f32(1))
+}
+
+@(test)
+fade_amplitude_eases_through_the_midpoint :: proc(t: ^testing.T) {
+	// Smoothstep crosses 0.5 at its midpoint, unlike a linear ramp this only
+	// matters in that both endpoints stay anchored while the slope eases.
+	testing.expect_value(t, music_fade_amplitude(0.5), f32(0.5))
+	testing.expect(
+		t,
+		music_fade_amplitude(0.25) < 0.25,
+		"smoothstep should ramp slowly near the start of a fade",
+	)
+}
+
+@(test)
+fade_speed_is_reciprocal_of_duration :: proc(t: ^testing.T) {
+	testing.expect_value(t, fade_speed_for(2), f32(0.5))
+	testing.expect_value(t, fade_speed_for(4), f32(0.25))
+}
+
+@(test)
+fade_speed_snaps_when_duration_is_non_positive :: proc(t: ^testing.T) {
+	// A zero/negative fade time means "no fade"; the speed must be large enough
+	// to reach the target on the next frame even at a tiny dt.
+	testing.expect(t, fade_speed_for(0) * (1.0 / 60.0) >= 1, "zero fade time should snap in one frame")
+	testing.expect(t, fade_speed_for(-1) > 0, "negative fade time should still snap forward")
+}
+
+@(test)
+advance_fade_ramps_up_without_overshooting :: proc(t: ^testing.T) {
+	voice := MusicVoice {
+		fade        = 0,
+		fade_target = 1,
+	}
+	advance_fade(&voice, fade_speed_for(2), 1)
+	testing.expect_value(t, voice.fade, f32(0.5))
+	// A second-and-a-half step would overshoot 1.0; it must clamp instead.
+	advance_fade(&voice, fade_speed_for(2), 1.5)
+	testing.expect_value(t, voice.fade, f32(1))
+}
+
+@(test)
+advance_fade_ramps_down_without_undershooting :: proc(t: ^testing.T) {
+	voice := MusicVoice {
+		fade        = 1,
+		fade_target = 0,
+	}
+	advance_fade(&voice, fade_speed_for(2), 1)
+	testing.expect_value(t, voice.fade, f32(0.5))
+	advance_fade(&voice, fade_speed_for(2), 5)
+	testing.expect_value(t, voice.fade, f32(0))
+}
+
+@(test)
 sample_from_wave_matches_raylib_8_bit_normalization :: proc(t: ^testing.T) {
 	data := [?]u8{0, 128, 255}
 	wave := rl.Wave {

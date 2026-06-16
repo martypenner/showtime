@@ -34,12 +34,44 @@ SoundSettings :: struct {
 	track_loudness:           map[PathName]TrackLoudness,
 	playlists:                [dynamic]Playlist `json:"-"`,
 	current_playing_playlist: ^Playlist `json:"-"`,
-	current_music:            rl.Music `json:"-"`,
-	// Normalization gain of the track in current_music, cached so changes to
-	// music_volume can be reapplied to the live stream without re-deriving it.
-	current_music_gain:       f32 `json:"-"`,
+	// The music streams currently producing sound. A cross-fade is pairwise, so
+	// at most two are ever active at once: the outgoing track fading to silence
+	// and the incoming one fading up. Steady state uses just one slot.
+	music_voices:             [MUSIC_VOICE_COUNT]MusicVoice `json:"-"`,
 	current_sounds:           [dynamic]rl.Sound `json:"-"`,
 	is_sound_playing:         bool `json:"-"`,
+}
+
+// A cross-fade only ever blends the outgoing track into the incoming one, so two
+// voices is the most we need.
+MUSIC_VOICE_COUNT :: 2
+
+// One playing music stream and the state needed to fade it in or out. fade is a
+// linear 0..1 position run through music_fade_amplitude to get the actual
+// volume curve, so the same value drives a fade in (toward 1) or out (toward 0)
+// simply by moving fade_target. Everything else (the track's gain, the fade
+// rate) is derived from the settings on demand rather than copied in here, so
+// there is a single source of truth and live setting changes take effect mid
+// fade.
+MusicVoice :: struct {
+	music:        rl.Music,
+	// Whether this slot holds a live stream. Empty slots are skipped.
+	active:       bool,
+	// The track being played, used to look up its normalization gain. Borrowed
+	// from the playlist, which outlives every voice.
+	path:         string,
+	// The master music volume this voice plays at, snapshotted when it started.
+	// Held per-voice (rather than read from the live setting) so a volume change
+	// cross-fades: the outgoing track keeps its old volume while the incoming
+	// one rises to the new one, instead of every voice jumping at once.
+	volume:       f32,
+	// Current linear fade position and where it is heading (0 = silent, 1 = full).
+	// fade_target also encodes direction: 1 is fading in, 0 is fading out.
+	fade:         f32,
+	fade_target:  f32,
+	// Set once the lead (incoming) voice has kicked off the next track, so the
+	// cross-fade is triggered exactly once per track.
+	started_next: bool,
 }
 
 Playlist :: struct {
@@ -117,8 +149,61 @@ DefaultSoundSettings := SoundSettings {
 // master volume.
 set_music_volume :: proc(volume: f32) {
 	sound_settings.music_volume = volume
-	if music_is_loaded(sound_settings.current_music) {
-		rl.SetMusicVolume(sound_settings.current_music, volume * sound_settings.current_music_gain)
+	// The slider changes the music that is playing right now, so update every
+	// live voice's snapshot too (a scene switch, which should only set the
+	// incoming track's volume, uses play_playlist instead).
+	for &voice in sound_settings.music_voices {
+		if !voice.active do continue
+		voice.volume = volume
+		rl.SetMusicVolume(voice.music, music_voice_volume(voice))
+	}
+}
+
+// Resolves a voice's live raylib volume from its snapshotted master volume, the
+// track's normalization gain, and its current point on the fade curve.
+music_voice_volume :: proc(voice: MusicVoice) -> f32 {
+	return voice.volume * music_track_gain(voice.path) * music_fade_amplitude(voice.fade)
+}
+
+// Looks up a track's normalization gain from the loudness cache (the single
+// source of truth), falling back to unity if it was never measured.
+music_track_gain :: proc(path: string) -> f32 {
+	loudness, ok := sound_settings.track_loudness[PathName(path)]
+	if !ok do return MUSIC_MAX_NORMALIZED_GAIN
+	return clamp_music_gain(loudness.volume_multiplier)
+}
+
+// Picks a voice's fade rate from the configured fade times: a voice heading to
+// full (fade_target 1) is fading in, one heading to silence is fading out.
+music_voice_fade_speed :: proc(voice: MusicVoice) -> f32 {
+	fade_time := voice.fade_target == 1 ? sound_settings.fade_in_time : sound_settings.fade_out_time
+	return fade_speed_for(fade_time)
+}
+
+// Shapes the linear 0..1 fade position into a volume multiplier. Smoothstep
+// gives a gentle ease-in/ease-out so fades start and end softly rather than
+// ramping linearly.
+music_fade_amplitude :: proc(fade: f32) -> f32 {
+	t := clamp(fade, 0, 1)
+	return t * t * (3 - 2 * t)
+}
+
+// Converts a fade duration (seconds) into a per-second fade speed. A
+// non-positive time means "no fade", advancing fast enough to snap to the
+// target on the next frame.
+fade_speed_for :: proc(fade_time: f32) -> f32 {
+	if fade_time <= 0 do return 1e9
+	return 1.0 / fade_time
+}
+
+// Steps a voice's linear fade toward its target at the given speed (fade units
+// per second) without overshooting.
+advance_fade :: proc(voice: ^MusicVoice, speed, dt: f32) {
+	step := speed * dt
+	if voice.fade < voice.fade_target {
+		voice.fade = min(voice.fade + step, voice.fade_target)
+	} else if voice.fade > voice.fade_target {
+		voice.fade = max(voice.fade - step, voice.fade_target)
 	}
 }
 
@@ -235,7 +320,12 @@ play_sound :: proc(filepath: string, volume: f32) -> rl.Sound {
 }
 stop_sound :: proc(sound: rl.Sound) {}
 
-play_playlist :: proc(playlist_name: string) {
+// Starts a playlist at the given master volume. The volume becomes the target
+// for the incoming track (and any tracks that follow it); voices already fading
+// out keep the volume they started at, so switching playlists cross-fades the
+// volume change instead of jumping the outgoing track to the new level. With cut
+// the first track hard-cuts in at full volume instead of cross-fading.
+play_playlist :: proc(playlist_name: string, volume: f32, cut := false) {
 	found_playlist: ^Playlist
 	for &playlist in sound_settings.playlists {
 		if playlist.name == playlist_name {
@@ -249,24 +339,36 @@ play_playlist :: proc(playlist_name: string) {
 	}
 
 	log.debugf("Playing playlist %s", playlist_name)
-	track_count := int(hm.len(found_playlist.tracks))
+	sound_settings.music_volume = volume
+	sound_settings.current_playing_playlist = found_playlist
+	play_next_track(found_playlist, cut)
+}
+
+// Picks the next track to play from a playlist and starts it. By default it
+// cross-fades out whatever is currently playing; with cut it stops everything
+// instantly and starts the new track at full volume. Tracks are chosen randomly
+// from the unplayed set; once every track has played the set resets, so a
+// playlist runs forever. This drives both the user starting a playlist and the
+// automatic advance at the end of each track.
+play_next_track :: proc(playlist: ^Playlist, cut := false) {
+	track_count := int(hm.len(playlist.tracks))
 	if track_count == 0 {
-		log.warnf("Playlist has no tracks, skipping: %s", playlist_name)
+		log.warnf("Playlist has no tracks, skipping: %s", playlist.name)
 		return
 	}
 
-	if found_playlist.played_track_count >= track_count {
-		it := hm.iterator_make(&found_playlist.tracks)
+	if playlist.played_track_count >= track_count {
+		it := hm.iterator_make(&playlist.tracks)
 		for track, handle in hm.iterate(&it) {
-			assert(hm.is_valid(&found_playlist.tracks, handle))
+			assert(hm.is_valid(&playlist.tracks, handle))
 			track.played = false
 		}
-		found_playlist.played_track_count = 0
+		playlist.played_track_count = 0
 	}
 
 	chosen_track: ^Track
 	unplayed_seen := 0
-	it := hm.iterator_make(&found_playlist.tracks)
+	it := hm.iterator_make(&playlist.tracks)
 	for track, _ in hm.iterate(&it) {
 		if track.played do continue
 
@@ -276,43 +378,80 @@ play_playlist :: proc(playlist_name: string) {
 		}
 	}
 	if chosen_track == nil {
-		log.warnf("Couldn't choose track from playlist, skipping: %s", playlist_name)
+		log.warnf("Couldn't choose track from playlist, skipping: %s", playlist.name)
 		return
 	}
 
 	log.debugf("Chosen random track: %v", chosen_track^)
-	sound_settings.current_playing_playlist = found_playlist
-	found_playlist.current_playing_track = chosen_track
+	playlist.current_playing_track = chosen_track
 	chosen_track.played = true
-	found_playlist.played_track_count += 1
-	play_music(chosen_track^)
+	playlist.played_track_count += 1
+	play_music(chosen_track^, cut)
 }
 
 pause_playlist :: proc() {}
 stop_playlist :: proc() {}
 
-play_music :: proc(track: Track) {
+// Starts a track as a new music voice. By default it fades in while the voices
+// already playing fade out, producing a cross-fade (outgoing ramps down over
+// fade_out_time, incoming up over fade_in_time). With cut it instead stops every
+// playing voice immediately and starts the new track already at full volume, for
+// a hard "drop the needle" transition with no fades.
+play_music :: proc(track: Track, cut := false) {
 	music := rl.LoadMusicStream(strings.clone_to_cstring(track.path, context.temp_allocator))
 	music.looping = false
-	loudness, loudness_exists := sound_settings.track_loudness[PathName(track.path)]
-	log.ensuref(loudness_exists, "Playback gain was not computed for track: %v", track)
-	gain :=
-		loudness_exists ? clamp_music_gain(loudness.volume_multiplier) : MUSIC_MAX_NORMALIZED_GAIN
-	sound_settings.current_music_gain = gain
-	rl.SetMusicVolume(music, sound_settings.music_volume * gain)
+	_, gain_ready := sound_settings.track_loudness[PathName(track.path)]
+	log.ensuref(gain_ready, "Playback gain was not computed for track: %v", track)
 
-	if music_is_loaded(sound_settings.current_music) {
-		rl.StopMusicStream(sound_settings.current_music)
-		rl.UnloadMusicStream(sound_settings.current_music)
+	if cut {
+		// Drop the needle: kill everything instantly so there is nothing left to
+		// fade out below.
+		for index in 0 ..< len(sound_settings.music_voices) {
+			unload_music_voice(index)
+		}
 	}
 
-	sound_settings.current_music = music
+	// Claim a slot for the incoming track before touching the others, so the
+	// voice we are about to fill is not also told to fade out below.
+	slot := acquire_music_voice_slot()
+
+	// Whatever is still playing becomes outgoing: fade it out and stop it from
+	// triggering another advance while it winds down. After a cut nothing is
+	// active here.
+	for &voice in sound_settings.music_voices {
+		if !voice.active do continue
+		voice.fade_target = 0
+		voice.started_next = true
+	}
+
+	voice := MusicVoice {
+		music       = music,
+		active      = true,
+		path        = track.path,
+		volume      = sound_settings.music_volume,
+		fade        = cut ? 1 : 0,
+		fade_target = 1,
+	}
+	rl.SetMusicVolume(music, music_voice_volume(voice))
+	sound_settings.music_voices[slot] = voice
 
 	rl.PlayMusicStream(music)
 }
 
-music_is_loaded :: proc(music: rl.Music) -> bool {
-	return music.stream.buffer != nil
+// Returns the index of a voice slot ready for a new track. Prefers an empty
+// slot; if a cross-fade is still in flight and both are busy, it reuses (and
+// cuts) the quietest voice, which is the one already closest to silent.
+acquire_music_voice_slot :: proc() -> int {
+	for &voice, index in sound_settings.music_voices {
+		if !voice.active do return index
+	}
+
+	quietest := 0
+	for &voice, index in sound_settings.music_voices {
+		if voice.fade < sound_settings.music_voices[quietest].fade do quietest = index
+	}
+	unload_music_voice(quietest)
+	return quietest
 }
 
 clamp_fade_in_time :: proc() {}
@@ -587,16 +726,64 @@ update :: proc() {
 
 	}
 
-	if music_is_loaded(sound_settings.current_music) {
-		if rl.IsMusicStreamPlaying(sound_settings.current_music) {
-			rl.UpdateMusicStream(sound_settings.current_music)
-		} else {
-			rl.StopMusicStream(sound_settings.current_music)
-			rl.UnloadMusicStream(sound_settings.current_music)
-			sound_settings.current_music = {}
-			sound_settings.current_playing_playlist = nil
+	dt := rl.GetFrameTime()
+	should_advance := false
+	any_active := false
+
+	for index in 0 ..< len(sound_settings.music_voices) {
+		voice := &sound_settings.music_voices[index]
+		if !voice.active do continue
+
+		advance_fade(voice, music_voice_fade_speed(voice^), dt)
+		rl.SetMusicVolume(voice.music, music_voice_volume(voice^))
+
+		if !rl.IsMusicStreamPlaying(voice.music) {
+			// Stream ran out before the cross-fade window (e.g. a very short
+			// track, or start_next_time of 0); advance if it was the lead.
+			if voice.fade_target == 1 do should_advance = true
+			unload_music_voice(index)
+			continue
 		}
+		rl.UpdateMusicStream(voice.music)
+
+		// Outgoing voice has fully faded out: its part of the cross-fade is done.
+		if voice.fade_target == 0 && voice.fade <= 0 {
+			unload_music_voice(index)
+			continue
+		}
+
+		// Lead voice reaching its tail starts the cross-fade into the next track.
+		if voice.fade_target == 1 && !voice.started_next && music_voice_near_end(voice^) {
+			voice.started_next = true
+			should_advance = true
+		}
+		any_active = true
 	}
+
+	if should_advance && sound_settings.current_playing_playlist != nil {
+		play_next_track(sound_settings.current_playing_playlist)
+	} else if !any_active {
+		sound_settings.current_playing_playlist = nil
+	}
+}
+
+// Reports whether the lead voice is within start_next_time of its end, i.e. it
+// is time to begin cross-fading into the next track.
+music_voice_near_end :: proc(voice: MusicVoice) -> bool {
+	length := rl.GetMusicTimeLength(voice.music)
+	if length <= 0 do return false
+	remaining := length - rl.GetMusicTimePlayed(voice.music)
+	return remaining <= sound_settings.start_next_time
+}
+
+// Stops, unloads, and clears the voice in the given slot, leaving it free for a
+// future track.
+unload_music_voice :: proc(index: int) {
+	voice := &sound_settings.music_voices[index]
+	if !voice.active do return
+	rl.StopMusicStream(voice.music)
+	rl.UnloadMusicStream(voice.music)
+	voice^ = {}
 }
 
 // Re-points the Module at the persistent settings after a hot reload. The
@@ -610,10 +797,10 @@ hot_reloaded :: proc(settings: ^SoundSettings) {
 
 shutdown :: proc() {
 	if sound_settings != nil {
-		if music_is_loaded(sound_settings.current_music) {
-			rl.StopMusicStream(sound_settings.current_music)
-			rl.UnloadMusicStream(sound_settings.current_music)
-			sound_settings.current_music = {}
+		for voice in sound_settings.music_voices {
+			if !voice.active do continue
+			rl.StopMusicStream(voice.music)
+			rl.UnloadMusicStream(voice.music)
 		}
 		for sound in sound_settings.current_sounds {
 			rl.UnloadSound(sound)
