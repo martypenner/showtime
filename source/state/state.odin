@@ -28,6 +28,7 @@ when PLAYGROUND {
 GameMemory :: struct {
 	should_run:     bool,
 	arena:          mem.Dynamic_Arena,
+	active_tab:     int,
 	ui_controls:    [dynamic]ui.Control,
 	sound_settings: ^sound.SoundSettings,
 	using _:        Playground_Memory,

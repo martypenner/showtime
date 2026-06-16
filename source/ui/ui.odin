@@ -50,13 +50,23 @@ UI_Type :: enum u8 {
 	Destructive,
 }
 
+// A control marked with this group renders on every page rather than a single
+// one. It is for persistent chrome (the tab bar, the status bar) that should
+// stay visible no matter which page the app has activated.
+VISIBLE_ON_ALL_GROUPS :: -1
+
 Control :: struct {
-	control_type: Control_Type,
-	ui_type:      UI_Type,
-	name:         string,
-	text:         cstring,
-	rect:         rl.Rectangle,
-	state:        Control_State,
+	control_type:     Control_Type,
+	ui_type:          UI_Type,
+	// Which page/tab this control renders on. The ui layer stays app-agnostic:
+	// it only compares this against the active group passed to draw, so the app
+	// decides what each group means. Defaults to group 0; chrome that must show
+	// everywhere uses VISIBLE_ON_ALL_GROUPS.
+	visibility_group: int,
+	name:             string,
+	text:             cstring,
+	rect:             rl.Rectangle,
+	state:            Control_State,
 }
 
 // Mutable per-control state. Each control kind stores only the variant it
@@ -152,16 +162,33 @@ UI_Event :: struct {
 // This is the thin interaction-collection phase: per-control Raygui drawing and
 // Raygui-owned state handling live in render_control, so this loop only gathers
 // the events the app layer needs to act on.
-draw :: proc(controls: []Control) -> [dynamic]UI_Event {
+//
+// Only controls in the active group (plus those marked VISIBLE_ON_ALL_GROUPS)
+// are drawn. Hidden controls are skipped in place rather than filtered into a
+// copy, because a control owns mutable Raygui state (edit modes, text buffers)
+// that must keep living in the caller's slice.
+draw :: proc(controls: []Control, active_group: int) -> [dynamic]UI_Event {
 	events := make([dynamic]UI_Event, context.temp_allocator)
 
 	for &ui_control in controls {
+		if !control_visible(ui_control, active_group) {
+			continue
+		}
 		if event, ok := render_control(&ui_control).?; ok {
 			append(&events, event)
 		}
 	}
 
 	return events
+}
+
+// A control is drawn when it belongs to the active group or is persistent chrome
+// shown on every group.
+control_visible :: proc(control: Control, active_group: int) -> bool {
+	return(
+		control.visibility_group == VISIBLE_ON_ALL_GROUPS ||
+		control.visibility_group == active_group \
+	)
 }
 
 // Renders a single control with Raygui and applies any Raygui-owned state
@@ -205,7 +232,15 @@ render_control :: proc(control: ^Control) -> Maybe(UI_Event) {
 	case .Toggle:
 		rl.GuiToggle(control.rect, control.text, &control.state.(bool))
 	case .ToggleGroup:
+		prev_state := control.state.(i32)
 		rl.GuiToggleGroup(control.rect, control.text, &control.state.(i32))
+		if prev_state != control.state.(i32) {
+			return UI_Event {
+				name = control.name,
+				kind = .Value_Changed,
+				value = f32(control.state.(i32)),
+			}
+		}
 	case .ComboBox:
 		rl.GuiComboBox(control.rect, control.text, &control.state.(i32))
 	case .DropdownBox:
@@ -271,18 +306,28 @@ prepare_controls_for_render :: proc(controls: []Control, render_width: i32, rend
 	}
 }
 
-// build_layout is the Adapter Seam: it loads the committed rGuiLayout file and
-// turns it into the internal Control list. Malformed layout data is a build-time
-// asset bug, so a parse failure aborts loudly here with a located message rather
-// than producing a half-built UI.
-build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]Control {
-	bytes := #load("../../resources/layout.rgl")
-	controls, err := parse_layout(string(bytes), mem.dynamic_arena_allocator(arena))
+// load_layout is the Adapter Seam: it parses one rGuiLayout source and appends
+// its controls to `controls`, tagging each with `group` so the caller can split
+// controls across pages/tabs by loading a file per group. The ui layer stays
+// app-agnostic: it does not know how many groups exist or what they mean.
+// Malformed layout data is a build-time asset bug, so a parse failure aborts
+// loudly with a located message (including `name`) rather than producing a
+// half-built UI.
+load_layout :: proc(
+	controls: ^[dynamic]Control,
+	name: string,
+	source: string,
+	group: int,
+	allocator: mem.Allocator,
+) {
+	parsed, err := parse_layout(source, allocator)
 	if e, bad := err.?; bad {
-		log.panicf("layout.rgl: %v at line %d: %q", e.kind, e.line, e.detail)
+		log.panicf("%s: %v at line %d: %q", name, e.kind, e.line, e.detail)
 	}
-	prepare_controls_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
-	return controls
+	for &control in parsed {
+		control.visibility_group = group
+	}
+	append(controls, ..parsed[:])
 }
 
 // Field positions within an rGuiLayout record line. Naming the positions keeps

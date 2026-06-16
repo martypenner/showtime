@@ -46,9 +46,66 @@ gm: ^state.GameMemory
 // names into app behavior.
 Show_Action :: enum {
 	Unknown,
-	Cat_Meow,
-	Drop_Needle,
+	// Main controls
+	Tab_Bar,
 	Master_Volume,
+	// Scene changes
+	Drop_Needle,
+	// Sounds
+	Cat_Meow,
+	// Later: lighting
+}
+
+// The pages the controls are split across, selected by the Tab_Bar. Each tab is
+// authored as its own rGuiLayout file and loaded into the matching group in
+// build_layout. The order must match the Tab_Bar ToggleGroup options in
+// resources/chrome.rgl ("Controls;Music"): the ToggleGroup reports the active
+// tab by index, and that index is the control's visibility group.
+Tab :: enum int {
+	Controls = 0,
+	Music    = 1,
+}
+
+// Loads the layout files into one control list, returning the combined result.
+// The UI is split per file rather than per control name so each screen is
+// editable on its own in the layout tool: chrome.rgl holds the persistent
+// controls shown on every tab, and one file per Tab holds that tab's controls.
+// Add a tab by authoring its file and loading it here against the matching Tab.
+build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]ui.Control {
+	alloc := mem.dynamic_arena_allocator(arena)
+	controls := make([dynamic]ui.Control, alloc)
+
+	// Per-tab content first, then chrome, so the persistent controls draw on top.
+	ui.load_layout(
+		&controls,
+		"controls.rgl",
+		string(#load("../resources/controls.rgl")),
+		int(Tab.Controls),
+		alloc,
+	)
+	// ui.load_layout(&controls, "music.rgl", string(#load("../resources/music.rgl")), int(Tab.Music), alloc)
+
+	ui.load_layout(
+		&controls,
+		"chrome.rgl",
+		string(#load("../resources/chrome.rgl")),
+		ui.VISIBLE_ON_ALL_GROUPS,
+		alloc,
+	)
+
+	ui.prepare_controls_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
+	return controls
+}
+
+// Keeps a tab index reported by the Tab_Bar within the defined tabs, so a
+// malformed/extra ToggleGroup option can't activate a page that doesn't exist.
+clamp_tab :: proc(index: int) -> int {
+	switch Tab(index) {
+	case .Controls, .Music:
+		return index
+	case:
+		return int(Tab.Controls)
+	}
 }
 
 // Resolves a layout control name to its presentation style. Destructive styling
@@ -68,15 +125,19 @@ dispatch_ui_events :: proc(events: ^[dynamic]ui.UI_Event) {
 	for event in events {
 		val, ok := fmt.string_to_enum_value(Show_Action, event.name)
 		if !ok do val = .Unknown
-		if val != .Unknown do sound.save_settings()
 
+		// Only actions that mutate persisted settings save them. Tab switches
+		// and one-shot sounds are transient, so they don't touch the file.
 		switch val {
-		case .Cat_Meow:
-			sound.play_sound("assets/sounds/fx/cat-meow.mp3")
-		case .Drop_Needle:
-			sound.play_playlist("Needle Droppers")
+		case .Tab_Bar:
+			gm.active_tab = clamp_tab(int(event.value))
 		case .Master_Volume:
 			sound.set_volume(event.value)
+			sound.save_settings()
+		case .Drop_Needle:
+			sound.play_playlist("Needle Droppers")
+		case .Cat_Meow:
+			sound.play_sound("assets/sounds/fx/cat-meow.mp3")
 		case .Unknown:
 			log.warnf("No app behavior mapped for UI control %q", event.name)
 		}
@@ -106,7 +167,7 @@ draw :: proc() {
 		playground.draw(&gm.playground)
 	}
 
-	events := ui.draw(gm.ui_controls[:])
+	events := ui.draw(gm.ui_controls[:], gm.active_tab)
 	dispatch_ui_events(&events)
 
 	rl.EndDrawing()
@@ -155,9 +216,10 @@ game_init :: proc() {
 	mem.dynamic_arena_init(&gm.arena)
 	arena_alloc := mem.dynamic_arena_allocator(&gm.arena)
 	gm.sound_settings = sound.init_settings(arena_alloc)
-	gm.ui_controls = ui.build_layout(&gm.arena)
-	// Generic layout parsing leaves presentation neutral; the app applies its
-	// own styling metadata (e.g. destructive controls) here.
+	// build_layout assigns each control's tab (visibility group) from the file it
+	// was loaded out of. The remaining app metadata (destructive styling) is
+	// neutral after parsing, so it is applied here.
+	gm.ui_controls = build_layout(&gm.arena)
 	for &control in gm.ui_controls {
 		control.ui_type = resolve_ui_type(control.name)
 	}

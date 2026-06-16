@@ -1,7 +1,7 @@
 #
 # rgl layout text file (v4.0) - raygui layout file generated using rGuiLayout
 #
-# Number of controls:     13
+# Number of controls:     11
 #
 # Ref. window:    r <x> <y> <width> <height>
 # Anchor info:    a <id> <name> <posx> <posy> <enabled>
@@ -18,7 +18,5 @@ c 005 5 Drop_Needle 360 96 96 48 1 Drop needle
 c 006 1 Scenes 0 8 456 136 1 Scenes
 c 007 5 Cat_Meow 0 504 96 48 1 Cat meow
 c 008 4 Volume_Label 480 0 144 24 1 Volume
-c 009 19 Status_Bar 0 696 1104 24 0 Status
 c 010 7 Use_House_Music 240 24 24 24 1 Use house music
 c 011 17 Master_Volume 480 24 144 24 1 
-c 012 9 Tab_Bar -24 -48 88 24 1 Controls;Music

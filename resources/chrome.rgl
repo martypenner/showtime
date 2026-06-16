@@ -1,0 +1,14 @@
+#
+# rgl layout text file (v4.0) - raygui layout file generated using rGuiLayout
+#
+# Persistent chrome shown on every tab (tab bar + status bar).
+#
+# Number of controls:     2
+#
+# Ref. window:    r <x> <y> <width> <height>
+# Anchor info:    a <id> <name> <posx> <posy> <enabled>
+# Control info:   c <id> <type> <name> <rectangle> <anchor_id> <text>
+#
+r 0 40 -1 -1
+c 000 9 Tab_Bar 0 0 88 24 0 Controls;Music
+c 001 19 Status_Bar 0 696 1104 24 0 Status

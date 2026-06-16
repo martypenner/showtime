@@ -1,5 +1,6 @@
 package game
 
+import "core:mem"
 import "core:testing"
 import "ui"
 
@@ -12,4 +13,43 @@ resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
 	testing.expect_value(t, resolve_ui_type("Drop_Needle"), ui.UI_Type.Destructive)
 	testing.expect_value(t, resolve_ui_type("Cat_Meow"), ui.UI_Type.Default)
 	testing.expect_value(t, resolve_ui_type(""), ui.UI_Type.Default)
+}
+
+// Tabs are split per layout file: build_layout tags every control with the group
+// of the file it loaded from. chrome.rgl loads into VISIBLE_ON_ALL_GROUPS so its
+// controls (the tab bar and status bar) show on every tab, and controls.rgl
+// loads into the Controls tab. This pins that contract so adding the Music tab is
+// just a new file + load call.
+@(test)
+build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+
+	controls := build_layout(&arena)
+
+	chrome_seen, controls_seen: int
+	for control in controls {
+		switch control.name {
+		case "Tab_Bar", "Status_Bar":
+			testing.expect_value(t, control.visibility_group, ui.VISIBLE_ON_ALL_GROUPS)
+			chrome_seen += 1
+		case:
+			testing.expect_value(t, control.visibility_group, int(Tab.Controls))
+			controls_seen += 1
+		}
+	}
+	testing.expect_value(t, chrome_seen, 2)
+	testing.expect(t, controls_seen > 0, "expected controls.rgl controls on the Controls tab")
+}
+
+// The Tab_Bar reports the active tab by ToggleGroup index; clamp_tab keeps that
+// index within the defined tabs so a stray option can't activate a page that
+// has no controls.
+@(test)
+clamp_tab_keeps_index_in_range :: proc(t: ^testing.T) {
+	testing.expect_value(t, clamp_tab(int(Tab.Controls)), int(Tab.Controls))
+	testing.expect_value(t, clamp_tab(int(Tab.Music)), int(Tab.Music))
+	testing.expect_value(t, clamp_tab(-1), int(Tab.Controls))
+	testing.expect_value(t, clamp_tab(99), int(Tab.Controls))
 }

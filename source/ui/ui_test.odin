@@ -4,19 +4,31 @@ import "core:mem"
 import "core:testing"
 import rl "vendor:raylib"
 
-// Golden-style check: the committed layout.rgl must keep producing the same
-// visible controls. build_layout is the Adapter Seam (external rGuiLayout format
+// Golden-style check: the committed controls.rgl must keep producing the same
+// visible controls. load_layout is the Adapter Seam (external rGuiLayout format
 // -> internal Control list), so asserting its output here pins parser behavior
 // without reaching into private parsing helpers. Anchor offsets are folded into
 // each rect, matching what the app renders. Enable/disable fields are
-// deliberately not asserted: enable/disable semantics are out of scope.
+// deliberately not asserted: enable/disable semantics are out of scope. The
+// group arg is arbitrary here; it just proves load_layout tags every control
+// with the group it was given.
 @(test)
-build_layout_matches_committed_golden :: proc(t: ^testing.T) {
+load_layout_matches_committed_golden :: proc(t: ^testing.T) {
 	arena: mem.Dynamic_Arena
 	mem.dynamic_arena_init(&arena)
 	defer mem.dynamic_arena_destroy(&arena)
+	alloc := mem.dynamic_arena_allocator(&arena)
 
-	controls := build_layout(&arena)
+	GROUP :: 7
+	controls := make([dynamic]Control, alloc)
+	load_layout(
+		&controls,
+		"controls.rgl",
+		string(#load("../../resources/controls.rgl")),
+		GROUP,
+		alloc,
+	)
+	prepare_controls_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
 
 	Expected :: struct {
 		name: string,
@@ -24,21 +36,20 @@ build_layout_matches_committed_golden :: proc(t: ^testing.T) {
 		text: string,
 		rect: rl.Rectangle,
 	}
-	// scenes anchor is at (24, 0); controls anchored to it have that offset
+	// scenes anchor is at (24, 48); controls anchored to it have that offset
 	// folded into their rect. anchor_id 0 means no anchor (no offset).
 	expected := []Expected {
-		{"Pre_Show", .Button, "Pre-show", {24, 24, 96, 48}},
-		{"Post_Show", .Button, "Post-show", {144, 24, 96, 48}},
-		{"To_House", .Button, "To house", {24, 96, 96, 48}},
-		{"Scene_Ramp", .Button, "Scene - ramp", {144, 96, 96, 48}},
-		{"Scene_Fade", .Button, "Scene - fade", {264, 96, 96, 48}},
-		{"Drop_Needle", .Button, "Drop needle", {384, 96, 96, 48}},
-		{"Scenes", .GroupBox, "Scenes", {24, 8, 456, 136}},
-		{"Cat_Meow", .Button, "Cat meow", {24, 600, 96, 48}},
-		{"Volume_Label", .Label, "Volume", {504, 0, 144, 24}},
-		{"Status_Bar", .StatusBar, "Status", {0, -24, 0, 24}},
-		{"Use_House_Music", .CheckBox, "Use house music", {264, 24, 24, 24}},
-		{"Master_Volume", .SliderBar, "", {504, 24, 144, 24}},
+		{"Pre_Show", .Button, "Pre-show", {24, 72, 96, 48}},
+		{"Post_Show", .Button, "Post-show", {144, 72, 96, 48}},
+		{"To_House", .Button, "To house", {24, 144, 96, 48}},
+		{"Scene_Ramp", .Button, "Scene - ramp", {144, 144, 96, 48}},
+		{"Scene_Fade", .Button, "Scene - fade", {264, 144, 96, 48}},
+		{"Drop_Needle", .Button, "Drop needle", {384, 144, 96, 48}},
+		{"Scenes", .GroupBox, "Scenes", {24, 56, 456, 136}},
+		{"Cat_Meow", .Button, "Cat meow", {24, 552, 96, 48}},
+		{"Volume_Label", .Label, "Volume", {504, 48, 144, 24}},
+		{"Use_House_Music", .CheckBox, "Use house music", {264, 72, 24, 24}},
+		{"Master_Volume", .SliderBar, "", {504, 72, 144, 24}},
 	}
 
 	testing.expect_value(t, len(controls), len(expected))
@@ -52,6 +63,7 @@ build_layout_matches_committed_golden :: proc(t: ^testing.T) {
 		testing.expect_value(t, got.control_type, exp.type)
 		testing.expect_value(t, string(got.text), exp.text)
 		testing.expect_value(t, got.rect, exp.rect)
+		testing.expect_value(t, got.visibility_group, GROUP)
 	}
 }
 
@@ -121,6 +133,32 @@ default_control_state_matches_each_control_type :: proc(t: ^testing.T) {
 	expect_stateless(t, .TextMultiBox)
 	expect_stateless(t, .StatusBar)
 	expect_stateless(t, .DummyRect)
+}
+
+// Tabs are realized by filtering the draw loop: a control renders only when its
+// visibility_group matches the active group, except chrome marked
+// VISIBLE_ON_ALL_GROUPS which renders everywhere. The ui layer stays
+// app-agnostic (it compares integer groups, not tab names), so pinning
+// control_visible here locks that contract without Raylib drawing.
+@(test)
+control_visible_filters_by_active_group :: proc(t: ^testing.T) {
+	on_group :: proc(group: int) -> Control {
+		return Control{visibility_group = group}
+	}
+
+	testing.expect(t, control_visible(on_group(0), 0), "group 0 visible on group 0")
+	testing.expect(t, !control_visible(on_group(0), 1), "group 0 hidden on group 1")
+	testing.expect(t, control_visible(on_group(1), 1), "group 1 visible on group 1")
+	testing.expect(
+		t,
+		control_visible(on_group(VISIBLE_ON_ALL_GROUPS), 0),
+		"chrome visible on group 0",
+	)
+	testing.expect(
+		t,
+		control_visible(on_group(VISIBLE_ON_ALL_GROUPS), 1),
+		"chrome visible on group 1",
+	)
 }
 
 @(test)
