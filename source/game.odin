@@ -34,10 +34,7 @@ import "core:mem"
 import "sound"
 import "state"
 import "ui"
-import "ui/playground"
 import rl "vendor:raylib"
-
-PLAYGROUND :: #config(PLAYGROUND, false)
 
 gm: ^state.GameMemory
 
@@ -163,10 +160,6 @@ draw :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground({16, 16, 16, 255})
 
-	when PLAYGROUND {
-		playground.draw(&gm.playground)
-	}
-
 	events := ui.draw(gm.ui_controls[:], gm.active_tab)
 	dispatch_ui_events(&events)
 
@@ -215,9 +208,6 @@ game_init :: proc() {
 	gm.ui_controls = build_layout(&gm.arena)
 	for &control in gm.ui_controls {
 		control.ui_type = resolve_ui_type(control.name)
-	}
-	when PLAYGROUND {
-		copy(gm.playground.text_box_buffer[:], "starting text")
 	}
 
 	game_hot_reloaded(gm)
