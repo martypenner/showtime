@@ -38,7 +38,7 @@ build_layout_matches_committed_golden :: proc(t: ^testing.T) {
 		{"Volume_Label", .Label, "Volume", {504, 0, 144, 24}},
 		{"Status_Bar", .StatusBar, "Status", {0, -24, 0, 24}},
 		{"Use_House_Music", .CheckBox, "Use house music", {264, 24, 24, 24}},
-		{"Master_Volume", .SliderBar, " ", {504, 24, 144, 24}},
+		{"Master_Volume", .SliderBar, "", {504, 24, 144, 24}},
 	}
 
 	testing.expect_value(t, len(controls), len(expected))
