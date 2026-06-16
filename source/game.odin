@@ -78,9 +78,8 @@ Tab :: enum int {
 // editable on its own in the layout tool: chrome.rgl holds the persistent
 // controls shown on every tab, and one file per Tab holds that tab's controls.
 // Add a tab by authoring its file and loading it here against the matching Tab.
-build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]ui.Control {
-	alloc := mem.dynamic_arena_allocator(arena)
-	controls := make([dynamic]ui.Control, alloc)
+build_layout :: proc() -> [dynamic]ui.Control {
+	controls := make([dynamic]ui.Control)
 
 	// Per-tab content first, then chrome, so the persistent controls draw on top.
 	ui.load_layout(
@@ -88,16 +87,14 @@ build_layout :: proc(arena: ^mem.Dynamic_Arena) -> [dynamic]ui.Control {
 		"controls.rgl",
 		string(#load("../resources/controls.rgl")),
 		int(Tab.Controls),
-		alloc,
 	)
-	// ui.load_layout(&controls, "music.rgl", string(#load("../resources/music.rgl")), int(Tab.Music), alloc)
+	// ui.load_layout(&controls, "music.rgl", string(#load("../resources/music.rgl")), int(Tab.Music), allocator)
 
 	ui.load_layout(
 		&controls,
 		"chrome.rgl",
 		string(#load("../resources/chrome.rgl")),
 		ui.VISIBLE_ON_ALL_GROUPS,
-		alloc,
 	)
 
 	ui.prepare_controls_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
@@ -194,15 +191,14 @@ load_assets :: proc(data: rawptr) {
 	context.allocator = loader_allocator
 	context.logger = loader_logger
 
-	arena_alloc := mem.dynamic_arena_allocator(&g.arena)
-	g.sound_settings = sound.init_settings(arena_alloc)
+	g.sound_settings = sound.init_settings()
 }
 
 // Runs the asset load on a background thread while drawing a loading screen on
 // this (main) thread until it finishes. Keeping the loop here means the steady
-// state game_update has no loading branch to check every frame. The loader owns
-// gm.arena while it runs; this loop only draws and uses the per-frame temp
-// allocator, so the two never touch the arena at once.
+// state game_update has no loading branch to check every frame. The loader uses
+// the captured app allocator/logger because new threads start with a default
+// context rather than inheriting main's.
 run_loading_screen :: proc() {
 	loader_allocator = context.allocator
 	loader_logger = context.logger
@@ -259,14 +255,12 @@ game_init :: proc() {
 	gm^ = state.GameMemory {
 		should_run = true,
 	}
-	mem.dynamic_arena_init(&gm.arena)
 
 	// build_layout assigns each control's tab (visibility group) from the file it
 	// was loaded out of. The remaining app metadata (destructive styling) is
-	// neutral after parsing, so it is applied here. This is cheap and also
-	// allocates into gm.arena, so do it on the main thread before handing the
-	// arena to the loader.
-	gm.ui_controls = build_layout(&gm.arena)
+	// neutral after parsing, so it is applied here while the UI-owned data lives
+	// on the app allocator.
+	gm.ui_controls = build_layout()
 	for &control in gm.ui_controls {
 		control.ui_type = resolve_ui_type(control.name)
 	}
@@ -274,7 +268,7 @@ game_init :: proc() {
 	when ODIN_OS == .JS {
 		// Web is single-threaded and the browser drives the frame loop, so there
 		// is no main thread to draw a loading screen on; load synchronously.
-		gm.sound_settings = sound.init_settings(mem.dynamic_arena_allocator(&gm.arena))
+		gm.sound_settings = sound.init_settings()
 	} else {
 		run_loading_screen()
 	}
@@ -297,7 +291,7 @@ game_should_run :: proc() -> bool {
 @(export)
 game_shutdown :: proc() {
 	sound.shutdown()
-	mem.dynamic_arena_destroy(&gm.arena)
+	ui.destroy_controls(&gm.ui_controls)
 	free(gm)
 }
 

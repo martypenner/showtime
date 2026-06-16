@@ -1,6 +1,5 @@
 package game
 
-import "core:mem"
 import "core:testing"
 import "ui"
 
@@ -22,11 +21,8 @@ resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
 // just a new file + load call.
 @(test)
 build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
-	arena: mem.Dynamic_Arena
-	mem.dynamic_arena_init(&arena)
-	defer mem.dynamic_arena_destroy(&arena)
-
-	controls := build_layout(&arena)
+	controls := build_layout()
+	defer ui.destroy_controls(&controls)
 
 	chrome_seen, controls_seen: int
 	for control in controls {

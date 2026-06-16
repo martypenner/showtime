@@ -1,7 +1,6 @@
 package ui
 
 import "core:log"
-import "core:mem"
 import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
@@ -67,6 +66,20 @@ Control :: struct {
 	text:             cstring,
 	rect:             rl.Rectangle,
 	state:            Control_State,
+}
+
+// Releases controls and all nested UI-owned allocations made by parse_layout.
+// The array's allocator owns the cloned control names/text; transient draw
+// events still live on context.temp_allocator and are reset at end-of-frame.
+destroy_controls :: proc(controls: ^[dynamic]Control) {
+	for &control in controls {
+		delete(control.name)
+		delete(control.text)
+		if text_state, ok := control.state.(Text_State); ok {
+			delete(text_state.buffer)
+		}
+	}
+	delete(controls^)
 }
 
 // Mutable per-control state. Each control kind stores only the variant it
@@ -313,14 +326,9 @@ prepare_controls_for_render :: proc(controls: []Control, render_width: i32, rend
 // Malformed layout data is a build-time asset bug, so a parse failure aborts
 // loudly with a located message (including `name`) rather than producing a
 // half-built UI.
-load_layout :: proc(
-	controls: ^[dynamic]Control,
-	name: string,
-	source: string,
-	group: int,
-	allocator: mem.Allocator,
-) {
-	parsed, err := parse_layout(source, allocator)
+load_layout :: proc(controls: ^[dynamic]Control, name: string, source: string, group: int) {
+	parsed, err := parse_layout(source)
+	defer delete(parsed)
 	if e, bad := err.?; bad {
 		log.panicf("%s: %v at line %d: %q", name, e.kind, e.line, e.detail)
 	}
@@ -372,14 +380,8 @@ Layout_Error :: struct {
 // Enable/disable fields (anchor <enabled>) are parsed past but never acted on;
 // changing visibility/activation is out of scope. Returns a located error
 // instead of panicking so the Adapter's failure mode is testable.
-parse_layout :: proc(
-	text: string,
-	allocator: mem.Allocator,
-) -> (
-	controls: [dynamic]Control,
-	err: Maybe(Layout_Error),
-) {
-	controls = make([dynamic]Control, allocator)
+parse_layout :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(Layout_Error)) {
+	controls = make([dynamic]Control)
 	anchors := make(map[int][2]f32, context.temp_allocator)
 
 	remaining := text
@@ -426,8 +428,8 @@ parse_layout :: proc(
 				&controls,
 				Control {
 					control_type = control_type,
-					name = strings.clone(parts[Component_Field.Name], allocator),
-					text = strings.clone_to_cstring(parts[Component_Field.Text], allocator),
+					name = strings.clone(parts[Component_Field.Name]),
+					text = strings.clone_to_cstring(parts[Component_Field.Text]),
 					rect = rect,
 					state = default_control_state(control_type),
 				},

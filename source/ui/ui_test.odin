@@ -1,6 +1,5 @@
 package ui
 
-import "core:mem"
 import "core:testing"
 import rl "vendor:raylib"
 
@@ -14,20 +13,10 @@ import rl "vendor:raylib"
 // with the group it was given.
 @(test)
 load_layout_matches_committed_golden :: proc(t: ^testing.T) {
-	arena: mem.Dynamic_Arena
-	mem.dynamic_arena_init(&arena)
-	defer mem.dynamic_arena_destroy(&arena)
-	alloc := mem.dynamic_arena_allocator(&arena)
-
 	GROUP :: 7
-	controls := make([dynamic]Control, alloc)
-	load_layout(
-		&controls,
-		"controls.rgl",
-		string(#load("../../resources/controls.rgl")),
-		GROUP,
-		alloc,
-	)
+	controls := make([dynamic]Control)
+	defer destroy_controls(&controls)
+	load_layout(&controls, "controls.rgl", string(#load("../../resources/controls.rgl")), GROUP)
 	prepare_controls_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
 
 	Expected :: struct {
@@ -74,7 +63,7 @@ load_layout_matches_committed_golden :: proc(t: ^testing.T) {
 parse_layout_reports_malformed_lines :: proc(t: ^testing.T) {
 	{
 		// Component line missing its rect/anchor/text fields.
-		_, err := parse_layout("c 000 5 preshow 0 24 96", context.temp_allocator)
+		_, err := parse_layout("c 000 5 preshow 0 24 96")
 		e, bad := err.?
 		testing.expect(t, bad, "expected an error for a truncated component line")
 		testing.expect_value(t, e.kind, Layout_Error_Kind.Too_Few_Fields)
@@ -82,7 +71,7 @@ parse_layout_reports_malformed_lines :: proc(t: ^testing.T) {
 	}
 	{
 		// Anchor position that is not a number.
-		_, err := parse_layout("a 1 scenes x 0 1", context.temp_allocator)
+		_, err := parse_layout("a 1 scenes x 0 1")
 		e, bad := err.?
 		testing.expect(t, bad, "expected an error for a non-numeric anchor field")
 		testing.expect_value(t, e.kind, Layout_Error_Kind.Invalid_Float)

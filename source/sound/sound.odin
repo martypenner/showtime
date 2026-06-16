@@ -7,7 +7,6 @@ import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:math/rand"
-import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -111,18 +110,18 @@ set_volume :: proc(volume: f32) {
 	rl.SetMasterVolume(volume)
 }
 
-load_playlists :: proc(alloc: mem.Allocator) -> [dynamic]Playlist {
+load_playlists :: proc() -> [dynamic]Playlist {
 	potential_playlists, err := os.read_all_directory_by_path(MUSIC_DIR, context.temp_allocator)
 	log.ensuref(err == nil, "Error reading music dir: %s", err)
 
-	playlists := make([dynamic]Playlist, alloc)
+	playlists := make([dynamic]Playlist)
 	track_keys := make([dynamic]PathName, context.temp_allocator)
 	for playlist_dir in potential_playlists {
 		if playlist_dir.type != .Directory && playlist_dir.type != .Symlink do continue
 
 		playlist := Playlist{}
-		playlist.name = strings.clone(playlist_dir.name, alloc)
-		hm.dynamic_init(&playlist.tracks, alloc)
+		playlist.name = strings.clone(playlist_dir.name)
+		hm.dynamic_init(&playlist.tracks, context.allocator)
 		track_files, tracks_err := os.read_all_directory_by_path(
 			playlist_dir.fullpath,
 			context.temp_allocator,
@@ -134,7 +133,7 @@ load_playlists :: proc(alloc: mem.Allocator) -> [dynamic]Playlist {
 			name := strings.clone_to_cstring(track_file.name, context.temp_allocator)
 			if !rl.IsFileExtension(name, ".wav;.mp3;.ogg;.flac") do continue
 
-			title := strings.clone(os.stem(track_file.name), alloc)
+			title := strings.clone(os.stem(track_file.name))
 			rel_path, rel_err := filepath.join(
 				{MUSIC_DIR, playlist_dir.name, track_file.name},
 				context.temp_allocator,
@@ -146,7 +145,7 @@ load_playlists :: proc(alloc: mem.Allocator) -> [dynamic]Playlist {
 				playlist_dir.name,
 				rel_err,
 			)
-			track_path := strings.clone(rel_path, alloc)
+			track_path := strings.clone(rel_path)
 
 			// It would be ideal to pass an existing file handle here, but I simply
 			// don't want to store a handle I only use for this check.
@@ -160,14 +159,23 @@ load_playlists :: proc(alloc: mem.Allocator) -> [dynamic]Playlist {
 				cached.file_hash == file_hash &&
 				(!sound_settings.normalize_volume || cached.active_rms > 0)
 			if !cache_usable {
+				if cache_exists {
+					delete(cached.file_hash)
+				}
 				loudness := TrackLoudness {
-					file_hash = strings.clone(file_hash, alloc),
+					file_hash = strings.clone(file_hash),
 				}
 				if sound_settings.normalize_volume {
 					active_rms, ok := measure_track_loudness(track_path)
 					if ok do loudness.active_rms = active_rms
 				}
-				sound_settings.track_loudness[track_key] = loudness
+				if cache_exists {
+					sound_settings.track_loudness[track_key] = loudness
+				} else {
+					// Cache keys are owned by the cache, not aliased to Track.path,
+					// so shutdown/pruning can free each owner exactly once.
+					sound_settings.track_loudness[PathName(strings.clone(track_path))] = loudness
+				}
 			}
 			append(&track_keys, track_key)
 
@@ -303,10 +311,30 @@ clamp_music_gain :: proc(gain: f32) -> f32 {
 }
 
 make_track_loudness_cache :: proc() -> map[PathName]TrackLoudness {
-	// Odin maps need cache-line-aligned backing storage. Dynamic_Arena does not
-	// honor per-allocation alignment, so only the map backing lives on the app
-	// allocator; path/hash strings still live in the persistent arena.
-	return make(map[PathName]TrackLoudness, context.allocator)
+	return make(map[PathName]TrackLoudness)
+}
+
+destroy_track_loudness_cache :: proc(cache: ^map[PathName]TrackLoudness) {
+	if cache^ == nil do return
+
+	for track_key, loudness in cache^ {
+		delete(string(track_key))
+		delete(loudness.file_hash)
+	}
+	delete(cache^)
+	cache^ = nil
+}
+
+destroy_playlist :: proc(playlist: ^Playlist) {
+	delete(playlist.name)
+
+	it := hm.iterator_make(&playlist.tracks)
+	for track, _ in hm.iterate(&it) {
+		delete(track.title)
+		delete(track.path)
+	}
+	hm.dynamic_destroy(&playlist.tracks)
+	playlist^ = {}
 }
 
 playback_gain_for_track :: proc(active_rms, target_rms: f32) -> f32 {
@@ -400,7 +428,7 @@ settings_filename :: proc() -> string {
 	return fmt.tprint("./", "settings.sjson", sep = filepath.SEPARATOR_STRING)
 }
 
-load_settings :: proc(alloc: mem.Allocator) -> SoundSettings {
+load_settings :: proc() -> SoundSettings {
 	filename := settings_filename()
 	if !os.exists(filename) {
 		return DefaultSoundSettings
@@ -417,8 +445,8 @@ load_settings :: proc(alloc: mem.Allocator) -> SoundSettings {
 		settings.track_loudness = make_track_loudness_cache()
 		for track_key, loudness in loaded {
 			cloned := loudness
-			cloned.file_hash = strings.clone(loudness.file_hash, alloc)
-			settings.track_loudness[PathName(strings.clone(string(track_key), alloc))] = cloned
+			cloned.file_hash = strings.clone(loudness.file_hash)
+			settings.track_loudness[PathName(strings.clone(string(track_key)))] = cloned
 		}
 	}
 
@@ -444,7 +472,10 @@ prune_orphaned_track_loudness :: proc() {
 		}
 	}
 	for track_key in orphaned_keys {
+		loudness := sound_settings.track_loudness[track_key]
 		delete_key(&sound_settings.track_loudness, track_key)
+		delete(string(track_key))
+		delete(loudness.file_hash)
 	}
 }
 
@@ -484,14 +515,14 @@ save_settings :: proc() {
 	log.ensuref(write_err == nil, "Error writing settings file: %v", write_err)
 }
 
-init_settings :: proc(alloc: mem.Allocator) -> ^SoundSettings {
+init_settings :: proc() -> ^SoundSettings {
 	rl.InitAudioDevice()
 
-	sound_settings = new(SoundSettings, alloc)
-	sound_settings^ = load_settings(alloc)
+	sound_settings = new(SoundSettings)
+	sound_settings^ = load_settings()
 	if sound_settings.track_loudness == nil do sound_settings.track_loudness = make_track_loudness_cache()
-	sound_settings.playlists = load_playlists(alloc)
-	sound_settings.current_sounds = make([dynamic]rl.Sound, alloc)
+	sound_settings.playlists = load_playlists()
+	sound_settings.current_sounds = make([dynamic]rl.Sound)
 	rl.SetMasterVolume(sound_settings.volume)
 
 	// Save immediately since we may have just calculated gains.
@@ -533,14 +564,25 @@ hot_reloaded :: proc(settings: ^SoundSettings) {
 }
 
 shutdown :: proc() {
-	if music_is_loaded(sound_settings.current_music) {
-		rl.StopMusicStream(sound_settings.current_music)
-		rl.UnloadMusicStream(sound_settings.current_music)
-		sound_settings.current_music = {}
-	}
-	if sound_settings.track_loudness != nil {
-		delete(sound_settings.track_loudness)
-		sound_settings.track_loudness = nil
+	if sound_settings != nil {
+		if music_is_loaded(sound_settings.current_music) {
+			rl.StopMusicStream(sound_settings.current_music)
+			rl.UnloadMusicStream(sound_settings.current_music)
+			sound_settings.current_music = {}
+		}
+		for sound in sound_settings.current_sounds {
+			rl.UnloadSound(sound)
+		}
+		delete(sound_settings.current_sounds)
+
+		destroy_track_loudness_cache(&sound_settings.track_loudness)
+		for &playlist in sound_settings.playlists {
+			destroy_playlist(&playlist)
+		}
+		delete(sound_settings.playlists)
+
+		free(sound_settings)
+		sound_settings = nil
 	}
 	rl.CloseAudioDevice()
 }
