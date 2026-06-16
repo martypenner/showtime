@@ -147,9 +147,12 @@ load_playlists :: proc() -> [dynamic]Playlist {
 			)
 			track_path := strings.clone(rel_path)
 
-			// It would be ideal to pass an existing file handle here, but I simply
-			// don't want to store a handle I only use for this check.
-			file_hash, hash_err := utils.hash_file_by_path(track_file.fullpath)
+			file_data, read_err := os.read_entire_file_from_path(
+				track_file.fullpath,
+				context.temp_allocator,
+			)
+			log.ensuref(read_err == nil, "Error reading file: %s", read_err)
+			file_hash, hash_err := utils.hash_bytes(file_data)
 			log.ensuref(hash_err == nil, "Error hashing file: %s", hash_err)
 
 			track_key := PathName(track_path)
@@ -166,7 +169,11 @@ load_playlists :: proc() -> [dynamic]Playlist {
 					file_hash = strings.clone(file_hash),
 				}
 				if sound_settings.normalize_volume {
-					active_rms, ok := measure_track_loudness(track_path)
+					file_type := strings.clone_to_cstring(
+						filepath.ext(track_file.name),
+						context.temp_allocator,
+					)
+					active_rms, ok := measure_track_loudness(file_data, file_type)
 					if ok do loudness.active_rms = active_rms
 				}
 				if cache_exists {
@@ -349,17 +356,23 @@ playback_target_rms :: proc(target_loudness, quietest_active_rms: f32) -> f32 {
 	return target_rms
 }
 
-measure_track_loudness :: proc(track_path: string) -> (active_rms: f32, ok: bool) {
-	wave := rl.LoadWave(strings.clone_to_cstring(track_path, context.temp_allocator))
+measure_track_loudness :: proc(
+	file_data: []byte,
+	file_type: cstring,
+) -> (
+	active_rms: f32,
+	ok: bool,
+) {
+	wave := rl.LoadWaveFromMemory(file_type, raw_data(file_data), i32(len(file_data)))
 	if !rl.IsWaveValid(wave) {
-		log.warnf("Couldn't analyze music loudness, using unity gain: %s", track_path)
+		log.warnf("Couldn't analyze music loudness, using unity gain: %s", file_type)
 		return 0, false
 	}
 	defer rl.UnloadWave(wave)
 
 	samples := rl.LoadWaveSamples(wave)
 	if samples == nil {
-		log.warnf("Couldn't read music samples, using unity gain: %s", track_path)
+		log.warnf("Couldn't read music samples, using unity gain: %s", file_type)
 		return 0, false
 	}
 	defer rl.UnloadWaveSamples(samples)
@@ -420,7 +433,7 @@ compute_playback_gains :: proc(track_keys: []PathName) {
 			loudness.volume_multiplier = MUSIC_MAX_NORMALIZED_GAIN
 		}
 		sound_settings.track_loudness[track_key] = loudness
-		log.debugf("Playback gain for %q: %2.2f", string(track_key), loudness.volume_multiplier)
+		// log.debugf("Playback gain for %q: %2.2f", string(track_key), loudness.volume_multiplier)
 	}
 }
 
