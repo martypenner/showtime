@@ -16,7 +16,7 @@ run:
 	@trap 'kill $$(cat $(PIDFILE) 2>/dev/null) 2>/dev/null; rm -f $(PIDFILE); echo; echo "Stopped game and watch."; exit 0' INT TERM; \
 	while kill -0 $$(cat $(PIDFILE) 2>/dev/null) 2>/dev/null; do \
 		if inotifywait -qr -t 1 -e modify,create,delete,move ./source ./assets >/dev/null 2>&1; then \
-			$(MAKE) --no-print-directory build; \
+			./scripts/build_hot_reload.sh; \
 		fi; \
 	done; \
 	echo "Game window closed, stopping watch."; \
