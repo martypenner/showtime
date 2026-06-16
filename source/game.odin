@@ -31,12 +31,22 @@ package game
 import "core:fmt"
 import "core:log"
 import "core:mem"
+import "core:thread"
+import "core:time"
 import "sound"
 import "state"
 import "ui"
 import rl "vendor:raylib"
 
 gm: ^state.GameMemory
+
+// The loader thread starts with a fresh default context, so it does not inherit
+// main's allocator/logger. We capture them here before spawning so the loader
+// can use the same (mutex-guarded) tracking allocator main uses. Matching
+// allocators matters: the loudness-cache map is freed in game_shutdown with
+// main's allocator, so it must be allocated with the same one.
+loader_allocator: mem.Allocator
+loader_logger: log.Logger
 
 // Show-control behaviors the app knows how to perform. Generic UI rendering
 // reports interactions by control name; this is the one place that turns those
@@ -175,6 +185,56 @@ game_update :: proc() {
 	free_all(context.temp_allocator)
 }
 
+// Builds the sound settings and playlists. This hashes and decodes every track,
+// so it is slow enough to want a loading screen (see run_loading_screen). When
+// run on the loader thread it starts from a fresh default context, so it adopts
+// main's allocator/logger; gm.sound_settings is published when it returns.
+load_assets :: proc(data: rawptr) {
+	g := (^state.GameMemory)(data)
+	context.allocator = loader_allocator
+	context.logger = loader_logger
+
+	arena_alloc := mem.dynamic_arena_allocator(&g.arena)
+	g.sound_settings = sound.init_settings(arena_alloc)
+}
+
+// Runs the asset load on a background thread while drawing a loading screen on
+// this (main) thread until it finishes. Keeping the loop here means the steady
+// state game_update has no loading branch to check every frame. The loader owns
+// gm.arena while it runs; this loop only draws and uses the per-frame temp
+// allocator, so the two never touch the arena at once.
+run_loading_screen :: proc() {
+	loader_allocator = context.allocator
+	loader_logger = context.logger
+	loader := thread.create_and_start_with_data(gm, load_assets)
+	defer thread.destroy(loader) // joins, so the loader is done past this point
+
+	for !thread.is_done(loader) {
+		if rl.WindowShouldClose() {
+			gm.should_run = false
+			break
+		}
+
+		rl.BeginDrawing()
+		rl.ClearBackground({16, 16, 16, 255})
+
+		// Animate the trailing dots: "." -> ".." -> "..." -> repeat. Position from
+		// the full-width text so "Loading" stays put while the dots appear and
+		// disappear, rather than the whole line jittering when centered.
+		font_size := i32(40)
+		x := (rl.GetRenderWidth() - rl.MeasureText("Loading...", font_size)) / 2
+		y := rl.GetRenderHeight() / 2 - font_size / 2
+
+		dots := "..."
+		dot_count := int(rl.GetTime() / 0.5) % 3 + 1
+		text := fmt.ctprintf("Loading%s", dots[:dot_count])
+		rl.DrawText(text, x, y, font_size, rl.RAYWHITE)
+
+		rl.EndDrawing()
+		free_all(context.temp_allocator)
+	}
+}
+
 @(export)
 game_init_window :: proc() {
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
@@ -200,14 +260,23 @@ game_init :: proc() {
 		should_run = true,
 	}
 	mem.dynamic_arena_init(&gm.arena)
-	arena_alloc := mem.dynamic_arena_allocator(&gm.arena)
-	gm.sound_settings = sound.init_settings(arena_alloc)
+
 	// build_layout assigns each control's tab (visibility group) from the file it
 	// was loaded out of. The remaining app metadata (destructive styling) is
-	// neutral after parsing, so it is applied here.
+	// neutral after parsing, so it is applied here. This is cheap and also
+	// allocates into gm.arena, so do it on the main thread before handing the
+	// arena to the loader.
 	gm.ui_controls = build_layout(&gm.arena)
 	for &control in gm.ui_controls {
 		control.ui_type = resolve_ui_type(control.name)
+	}
+
+	when ODIN_OS == .JS {
+		// Web is single-threaded and the browser drives the frame loop, so there
+		// is no main thread to draw a loading screen on; load synchronously.
+		gm.sound_settings = sound.init_settings(mem.dynamic_arena_allocator(&gm.arena))
+	} else {
+		run_loading_screen()
 	}
 
 	game_hot_reloaded(gm)
