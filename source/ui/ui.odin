@@ -126,7 +126,7 @@ default_control_state :: proc(type: Control_Type) -> Control_State {
 	case .ToggleGroup, .ComboBox:
 		return 0
 	case .Slider, .SliderBar, .ProgressBar:
-		return 1.0
+		return 0.5
 	case .ColorPicker:
 		return rl.Color{}
 	case .DropdownBox:
@@ -438,6 +438,14 @@ parse_layout :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(La
 	}
 
 	return controls, nil
+}
+
+set_volume_value :: proc(value: f32, controls: []Control) {
+	for &control in controls {
+		if control.name != "Master_Volume" do continue
+		control.state = value
+		return
+	}
 }
 
 @(private)

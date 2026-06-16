@@ -94,7 +94,7 @@ MUSIC_MIN_NORMALIZED_GAIN :: f32(0.05)
 MUSIC_MAX_NORMALIZED_GAIN :: f32(1.0)
 
 DefaultSoundSettings := SoundSettings {
-	volume           = 1.0,
+	volume           = 0.5,
 	fade_in_time     = 2.0,
 	fade_out_time    = 2.0,
 	stop_fade_time   = 2.0,
@@ -105,7 +105,7 @@ DefaultSoundSettings := SoundSettings {
 	target_loudness  = -8,
 }
 
-set_volume :: proc(volume: f32) {
+set_master_volume :: proc(volume: f32) {
 	sound_settings.volume = volume
 	rl.SetMasterVolume(volume)
 }
