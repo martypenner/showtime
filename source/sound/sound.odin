@@ -44,7 +44,7 @@ Playlist :: struct {
 	current_playing_track: ^Track,
 }
 
-TrackHandle :: hm.Handle32
+TrackHandle :: distinct hm.Handle32
 
 Track :: struct {
 	handle:        TrackHandle,
