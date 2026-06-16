@@ -74,6 +74,13 @@ TrackLoudness :: struct {
 
 sound_settings: ^SoundSettings
 
+// Track paths are stored relative to the directory the binary is run from so
+// the gain cache in settings stays portable across machines and checkouts.
+// Playlist dirs are usually symlinks; keys/paths go through the symlink
+// (assets/sounds/music/<playlist>/<track>) rather than the resolved target,
+// so the cache stays portable even when the symlink target moves.
+MUSIC_DIR :: "assets/sounds/music"
+
 MAX_FADE_IN_TIME :: 10
 MAX_FADE_OUT_TIME :: 10
 MAX_STOP_FADE_TIME :: 10
@@ -105,15 +112,7 @@ set_volume :: proc(volume: f32) {
 }
 
 load_playlists :: proc(alloc: mem.Allocator) -> [dynamic]Playlist {
-	// Track paths are stored relative to the directory the binary is run from so
-	// the gain cache in settings stays portable across machines and checkouts.
-	cwd, cwd_err := os.get_working_directory(context.temp_allocator)
-	log.ensuref(cwd_err == nil, "Error getting working directory: %v", cwd_err)
-
-	potential_playlists, err := os.read_all_directory_by_path(
-		"assets/sounds/music",
-		context.temp_allocator,
-	)
+	potential_playlists, err := os.read_all_directory_by_path(MUSIC_DIR, context.temp_allocator)
 	log.ensuref(err == nil, "Error reading music dir: %s", err)
 
 	playlists := make([dynamic]Playlist, alloc)
@@ -135,12 +134,15 @@ load_playlists :: proc(alloc: mem.Allocator) -> [dynamic]Playlist {
 			name := strings.clone_to_cstring(track_file.name, context.temp_allocator)
 			if rl.IsFileExtension(name, ".wav;.mp3;.ogg;.flac") {
 				title := strings.clone(os.stem(track_file.name), alloc)
-				rel_path, rel_err := filepath.rel(cwd, track_file.fullpath, context.temp_allocator)
+				rel_path, rel_err := filepath.join(
+					{MUSIC_DIR, playlist_dir.name, track_file.name},
+					context.temp_allocator,
+				)
 				log.ensuref(
-					rel_err == .None,
-					"Error making track path relative to %q: %q (%v)",
-					cwd,
-					track_file.fullpath,
+					rel_err == nil,
+					"Error building track path for %q in %q: %v",
+					track_file.name,
+					playlist_dir.name,
 					rel_err,
 				)
 				track_path := strings.clone(rel_path, alloc)
@@ -419,8 +421,6 @@ load_settings :: proc(alloc: mem.Allocator) -> SoundSettings {
 			settings.track_loudness[PathName(strings.clone(string(track_key), alloc))] = cloned
 		}
 	}
-
-	log.debug(settings)
 
 	return settings
 }
