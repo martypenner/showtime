@@ -32,7 +32,6 @@ import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:thread"
-import "core:time"
 import "sound"
 import "state"
 import "ui"
@@ -218,12 +217,12 @@ run_loading_screen :: proc() {
 		// the full-width text so "Loading" stays put while the dots appear and
 		// disappear, rather than the whole line jittering when centered.
 		font_size := i32(40)
-		x := (rl.GetRenderWidth() - rl.MeasureText("Loading...", font_size)) / 2
+		x := (rl.GetRenderWidth() - rl.MeasureText("Normalizing audio...", font_size)) / 2
 		y := rl.GetRenderHeight() / 2 - font_size / 2
 
 		dots := "..."
 		dot_count := int(rl.GetTime() / 0.5) % 3 + 1
-		text := fmt.ctprintf("Loading%s", dots[:dot_count])
+		text := fmt.ctprintf("Normalizing audio%s", dots[:dot_count])
 		rl.DrawText(text, x, y, font_size, rl.RAYWHITE)
 
 		rl.EndDrawing()

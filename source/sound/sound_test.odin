@@ -2,6 +2,7 @@ package sound
 
 import "core:encoding/json"
 import "core:testing"
+import rl "vendor:raylib"
 
 // After a hot reload the freshly-loaded DLL starts with a nil package global,
 // so the sound Module must expose an explicit way to re-point itself at the
@@ -26,7 +27,12 @@ hot_reloaded_restores_settings_pointer :: proc(t: ^testing.T) {
 partial_settings_keep_default_normalization :: proc(t: ^testing.T) {
 	settings := DefaultSoundSettings
 	settings_data := string("dummy = 1")
-	err := json.unmarshal(transmute([]byte)settings_data, &settings, .Bitsquid, context.temp_allocator)
+	err := json.unmarshal(
+		transmute([]byte)settings_data,
+		&settings,
+		.Bitsquid,
+		context.temp_allocator,
+	)
 
 	testing.expect_value(t, err, nil)
 	testing.expect_value(t, settings.normalize_volume, true)
@@ -61,7 +67,12 @@ sound_settings_round_trips_loudness_cache :: proc(t: ^testing.T) {
 	testing.expect_value(t, marshal_err, nil)
 
 	round_tripped: SoundSettings
-	unmarshal_err := json.unmarshal(settings_json, &round_tripped, .Bitsquid, context.temp_allocator)
+	unmarshal_err := json.unmarshal(
+		settings_json,
+		&round_tripped,
+		.Bitsquid,
+		context.temp_allocator,
+	)
 	testing.expect_value(t, unmarshal_err, nil)
 	loudness, ok := round_tripped.track_loudness[PathName("song.mp3")]
 	testing.expect(t, ok, "loudness cache should round trip through settings")
@@ -116,4 +127,64 @@ playback_gain_clamps_target_loudness :: proc(t: ^testing.T) {
 		gain > 0.99 && gain < 1.01,
 		"target loudness should clamp to the configured minimum",
 	)
+}
+
+@(test)
+sample_from_wave_matches_raylib_8_bit_normalization :: proc(t: ^testing.T) {
+	data := [?]u8{0, 128, 255}
+	wave := rl.Wave {
+		frameCount = 3,
+		sampleSize = 8,
+		channels   = 1,
+		data       = rawptr(&data[0]),
+	}
+
+	low, low_ok := sample_from_wave(wave, 0)
+	mid, mid_ok := sample_from_wave(wave, 1)
+	high, high_ok := sample_from_wave(wave, 2)
+
+	testing.expect(t, low_ok && mid_ok && high_ok, "8-bit wave samples should be readable")
+	testing.expect_value(t, low, f32(-1))
+	testing.expect_value(t, mid, f32(0))
+	testing.expect_value(t, high, f32(127.0 / 128.0))
+}
+
+@(test)
+sample_from_wave_matches_raylib_16_bit_normalization :: proc(t: ^testing.T) {
+	data := [?]i16{-32768, 0, 32767}
+	wave := rl.Wave {
+		frameCount = 3,
+		sampleSize = 16,
+		channels   = 1,
+		data       = rawptr(&data[0]),
+	}
+
+	low, low_ok := sample_from_wave(wave, 0)
+	mid, mid_ok := sample_from_wave(wave, 1)
+	high, high_ok := sample_from_wave(wave, 2)
+
+	testing.expect(t, low_ok && mid_ok && high_ok, "16-bit wave samples should be readable")
+	testing.expect_value(t, low, f32(-1))
+	testing.expect_value(t, mid, f32(0))
+	testing.expect_value(t, high, f32(32767.0 / 32768.0))
+}
+
+@(test)
+sample_from_wave_reads_32_bit_float_samples_directly :: proc(t: ^testing.T) {
+	data := [?]f32{-0.25, 0, 0.75}
+	wave := rl.Wave {
+		frameCount = 3,
+		sampleSize = 32,
+		channels   = 1,
+		data       = rawptr(&data[0]),
+	}
+
+	low, low_ok := sample_from_wave(wave, 0)
+	mid, mid_ok := sample_from_wave(wave, 1)
+	high, high_ok := sample_from_wave(wave, 2)
+
+	testing.expect(t, low_ok && mid_ok && high_ok, "32-bit wave samples should be readable")
+	testing.expect_value(t, low, f32(-0.25))
+	testing.expect_value(t, mid, f32(0))
+	testing.expect_value(t, high, f32(0.75))
 }

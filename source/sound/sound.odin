@@ -147,12 +147,7 @@ load_playlists :: proc() -> [dynamic]Playlist {
 			)
 			track_path := strings.clone(rel_path)
 
-			file_data, read_err := os.read_entire_file_from_path(
-				track_file.fullpath,
-				context.temp_allocator,
-			)
-			log.ensuref(read_err == nil, "Error reading file: %s", read_err)
-			file_hash, hash_err := utils.hash_bytes(file_data)
+			file_hash, hash_err := utils.hash_file_by_path(track_file.fullpath)
 			log.ensuref(hash_err == nil, "Error hashing file: %s", hash_err)
 
 			track_key := PathName(track_path)
@@ -173,7 +168,13 @@ load_playlists :: proc() -> [dynamic]Playlist {
 						filepath.ext(track_file.name),
 						context.temp_allocator,
 					)
+					file_data, read_err := os.read_entire_file_from_path(
+						track_file.fullpath,
+						context.allocator,
+					)
+					log.ensuref(read_err == nil, "Error reading file: %s", read_err)
 					active_rms, ok := measure_track_loudness(file_data, file_type)
+					delete(file_data)
 					if ok do loudness.active_rms = active_rms
 				}
 				if cache_exists {
@@ -184,6 +185,7 @@ load_playlists :: proc() -> [dynamic]Playlist {
 					sound_settings.track_loudness[PathName(strings.clone(track_path))] = loudness
 				}
 			}
+			delete(file_hash, context.temp_allocator)
 			append(&track_keys, track_key)
 
 			track := Track {
@@ -317,6 +319,22 @@ clamp_music_gain :: proc(gain: f32) -> f32 {
 	return min(max(gain, MUSIC_MIN_NORMALIZED_GAIN), MUSIC_MAX_NORMALIZED_GAIN)
 }
 
+sample_from_wave :: proc(wave: rl.Wave, index: int) -> (sample: f32, ok: bool) {
+	switch wave.sampleSize {
+	case 8:
+		samples := ([^]u8)(wave.data)
+		return (f32(samples[index]) - 128) / 128, true
+	case 16:
+		samples := ([^]i16)(wave.data)
+		return f32(samples[index]) / 32768, true
+	case 32:
+		samples := ([^]f32)(wave.data)
+		return samples[index], true
+	}
+
+	return 0, false
+}
+
 make_track_loudness_cache :: proc() -> map[PathName]TrackLoudness {
 	return make(map[PathName]TrackLoudness)
 }
@@ -370,13 +388,6 @@ measure_track_loudness :: proc(
 	}
 	defer rl.UnloadWave(wave)
 
-	samples := rl.LoadWaveSamples(wave)
-	if samples == nil {
-		log.warnf("Couldn't read music samples, using unity gain: %s", file_type)
-		return 0, false
-	}
-	defer rl.UnloadWaveSamples(samples)
-
 	sample_count := int(wave.frameCount) * int(wave.channels)
 	if sample_count == 0 do return 0, false
 
@@ -385,7 +396,16 @@ measure_track_loudness :: proc(
 	all_sum_squares: f64
 
 	for index := 0; index < sample_count; index += 1 {
-		sample := samples[index]
+		sample, sample_ok := sample_from_wave(wave, index)
+		if !sample_ok {
+			log.warnf(
+				"Couldn't analyze music loudness for unsupported %d-bit samples, using unity gain: %s",
+				wave.sampleSize,
+				file_type,
+			)
+			return 0, false
+		}
+
 		magnitude := sample
 		if magnitude < 0 do magnitude = -magnitude
 
