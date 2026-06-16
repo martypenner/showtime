@@ -132,58 +132,58 @@ load_playlists :: proc(alloc: mem.Allocator) -> [dynamic]Playlist {
 		for track_file in track_files {
 			if track_file.type != .Regular do continue
 			name := strings.clone_to_cstring(track_file.name, context.temp_allocator)
-			if rl.IsFileExtension(name, ".wav;.mp3;.ogg;.flac") {
-				title := strings.clone(os.stem(track_file.name), alloc)
-				rel_path, rel_err := filepath.join(
-					{MUSIC_DIR, playlist_dir.name, track_file.name},
-					context.temp_allocator,
-				)
-				log.ensuref(
-					rel_err == nil,
-					"Error building track path for %q in %q: %v",
-					track_file.name,
-					playlist_dir.name,
-					rel_err,
-				)
-				track_path := strings.clone(rel_path, alloc)
+			if !rl.IsFileExtension(name, ".wav;.mp3;.ogg;.flac") do continue
 
-				// It would be ideal to pass an existing file handle here, but I simply
-				// don't want to store a handle I only use for this check.
-				file_hash, hash_err := utils.hash_file_by_path(track_file.fullpath)
-				log.ensuref(hash_err == nil, "Error hashing file: %s", hash_err)
+			title := strings.clone(os.stem(track_file.name), alloc)
+			rel_path, rel_err := filepath.join(
+				{MUSIC_DIR, playlist_dir.name, track_file.name},
+				context.temp_allocator,
+			)
+			log.ensuref(
+				rel_err == nil,
+				"Error building track path for %q in %q: %v",
+				track_file.name,
+				playlist_dir.name,
+				rel_err,
+			)
+			track_path := strings.clone(rel_path, alloc)
 
-				track_key := PathName(track_path)
-				cached, cache_exists := sound_settings.track_loudness[track_key]
-				cache_usable :=
-					cache_exists &&
-					cached.file_hash == file_hash &&
-					(!sound_settings.normalize_volume || cached.active_rms > 0)
-				if !cache_usable {
-					loudness := TrackLoudness {
-						file_hash = strings.clone(file_hash, alloc),
-					}
-					if sound_settings.normalize_volume {
-						active_rms, ok := measure_track_loudness(track_path)
-						if ok do loudness.active_rms = active_rms
-					}
-					sound_settings.track_loudness[track_key] = loudness
+			// It would be ideal to pass an existing file handle here, but I simply
+			// don't want to store a handle I only use for this check.
+			file_hash, hash_err := utils.hash_file_by_path(track_file.fullpath)
+			log.ensuref(hash_err == nil, "Error hashing file: %s", hash_err)
+
+			track_key := PathName(track_path)
+			cached, cache_exists := sound_settings.track_loudness[track_key]
+			cache_usable :=
+				cache_exists &&
+				cached.file_hash == file_hash &&
+				(!sound_settings.normalize_volume || cached.active_rms > 0)
+			if !cache_usable {
+				loudness := TrackLoudness {
+					file_hash = strings.clone(file_hash, alloc),
 				}
-				append(&track_keys, track_key)
-
-				track := Track {
-					title  = title,
-					path   = track_path,
-					played = false,
+				if sound_settings.normalize_volume {
+					active_rms, ok := measure_track_loudness(track_path)
+					if ok do loudness.active_rms = active_rms
 				}
-				_, err := hm.add(&playlist.tracks, track)
-				log.ensuref(
-					err == nil,
-					"Error adding track `%s` to playlist `%s`: %v",
-					track,
-					playlist.name,
-					err,
-				)
+				sound_settings.track_loudness[track_key] = loudness
 			}
+			append(&track_keys, track_key)
+
+			track := Track {
+				title  = title,
+				path   = track_path,
+				played = false,
+			}
+			_, err := hm.add(&playlist.tracks, track)
+			log.ensuref(
+				err == nil,
+				"Error adding track `%s` to playlist `%s`: %v",
+				track,
+				playlist.name,
+				err,
+			)
 		}
 
 		append(&playlists, playlist)

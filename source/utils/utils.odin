@@ -23,7 +23,12 @@ write_entire_file :: proc(name: string, data: []byte, truncate := true) -> (succ
 }
 
 hash_file_by_path :: proc(path: string) -> (string, io.Error) {
-	file_hash, err := hash.hash_file_by_name(hash.Algorithm.SHA256, path, false, context.temp_allocator)
+	file_hash, err := hash.hash_file_by_name(
+		hash.Algorithm.BLAKE2B,
+		path,
+		false,
+		context.temp_allocator,
+	)
 	if err != nil do return "", err
 
 	hex_hash, hex_err := hex.encode(file_hash, context.temp_allocator)
