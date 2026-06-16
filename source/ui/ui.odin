@@ -232,8 +232,15 @@ render_control :: proc(control: ^Control) -> Maybe(UI_Event) {
 	case .Slider:
 		rl.GuiSlider(control.rect, nil, nil, &control.state.(f32), 0, 1)
 	case .SliderBar:
+		prev_state := control.state.(f32)
 		rl.GuiSliderBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
-		return UI_Event{name = control.name, kind = .Value_Changed, value = control.state.(f32)}
+		if prev_state != control.state.(f32) {
+			return UI_Event {
+				name = control.name,
+				kind = .Value_Changed,
+				value = control.state.(f32),
+			}
+		}
 	case .ProgressBar:
 		rl.GuiProgressBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
 	case .StatusBar:
