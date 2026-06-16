@@ -14,13 +14,13 @@ hot_reloaded_restores_settings_pointer :: proc(t: ^testing.T) {
 	sound_settings = nil
 
 	settings := SoundSettings {
-		volume = 0.5,
+		music_volume = 0.5,
 	}
 	hot_reloaded(&settings)
 
 	testing.expect(t, sound_settings != nil, "sound state left nil after hot reload")
 	testing.expect(t, sound_settings == &settings, "settings pointer not restored")
-	testing.expect_value(t, sound_settings.volume, f32(0.5))
+	testing.expect_value(t, sound_settings.music_volume, f32(0.5))
 }
 
 @(test)
@@ -42,7 +42,7 @@ partial_settings_keep_default_normalization :: proc(t: ^testing.T) {
 @(test)
 sound_settings_round_trips_loudness_cache :: proc(t: ^testing.T) {
 	settings := SoundSettings {
-		volume           = 1,
+		music_volume     = 1,
 		normalize_volume = true,
 		target_loudness  = -8,
 		track_loudness   = make(map[PathName]TrackLoudness),

@@ -17,7 +17,10 @@ import rl "vendor:raylib"
 // persistence shell), so these definitions stay local to the sound Module.
 
 SoundSettings :: struct {
-	volume:                   f32 `json:"-"`,
+	// The music master volume (0..1). Scales every music track on top of its
+	// per-track normalization gain. It is deliberately NOT raylib's global
+	// master volume, which would also attenuate sound effects.
+	music_volume:             f32 `json:"-"`,
 	fade_in_time:             f32,
 	fade_out_time:            f32,
 	stop_fade_time:           f32,
@@ -32,6 +35,9 @@ SoundSettings :: struct {
 	playlists:                [dynamic]Playlist `json:"-"`,
 	current_playing_playlist: ^Playlist `json:"-"`,
 	current_music:            rl.Music `json:"-"`,
+	// Normalization gain of the track in current_music, cached so changes to
+	// music_volume can be reapplied to the live stream without re-deriving it.
+	current_music_gain:       f32 `json:"-"`,
 	current_sounds:           [dynamic]rl.Sound `json:"-"`,
 	is_sound_playing:         bool `json:"-"`,
 }
@@ -94,7 +100,7 @@ MUSIC_MIN_NORMALIZED_GAIN :: f32(0.05)
 MUSIC_MAX_NORMALIZED_GAIN :: f32(1.0)
 
 DefaultSoundSettings := SoundSettings {
-	volume           = 0.5,
+	music_volume     = 0.5,
 	fade_in_time     = 2.0,
 	fade_out_time    = 2.0,
 	stop_fade_time   = 2.0,
@@ -105,9 +111,15 @@ DefaultSoundSettings := SoundSettings {
 	target_loudness  = -8,
 }
 
-set_master_volume :: proc(volume: f32) {
-	sound_settings.volume = volume
-	rl.SetMasterVolume(volume)
+// Sets the music master volume and applies it to the currently playing track
+// (combined with that track's normalization gain). Sound effects are unaffected
+// because each effect carries its own volume; this never touches raylib's global
+// master volume.
+set_music_volume :: proc(volume: f32) {
+	sound_settings.music_volume = volume
+	if music_is_loaded(sound_settings.current_music) {
+		rl.SetMusicVolume(sound_settings.current_music, volume * sound_settings.current_music_gain)
+	}
 }
 
 load_playlists :: proc() -> [dynamic]Playlist {
@@ -210,12 +222,13 @@ load_playlists :: proc() -> [dynamic]Playlist {
 	return playlists
 }
 
-play_sound :: proc(filepath: string) -> rl.Sound {
+// Plays a one-shot sound effect at the given volume (0..1). The volume is per
+// effect and independent of the music volume, so callers tune each effect to
+// sit well against the (normalized) music.
+play_sound :: proc(filepath: string, volume: f32) -> rl.Sound {
 	sound := rl.LoadSound(strings.clone_to_cstring(filepath, context.temp_allocator))
 	rl.PlaySound(sound)
-	// Set lower volume to match closer to normalized music tracks (which are
-	// brought down to a lower volume).
-	rl.SetSoundVolume(sound, 0.6)
+	rl.SetSoundVolume(sound, volume)
 	sound_settings.is_sound_playing = true
 	append(&sound_settings.current_sounds, sound)
 	return sound
@@ -283,10 +296,10 @@ play_music :: proc(track: Track) {
 	music.looping = false
 	loudness, loudness_exists := sound_settings.track_loudness[PathName(track.path)]
 	log.ensuref(loudness_exists, "Playback gain was not computed for track: %v", track)
-	rl.SetMusicVolume(
-		music,
-		loudness_exists ? clamp_music_gain(loudness.volume_multiplier) : MUSIC_MAX_NORMALIZED_GAIN,
-	)
+	gain :=
+		loudness_exists ? clamp_music_gain(loudness.volume_multiplier) : MUSIC_MAX_NORMALIZED_GAIN
+	sound_settings.current_music_gain = gain
+	rl.SetMusicVolume(music, sound_settings.music_volume * gain)
 
 	if music_is_loaded(sound_settings.current_music) {
 		rl.StopMusicStream(sound_settings.current_music)
@@ -556,7 +569,6 @@ init_settings :: proc() -> ^SoundSettings {
 	if sound_settings.track_loudness == nil do sound_settings.track_loudness = make_track_loudness_cache()
 	sound_settings.playlists = load_playlists()
 	sound_settings.current_sounds = make([dynamic]rl.Sound)
-	rl.SetMasterVolume(sound_settings.volume)
 
 	// Save immediately since we may have just calculated gains.
 	save_settings()

@@ -54,7 +54,7 @@ Show_Action :: enum {
 	Unknown,
 	// Main controls
 	Tab_Bar,
-	Master_Volume,
+	Music_Volume,
 	// Scene changes
 	Pre_Show,
 	Post_Show,
@@ -136,26 +136,27 @@ dispatch_ui_events :: proc(events: ^[dynamic]ui.UI_Event) {
 		switch val {
 		case .Tab_Bar:
 			gm.active_tab = clamp_tab(int(event.value))
-		case .Master_Volume:
-			sound.set_master_volume(event.value)
+		case .Music_Volume:
+			sound.set_music_volume(event.value)
 			sound.save_settings()
 		case .Pre_Show:
 			vol := f32(0.5)
-			sound.set_master_volume(vol)
+			sound.set_music_volume(vol)
 			ui.set_volume_value(vol, gm.ui_controls[:])
 			sound.play_playlist("Happy Beats")
 		case .Post_Show:
 			vol := f32(0.8)
-			sound.set_master_volume(vol)
+			sound.set_music_volume(vol)
 			ui.set_volume_value(vol, gm.ui_controls[:])
 			sound.play_playlist("Happy Beats")
 		case .Drop_Needle:
 			vol := f32(1.0)
-			sound.set_master_volume(vol)
+			sound.set_music_volume(vol)
 			ui.set_volume_value(vol, gm.ui_controls[:])
 			sound.play_playlist("Needle Droppers")
 		case .Cat_Meow:
-			sound.play_sound("assets/sounds/fx/cat-meow.mp3")
+			// Sound effects carry their own volume, independent of music_volume.
+			sound.play_sound("assets/sounds/fx/cat-meow.mp3", 0.6)
 		case .Unknown:
 			log.warnf("No app behavior mapped for UI control %q", event.name)
 		}

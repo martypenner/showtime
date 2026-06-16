@@ -442,7 +442,7 @@ parse_layout :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(La
 
 set_volume_value :: proc(value: f32, controls: []Control) {
 	for &control in controls {
-		if control.name != "Master_Volume" do continue
+		if control.name != "Music_Volume" do continue
 		control.state = value
 		return
 	}
