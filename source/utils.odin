@@ -4,7 +4,6 @@ package game
 
 import "core:crypto/hash"
 import "core:encoding/hex"
-import "core:io"
 import "core:log"
 
 @(require_results)

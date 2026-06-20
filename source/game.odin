@@ -39,7 +39,7 @@ gm: ^GameMemory
 GameMemory :: struct {
 	should_run:     bool,
 	active_tab:     int,
-	ui_controls:    [dynamic]Control,
+	ui_controls:    Controls,
 	sound_settings: ^SoundSettings,
 }
 
@@ -84,8 +84,8 @@ Tab :: enum int {
 // editable on its own in the layout tool: chrome.rgl holds the persistent
 // controls shown on every tab, and one file per Tab holds that tab's controls.
 // Add a tab by authoring its file and loading it here against the matching Tab.
-build_layout :: proc() -> [dynamic]Control {
-	controls := make([dynamic]Control)
+layout_build :: proc() -> Controls {
+	controls: Controls
 
 	// Per-tab content first, then chrome, so the persistent controls draw on top.
 	layout_load(
@@ -109,7 +109,7 @@ build_layout :: proc() -> [dynamic]Control {
 
 // Keeps a tab index reported by the Tab_Bar within the defined tabs, so a
 // malformed/extra ToggleGroup option can't activate a page that doesn't exist.
-clamp_tab :: proc(index: int) -> int {
+tab_clamp :: proc(index: int) -> int {
 	switch Tab(index) {
 	case .Controls, .Music:
 		return index
@@ -122,7 +122,7 @@ clamp_tab :: proc(index: int) -> int {
 // is an app concern (which controls are dangerous to the show), so this mapping
 // lives here rather than in generic UI/layout code. Keeping it pure lets the
 // styling Seam be verified without Raylib drawing.
-resolve_ui_type :: proc(name: string) -> UI_Type {
+ui_resolve_type :: proc(name: string) -> UI_Type {
 	switch name {
 	case "Drop_Needle":
 		return .Destructive
@@ -131,7 +131,7 @@ resolve_ui_type :: proc(name: string) -> UI_Type {
 	}
 }
 
-dispatch_ui_events :: proc(events: ^[dynamic]UI_Event) {
+ui_dispatch_events :: proc(events: ^UI_Events) {
 	for event in events {
 		val, ok := fmt.string_to_enum_value(Show_Action, event.name)
 		if !ok do val = .Unknown
@@ -140,7 +140,7 @@ dispatch_ui_events :: proc(events: ^[dynamic]UI_Event) {
 		// and one-shot sounds are transient, so they don't touch the file.
 		switch val {
 		case .Tab_Bar:
-			gm.active_tab = clamp_tab(int(event.value))
+			gm.active_tab = tab_clamp(int(event.value))
 		case .Music_Volume:
 			//sound_music_volume_set(event.value)
 			sound_settings_save()
@@ -189,7 +189,7 @@ draw :: proc() {
 	rl.ClearBackground({16, 16, 16, 255})
 
 	events := ui_draw(gm.ui_controls[:], gm.active_tab)
-	dispatch_ui_events(&events)
+	ui_dispatch_events(&events)
 
 	rl.EndDrawing()
 }
@@ -220,7 +220,7 @@ load_assets :: proc(data: rawptr) {
 // state game_update has no loading branch to check every frame. The loader uses
 // the captured app allocator/logger because new threads start with a default
 // context rather than inheriting main's.
-run_loading_screen :: proc() {
+loading_screen_run :: proc() {
 	loader_allocator = context.allocator
 	loader_logger = context.logger
 	loader := thread.create_and_start_with_data(gm, load_assets)
@@ -286,9 +286,9 @@ game_init :: proc() {
 	// was loaded out of. The remaining app metadata (destructive styling) is
 	// neutral after parsing, so it is applied here while the UI-owned data lives
 	// on the app allocator.
-	gm.ui_controls = build_layout()
+	gm.ui_controls = layout_build()
 	for &control in gm.ui_controls {
-		control.ui_type = resolve_ui_type(control.name)
+		control.ui_type = ui_resolve_type(control.name)
 	}
 
 	when ODIN_OS == .JS {
@@ -296,7 +296,7 @@ game_init :: proc() {
 		// is no main thread to draw a loading screen on; load synchronously.
 		gm.sound_settings = sound.init_settings()
 	} else {
-		run_loading_screen()
+		loading_screen_run()
 	}
 
 	game_hot_reloaded(gm)

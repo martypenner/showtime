@@ -61,6 +61,8 @@ Control :: struct {
 	state:            Control_State,
 }
 
+Controls :: [dynamic; 512]Control
+
 // Mutable per-control state. Each control kind stores only the variant it
 // needs; stateless controls (Button, Label, ...) leave this nil.
 
@@ -144,8 +146,10 @@ UI_Event :: struct {
 	value: f32,
 }
 
-ui_draw :: proc(controls: []Control, active_group: int) -> [dynamic]UI_Event {
-	events := make([dynamic]UI_Event, context.temp_allocator)
+UI_Events :: [dynamic; 64]UI_Event
+
+ui_draw :: proc(controls: []Control, active_group: int) -> UI_Events {
+	events: UI_Events
 
 	for &ui_control in controls {
 		if !control_is_visible(ui_control, active_group) {
@@ -159,7 +163,7 @@ ui_draw :: proc(controls: []Control, active_group: int) -> [dynamic]UI_Event {
 	return events
 }
 
-ui_shutdown :: proc(controls: ^[dynamic]Control) {
+ui_shutdown :: proc(controls: ^Controls) {
 	for &control in controls {
 		delete(control.name)
 		delete(control.text)
@@ -167,7 +171,6 @@ ui_shutdown :: proc(controls: ^[dynamic]Control) {
 			delete(text_state.buffer)
 		}
 	}
-	delete(controls^)
 }
 
 control_is_visible :: proc(control: Control, active_group: int) -> bool {
@@ -288,7 +291,7 @@ controls_prepare_for_render :: proc(controls: []Control, render_width: i32, rend
 	}
 }
 
-layout_load :: proc(controls: ^[dynamic]Control, name: string, source: string, group: int) {
+layout_load :: proc(controls: ^Controls, name: string, source: string, group: int) {
 	parsed, err := layout_parse(source)
 	defer delete(parsed)
 	if e, bad := err.?; bad {

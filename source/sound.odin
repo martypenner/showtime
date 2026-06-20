@@ -29,10 +29,10 @@ SoundSettings :: struct {
 	// Cached per-track loudness measurements, keyed by track path, so we don't
 	// re-decode unchanged files on every launch.
 	track_loudness:           map[PathName]TrackLoudness,
-	playlists:                [dynamic]Playlist `json:"-"`,
+	playlists:                Playlists `json:"-"`,
 	current_playing_playlist: ^Playlist `json:"-"`,
 	music_voices:             [MUSIC_VOICE_COUNT]MusicVoice `json:"-"`,
-	current_sounds:           [dynamic]rl.Sound `json:"-"`,
+	current_sounds:           Sounds `json:"-"`,
 	is_sound_playing:         bool `json:"-"`,
 }
 
@@ -75,6 +75,8 @@ Playlist :: struct {
 	current_playing_track: ^Track,
 }
 
+Playlists :: [dynamic; 64]Playlist
+
 TrackHandle :: distinct hm.Handle32
 
 Track :: struct {
@@ -102,6 +104,8 @@ TrackLoudness :: struct {
 	active_rms:        f32,
 	volume_multiplier: f32 `json:"-"`,
 }
+
+Sounds :: [dynamic; 32]rl.Sound
 
 sound_settings: ^SoundSettings
 
@@ -137,12 +141,12 @@ DefaultSoundSettings := SoundSettings {
 	target_loudness  = -8,
 }
 
-playlists_load :: proc() -> [dynamic]Playlist {
+playlists_load :: proc() -> Playlists {
 	potential_playlists, err := os.read_all_directory_by_path(MUSIC_DIR, context.temp_allocator)
 	log.ensuref(err == nil, "Error reading music dir: %s", err)
 
-	playlists := make([dynamic]Playlist)
-	track_keys := make([dynamic]PathName, context.temp_allocator)
+	playlists: Playlists
+	track_keys: [dynamic; 512]PathName
 	for playlist_dir in potential_playlists {
 		if playlist_dir.type != .Directory && playlist_dir.type != .Symlink do continue
 
@@ -328,7 +332,6 @@ sound_settings_init :: proc() -> ^SoundSettings {
 		sound_settings.track_loudness = make(map[PathName]TrackLoudness)
 	}
 	sound_settings.playlists = playlists_load()
-	sound_settings.current_sounds = make([dynamic]rl.Sound)
 
 	// Save immediately since we may have just calculated gains.
 	sound_settings_save()
@@ -362,12 +365,10 @@ sound_shutdown :: proc() {
 		for sound in sound_settings.current_sounds {
 			rl.UnloadSound(sound)
 		}
-		delete(sound_settings.current_sounds)
 
 		for &playlist in sound_settings.playlists {
 			playlist_free(&playlist)
 		}
-		delete(sound_settings.playlists)
 
 		free(sound_settings)
 		sound_settings = nil

@@ -14,7 +14,7 @@ import rl "vendor:raylib"
 @(test)
 load_layout_matches_committed_golden :: proc(t: ^testing.T) {
 	GROUP :: 7
-	controls := make([dynamic]Control)
+	controls: Controls
 	defer ui_shutdown(&controls)
 	layout_load(&controls, "controls.rgl", string(#load("../resources/controls.rgl")), GROUP)
 	controls_prepare_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())

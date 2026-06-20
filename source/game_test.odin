@@ -8,9 +8,9 @@ import "core:testing"
 // ordinary controls stay default.
 @(test)
 resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
-	testing.expect_value(t, resolve_ui_type("Drop_Needle"), UI_Type.Destructive)
-	testing.expect_value(t, resolve_ui_type("Cat_Meow"), UI_Type.Default)
-	testing.expect_value(t, resolve_ui_type(""), UI_Type.Default)
+	testing.expect_value(t, ui_resolve_type("Drop_Needle"), UI_Type.Destructive)
+	testing.expect_value(t, ui_resolve_type("Cat_Meow"), UI_Type.Default)
+	testing.expect_value(t, ui_resolve_type(""), UI_Type.Default)
 }
 
 // Tabs are split per layout file: build_layout tags every control with the group
@@ -20,7 +20,7 @@ resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
 // just a new file + load call.
 @(test)
 build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
-	controls := build_layout()
+	controls := layout_build()
 	defer ui_shutdown(&controls)
 
 	chrome_seen, controls_seen: int
@@ -43,8 +43,8 @@ build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
 // has no controls.
 @(test)
 clamp_tab_keeps_index_in_range :: proc(t: ^testing.T) {
-	testing.expect_value(t, clamp_tab(int(Tab.Controls)), int(Tab.Controls))
-	testing.expect_value(t, clamp_tab(int(Tab.Music)), int(Tab.Music))
-	testing.expect_value(t, clamp_tab(-1), int(Tab.Controls))
-	testing.expect_value(t, clamp_tab(99), int(Tab.Controls))
+	testing.expect_value(t, tab_clamp(int(Tab.Controls)), int(Tab.Controls))
+	testing.expect_value(t, tab_clamp(int(Tab.Music)), int(Tab.Music))
+	testing.expect_value(t, tab_clamp(-1), int(Tab.Controls))
+	testing.expect_value(t, tab_clamp(99), int(Tab.Controls))
 }
