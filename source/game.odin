@@ -58,6 +58,7 @@ Show_Action :: enum {
 	// Scene changes
 	Pre_Show,
 	Post_Show,
+	To_House,
 	Drop_Needle,
 	// Sounds
 	Cat_Meow,
@@ -149,6 +150,10 @@ dispatch_ui_events :: proc(events: ^[dynamic]ui.UI_Event) {
 			vol := f32(0.8)
 			ui.set_volume_value(vol, gm.ui_controls[:])
 			sound.play_playlist("Happy Beats", vol)
+		case .To_House:
+			vol := f32(0.2)
+			ui.set_volume_value(vol, gm.ui_controls[:])
+			sound.play_playlist("Easy Listening", vol)
 		case .Drop_Needle:
 			vol := f32(1.0)
 			ui.set_volume_value(vol, gm.ui_controls[:])
