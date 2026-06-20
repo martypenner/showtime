@@ -3,8 +3,7 @@
 // stuff emscripten exposes. You can read the files that get bundled by
 // `--preload-file assets` in `build_web` script.
 
-
-package utils
+package game
 
 import "base:runtime"
 import "core:c"
@@ -114,4 +113,3 @@ _write_entire_file :: proc(name: string, data: []byte, truncate := true) -> (suc
 	log.debugf("File written successfully: %v", name)
 	return true
 }
-

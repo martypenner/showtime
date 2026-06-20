@@ -1,4 +1,4 @@
-package ui
+package game
 
 import "core:log"
 import "core:strconv"
@@ -49,37 +49,16 @@ UI_Type :: enum u8 {
 	Destructive,
 }
 
-// A control marked with this group renders on every page rather than a single
-// one. It is for persistent chrome (the tab bar, the status bar) that should
-// stay visible no matter which page the app has activated.
 VISIBLE_ON_ALL_GROUPS :: -1
 
 Control :: struct {
 	control_type:     Control_Type,
 	ui_type:          UI_Type,
-	// Which page/tab this control renders on. The ui layer stays app-agnostic:
-	// it only compares this against the active group passed to draw, so the app
-	// decides what each group means. Defaults to group 0; chrome that must show
-	// everywhere uses VISIBLE_ON_ALL_GROUPS.
 	visibility_group: int,
 	name:             string,
 	text:             cstring,
 	rect:             rl.Rectangle,
 	state:            Control_State,
-}
-
-// Releases controls and all nested UI-owned allocations made by parse_layout.
-// The array's allocator owns the cloned control names/text; transient draw
-// events still live on context.temp_allocator and are reset at end-of-frame.
-destroy_controls :: proc(controls: ^[dynamic]Control) {
-	for &control in controls {
-		delete(control.name)
-		delete(control.text)
-		if text_state, ok := control.state.(Text_State); ok {
-			delete(text_state.buffer)
-		}
-	}
-	delete(controls^)
 }
 
 // Mutable per-control state. Each control kind stores only the variant it
@@ -154,9 +133,6 @@ default_control_state :: proc(type: Control_Type) -> Control_State {
 	return nil
 }
 
-// What a control reported this frame. Generic rendering stays free of
-// app-specific behavior: it names the control and the kind of interaction, and
-// the app layer decides what (if anything) that means.
 UI_Event_Kind :: enum u8 {
 	Clicked,
 	Value_Changed,
@@ -168,26 +144,14 @@ UI_Event :: struct {
 	value: f32,
 }
 
-// Renders the controls and returns the interactions observed this frame. Events
-// are allocated in the temp allocator, so callers must consume them before the
-// end-of-frame temp reset.
-//
-// This is the thin interaction-collection phase: per-control Raygui drawing and
-// Raygui-owned state handling live in render_control, so this loop only gathers
-// the events the app layer needs to act on.
-//
-// Only controls in the active group (plus those marked VISIBLE_ON_ALL_GROUPS)
-// are drawn. Hidden controls are skipped in place rather than filtered into a
-// copy, because a control owns mutable Raygui state (edit modes, text buffers)
-// that must keep living in the caller's slice.
-draw :: proc(controls: []Control, active_group: int) -> [dynamic]UI_Event {
+ui_draw :: proc(controls: []Control, active_group: int) -> [dynamic]UI_Event {
 	events := make([dynamic]UI_Event, context.temp_allocator)
 
 	for &ui_control in controls {
-		if !control_visible(ui_control, active_group) {
+		if !control_is_visible(ui_control, active_group) {
 			continue
 		}
-		if event, ok := render_control(&ui_control).?; ok {
+		if event, ok := control_render(&ui_control).?; ok {
 			append(&events, event)
 		}
 	}
@@ -195,20 +159,25 @@ draw :: proc(controls: []Control, active_group: int) -> [dynamic]UI_Event {
 	return events
 }
 
-// A control is drawn when it belongs to the active group or is persistent chrome
-// shown on every group.
-control_visible :: proc(control: Control, active_group: int) -> bool {
+ui_shutdown :: proc(controls: ^[dynamic]Control) {
+	for &control in controls {
+		delete(control.name)
+		delete(control.text)
+		if text_state, ok := control.state.(Text_State); ok {
+			delete(text_state.buffer)
+		}
+	}
+	delete(controls^)
+}
+
+control_is_visible :: proc(control: Control, active_group: int) -> bool {
 	return(
 		control.visibility_group == VISIBLE_ON_ALL_GROUPS ||
 		control.visibility_group == active_group \
 	)
 }
 
-// Renders a single control with Raygui and applies any Raygui-owned state
-// changes (edit-mode toggles, slider values, ...) back to the control. This is
-// where Raygui-specific handling is hidden; it reports an interaction to the app
-// layer by returning a UI_Event, or nil when the control did nothing this frame.
-render_control :: proc(control: ^Control) -> Maybe(UI_Event) {
+control_render :: proc(control: ^Control) -> Maybe(UI_Event) {
 	switch control.control_type {
 	case .WindowBox:
 		rl.GuiWindowBox(control.rect, control.text)
@@ -308,7 +277,7 @@ render_control :: proc(control: ^Control) -> Maybe(UI_Event) {
 	return nil
 }
 
-prepare_controls_for_render :: proc(controls: []Control, render_width: i32, render_height: i32) {
+controls_prepare_for_render :: proc(controls: []Control, render_width: i32, render_height: i32) {
 	for &control in controls {
 		#partial switch control.control_type {
 		case .StatusBar:
@@ -319,15 +288,8 @@ prepare_controls_for_render :: proc(controls: []Control, render_width: i32, rend
 	}
 }
 
-// load_layout is the Adapter Seam: it parses one rGuiLayout source and appends
-// its controls to `controls`, tagging each with `group` so the caller can split
-// controls across pages/tabs by loading a file per group. The ui layer stays
-// app-agnostic: it does not know how many groups exist or what they mean.
-// Malformed layout data is a build-time asset bug, so a parse failure aborts
-// loudly with a located message (including `name`) rather than producing a
-// half-built UI.
-load_layout :: proc(controls: ^[dynamic]Control, name: string, source: string, group: int) {
-	parsed, err := parse_layout(source)
+layout_load :: proc(controls: ^[dynamic]Control, name: string, source: string, group: int) {
+	parsed, err := layout_parse(source)
 	defer delete(parsed)
 	if e, bad := err.?; bad {
 		log.panicf("%s: %v at line %d: %q", name, e.kind, e.line, e.detail)
@@ -338,16 +300,13 @@ load_layout :: proc(controls: ^[dynamic]Control, name: string, source: string, g
 	append(controls, ..parsed[:])
 }
 
-// Field positions within an rGuiLayout record line. Naming the positions keeps
-// parsing intent clear instead of relying on bare numeric indices, and the enum
-// length doubles as the minimum field count each record needs.
 Anchor_Field :: enum {
 	Tag, // 'a'
 	Id,
 	Name,
 	Pos_X,
 	Pos_Y,
-	Enabled, // ignored: enable/disable is out of scope
+	Enabled, // ignored for now
 }
 
 Component_Field :: enum {
@@ -375,12 +334,7 @@ Layout_Error :: struct {
 	detail: string,
 }
 
-// Parses the rGuiLayout text format into internal controls. Anchor offsets are
-// folded into each control's rect so callers receive ready-to-render rects.
-// Enable/disable fields (anchor <enabled>) are parsed past but never acted on;
-// changing visibility/activation is out of scope. Returns a located error
-// instead of panicking so the Adapter's failure mode is testable.
-parse_layout :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(Layout_Error)) {
+layout_parse :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(Layout_Error)) {
 	controls = make([dynamic]Control)
 	anchors := make(map[int][2]f32, context.temp_allocator)
 
@@ -392,16 +346,16 @@ parse_layout :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(La
 			continue
 		}
 
-		#partial switch str_to_layout_item(line[0]) {
+		#partial switch layout_str_to_item(line[0]) {
 		case .Anchor:
 			// a <id> <name> <posx> <posy> <enabled>
 			parts := strings.split_n(line, " ", len(Anchor_Field), context.temp_allocator)
 			if len(parts) < len(Anchor_Field) {
 				return controls, Layout_Error{line_no, .Too_Few_Fields, line}
 			}
-			id := parse_int(parts[Anchor_Field.Id], line_no) or_return
-			x := parse_f32(parts[Anchor_Field.Pos_X], line_no) or_return
-			y := parse_f32(parts[Anchor_Field.Pos_Y], line_no) or_return
+			id := int_parse(parts[Anchor_Field.Id], line_no) or_return
+			x := f32_parse(parts[Anchor_Field.Pos_X], line_no) or_return
+			y := f32_parse(parts[Anchor_Field.Pos_Y], line_no) or_return
 			anchors[id] = {x, y}
 
 		case .Component:
@@ -410,12 +364,12 @@ parse_layout :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(La
 			if len(parts) < len(Component_Field) {
 				return controls, Layout_Error{line_no, .Too_Few_Fields, line}
 			}
-			type := parse_int(parts[Component_Field.Type], line_no) or_return
-			x := parse_f32(parts[Component_Field.Rect_X], line_no) or_return
-			y := parse_f32(parts[Component_Field.Rect_Y], line_no) or_return
-			w := parse_f32(parts[Component_Field.Rect_W], line_no) or_return
-			h := parse_f32(parts[Component_Field.Rect_H], line_no) or_return
-			anchor_id := parse_int(parts[Component_Field.Anchor_Id], line_no) or_return
+			type := int_parse(parts[Component_Field.Type], line_no) or_return
+			x := f32_parse(parts[Component_Field.Rect_X], line_no) or_return
+			y := f32_parse(parts[Component_Field.Rect_Y], line_no) or_return
+			w := f32_parse(parts[Component_Field.Rect_W], line_no) or_return
+			h := f32_parse(parts[Component_Field.Rect_H], line_no) or_return
+			anchor_id := int_parse(parts[Component_Field.Anchor_Id], line_no) or_return
 
 			rect := rl.Rectangle{x, y, w, h}
 			if anchor, has_anchor := anchors[anchor_id]; has_anchor {
@@ -440,7 +394,7 @@ parse_layout :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(La
 	return controls, nil
 }
 
-set_volume_value :: proc(value: f32, controls: []Control) {
+volume_set_value :: proc(value: f32, controls: []Control) {
 	for &control in controls {
 		if control.name != "Music_Volume" do continue
 		control.state = value
@@ -449,7 +403,7 @@ set_volume_value :: proc(value: f32, controls: []Control) {
 }
 
 @(private)
-parse_int :: proc(s: string, line_no: int) -> (int, Maybe(Layout_Error)) {
+int_parse :: proc(s: string, line_no: int) -> (int, Maybe(Layout_Error)) {
 	value, ok := strconv.parse_int(s)
 	if !ok {
 		return 0, Layout_Error{line_no, .Invalid_Int, s}
@@ -458,7 +412,7 @@ parse_int :: proc(s: string, line_no: int) -> (int, Maybe(Layout_Error)) {
 }
 
 @(private)
-parse_f32 :: proc(s: string, line_no: int) -> (f32, Maybe(Layout_Error)) {
+f32_parse :: proc(s: string, line_no: int) -> (f32, Maybe(Layout_Error)) {
 	value, ok := strconv.parse_f64(s)
 	if !ok {
 		return 0, Layout_Error{line_no, .Invalid_Float, s}
@@ -466,7 +420,8 @@ parse_f32 :: proc(s: string, line_no: int) -> (f32, Maybe(Layout_Error)) {
 	return f32(value), nil
 }
 
-str_to_layout_item :: proc(s: u8) -> Layout_Item {
+@(private)
+layout_str_to_item :: proc(s: u8) -> Layout_Item {
 	switch s {
 	case 'r':
 		return Layout_Item.RefWindow

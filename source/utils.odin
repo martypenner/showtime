@@ -1,10 +1,11 @@
 // Wraps os.read_entire_file and os.write_entire_file, but they also work with emscripten.
 
-package utils
+package game
 
 import "core:crypto/hash"
 import "core:encoding/hex"
 import "core:io"
+import "core:log"
 
 @(require_results)
 read_entire_file :: proc(
@@ -22,17 +23,16 @@ write_entire_file :: proc(name: string, data: []byte, truncate := true) -> (succ
 	return _write_entire_file(name, data, truncate)
 }
 
-hash_file_by_path :: proc(path: string) -> (string, io.Error) {
+hash_file_by_path :: proc(path: string) -> string {
 	file_hash, err := hash.hash_file_by_name(
 		hash.Algorithm.BLAKE2B,
 		path,
 		false,
 		context.temp_allocator,
 	)
-	if err != nil do return "", err
-	defer delete(file_hash, context.temp_allocator)
+	log.ensuref(err == nil, "Error hashing file: %s", err)
 
 	hex_hash, hex_err := hex.encode(file_hash, context.temp_allocator)
-	if hex_err != nil do return "", io.Error.Unknown
-	return string(hex_hash), nil
+	log.ensuref(hex_err == nil, "Error encoding hex for hash: %v", hex_err)
+	return string(hex_hash)
 }

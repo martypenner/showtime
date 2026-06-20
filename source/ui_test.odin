@@ -1,4 +1,4 @@
-package ui
+package game
 
 import "core:testing"
 import rl "vendor:raylib"
@@ -15,9 +15,9 @@ import rl "vendor:raylib"
 load_layout_matches_committed_golden :: proc(t: ^testing.T) {
 	GROUP :: 7
 	controls := make([dynamic]Control)
-	defer destroy_controls(&controls)
-	load_layout(&controls, "controls.rgl", string(#load("../../resources/controls.rgl")), GROUP)
-	prepare_controls_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
+	defer ui_shutdown(&controls)
+	layout_load(&controls, "controls.rgl", string(#load("../resources/controls.rgl")), GROUP)
+	controls_prepare_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
 
 	Expected :: struct {
 		name: string,
@@ -63,7 +63,7 @@ load_layout_matches_committed_golden :: proc(t: ^testing.T) {
 parse_layout_reports_malformed_lines :: proc(t: ^testing.T) {
 	{
 		// Component line missing its rect/anchor/text fields.
-		_, err := parse_layout("c 000 5 preshow 0 24 96")
+		_, err := layout_parse("c 000 5 preshow 0 24 96")
 		e, bad := err.?
 		testing.expect(t, bad, "expected an error for a truncated component line")
 		testing.expect_value(t, e.kind, Layout_Error_Kind.Too_Few_Fields)
@@ -71,7 +71,7 @@ parse_layout_reports_malformed_lines :: proc(t: ^testing.T) {
 	}
 	{
 		// Anchor position that is not a number.
-		_, err := parse_layout("a 1 scenes x 0 1")
+		_, err := layout_parse("a 1 scenes x 0 1")
 		e, bad := err.?
 		testing.expect(t, bad, "expected an error for a non-numeric anchor field")
 		testing.expect_value(t, e.kind, Layout_Error_Kind.Invalid_Float)
@@ -135,17 +135,17 @@ control_visible_filters_by_active_group :: proc(t: ^testing.T) {
 		return Control{visibility_group = group}
 	}
 
-	testing.expect(t, control_visible(on_group(0), 0), "group 0 visible on group 0")
-	testing.expect(t, !control_visible(on_group(0), 1), "group 0 hidden on group 1")
-	testing.expect(t, control_visible(on_group(1), 1), "group 1 visible on group 1")
+	testing.expect(t, control_is_visible(on_group(0), 0), "group 0 visible on group 0")
+	testing.expect(t, !control_is_visible(on_group(0), 1), "group 0 hidden on group 1")
+	testing.expect(t, control_is_visible(on_group(1), 1), "group 1 visible on group 1")
 	testing.expect(
 		t,
-		control_visible(on_group(VISIBLE_ON_ALL_GROUPS), 0),
+		control_is_visible(on_group(VISIBLE_ON_ALL_GROUPS), 0),
 		"chrome visible on group 0",
 	)
 	testing.expect(
 		t,
-		control_visible(on_group(VISIBLE_ON_ALL_GROUPS), 1),
+		control_is_visible(on_group(VISIBLE_ON_ALL_GROUPS), 1),
 		"chrome visible on group 1",
 	)
 }
@@ -162,6 +162,6 @@ status_bars_appear_at_bottom :: proc(t: ^testing.T) {
 			text = "",
 		},
 	}
-	prepare_controls_for_render(controls[:], 100, 200)
+	controls_prepare_for_render(controls[:], 100, 200)
 	testing.expect(t, controls[0].rect == rl.Rectangle{0, 100, 100, 100})
 }
