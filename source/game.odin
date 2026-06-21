@@ -30,7 +30,6 @@ package game
 
 import "core:fmt"
 import "core:log"
-import "core:mem"
 import "core:thread"
 import rl "vendor:raylib"
 
@@ -38,22 +37,48 @@ gm: ^GameMemory
 
 GameMemory :: struct {
 	should_run:     bool,
+	app_state:      AppState,
 	active_tab:     int,
 	ui_controls:    Controls,
 	sound_settings: ^SoundSettings,
+	loader:         ^thread.Thread,
 }
 
-// The loader thread starts with a fresh default context, so it does not inherit
-// main's allocator/logger. We capture them here before spawning so the loader
-// can use the same (mutex-guarded) tracking allocator main uses. Matching
-// allocators matters: the loudness-cache map is freed in game_shutdown with
-// main's allocator, so it must be allocated with the same one.
-loader_allocator: mem.Allocator
-loader_logger: log.Logger
+AppState :: union #no_nil {
+	AppInitializing,
+	AppReady,
+}
 
-// Show-control behaviors the app knows how to perform. Generic UI rendering
-// reports interactions by control name; this is the one place that turns those
-// names into app behavior.
+AppInitializing :: distinct u8
+AppReady :: struct {
+	show_state: ShowState,
+}
+
+ShowState :: enum {
+	Initial,
+	PreShow,
+	PostShow,
+	House,
+	Scene,
+	DropNeedle,
+	ShowTransitioning,
+}
+
+ShowTransitioning :: struct {
+	target: ^ShowState,
+	effect: TransitionEffect,
+}
+TransitionEffect :: union #no_nil {
+	VolRampEffect,
+	CutEffect,
+}
+VolRampEffect :: struct {
+	ramp_up_duration:  f32,
+	hold_duration:     f32,
+	fade_out_duration: f32,
+}
+CutEffect :: distinct u8
+
 Show_Action :: enum {
 	Unknown,
 	// Main controls
@@ -69,21 +94,11 @@ Show_Action :: enum {
 	// Later: lighting
 }
 
-// The pages the controls are split across, selected by the Tab_Bar. Each tab is
-// authored as its own rGuiLayout file and loaded into the matching group in
-// build_layout. The order must match the Tab_Bar ToggleGroup options in
-// resources/chrome.rgl ("Controls;Music"): the ToggleGroup reports the active
-// tab by index, and that index is the control's visibility group.
 Tab :: enum int {
 	Controls = 0,
 	Music    = 1,
 }
 
-// Loads the layout files into one control list, returning the combined result.
-// The UI is split per file rather than per control name so each screen is
-// editable on its own in the layout tool: chrome.rgl holds the persistent
-// controls shown on every tab, and one file per Tab holds that tab's controls.
-// Add a tab by authoring its file and loading it here against the matching Tab.
 layout_build :: proc() -> Controls {
 	controls: Controls
 
@@ -181,15 +196,39 @@ update :: proc() {
 		controls_prepare_for_render(gm.ui_controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
 	}
 
-	sound_update()
+	switch s in gm.app_state {
+	case AppInitializing:
+		if gm.loader != nil && thread.is_done(gm.loader) {
+			thread.destroy(gm.loader)
+			gm.loader = nil
+			gm.app_state = AppReady {
+				show_state = .Initial,
+			}
+		}
+	case AppReady:
+		sound_update()
+	}
 }
 
 draw :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground({16, 16, 16, 255})
 
-	events := ui_draw(gm.ui_controls[:], gm.active_tab)
-	ui_dispatch_events(&events)
+	switch s in gm.app_state {
+	case AppInitializing:
+		font_size := i32(40)
+		x := (rl.GetRenderWidth() - rl.MeasureText("Normalizing audio...", font_size)) / 2
+		y := rl.GetRenderHeight() / 2 - font_size / 2
+
+		dots := "..."
+		dot_count := int(rl.GetTime() / 0.5) % 3 + 1
+		text := fmt.ctprintf("Normalizing audio%s", dots[:dot_count])
+		rl.DrawText(text, x, y, font_size, rl.RAYWHITE)
+
+	case AppReady:
+		events := ui_draw(gm.ui_controls[:], gm.active_tab)
+		ui_dispatch_events(&events)
+	}
 
 	rl.EndDrawing()
 }
@@ -201,55 +240,6 @@ game_update :: proc() {
 
 	// Everything on tracking allocator is valid until end-of-frame.
 	free_all(context.temp_allocator)
-}
-
-// Builds the sound settings and playlists. This hashes and decodes every track,
-// so it is slow enough to want a loading screen (see run_loading_screen). When
-// run on the loader thread it starts from a fresh default context, so it adopts
-// main's allocator/logger; gm.sound_settings is published when it returns.
-load_assets :: proc(data: rawptr) {
-	g := (^GameMemory)(data)
-	context.allocator = loader_allocator
-	context.logger = loader_logger
-
-	g.sound_settings = sound_settings_init()
-}
-
-// Runs the asset load on a background thread while drawing a loading screen on
-// this (main) thread until it finishes. Keeping the loop here means the steady
-// state game_update has no loading branch to check every frame. The loader uses
-// the captured app allocator/logger because new threads start with a default
-// context rather than inheriting main's.
-loading_screen_run :: proc() {
-	loader_allocator = context.allocator
-	loader_logger = context.logger
-	loader := thread.create_and_start_with_data(gm, load_assets)
-	defer thread.destroy(loader) // joins, so the loader is done past this point
-
-	for !thread.is_done(loader) {
-		if rl.WindowShouldClose() {
-			gm.should_run = false
-			break
-		}
-
-		rl.BeginDrawing()
-		rl.ClearBackground({16, 16, 16, 255})
-
-		// Animate the trailing dots: "." -> ".." -> "..." -> repeat. Position from
-		// the full-width text so "Loading" stays put while the dots appear and
-		// disappear, rather than the whole line jittering when centered.
-		font_size := i32(40)
-		x := (rl.GetRenderWidth() - rl.MeasureText("Normalizing audio...", font_size)) / 2
-		y := rl.GetRenderHeight() / 2 - font_size / 2
-
-		dots := "..."
-		dot_count := int(rl.GetTime() / 0.5) % 3 + 1
-		text := fmt.ctprintf("Normalizing audio%s", dots[:dot_count])
-		rl.DrawText(text, x, y, font_size, rl.RAYWHITE)
-
-		rl.EndDrawing()
-		free_all(context.temp_allocator)
-	}
 }
 
 @(export)
@@ -280,6 +270,7 @@ game_init :: proc() {
 	gm = new(GameMemory)
 	gm^ = GameMemory {
 		should_run = true,
+		app_state  = AppInitializing{},
 	}
 
 	// build_layout assigns each control's tab (visibility group) from the file it
@@ -291,13 +282,8 @@ game_init :: proc() {
 		control.ui_type = ui_resolve_type(control.name)
 	}
 
-	when ODIN_OS == .JS {
-		// Web is single-threaded and the browser drives the frame loop, so there
-		// is no main thread to draw a loading screen on; load synchronously.
-		gm.sound_settings = sound_settings_init()
-	} else {
-		loading_screen_run()
-	}
+	gm.sound_settings = sound_settings_init()
+	gm.loader = thread.create_and_start(playlists_load_async, context)
 
 	game_hot_reloaded(gm)
 }
@@ -316,6 +302,12 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
+	// If the window closed while still loading, wait for the loader to finish
+	// before sound_shutdown frees the settings/playlists it is writing into.
+	if gm.loader != nil {
+		thread.destroy(gm.loader)
+		gm.loader = nil
+	}
 	sound_shutdown()
 	ui_shutdown(&gm.ui_controls)
 	free(gm)

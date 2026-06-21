@@ -150,11 +150,6 @@ DefaultSoundSettings := SoundSettings {
 }
 
 playlists_load :: proc() -> Playlists {
-	arena: mem.Dynamic_Arena
-	mem.dynamic_arena_init(&arena)
-	alloc := mem.dynamic_arena_allocator(&arena)
-	defer free_all(alloc)
-
 	potential_playlists, err := os.read_all_directory_by_path(MUSIC_DIR, context.temp_allocator)
 	log.ensuref(err == nil, "Error reading music dir: %s", err)
 
@@ -264,6 +259,20 @@ playlists_load :: proc() -> Playlists {
 	thread.pool_finish(&pool)
 
 	return playlists
+}
+
+playlists_load_async :: proc() {
+	scratch: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&scratch)
+	// Need a new temp allocator since the global one gets freed every frame, and
+	// we're doing threaded chunks of work.
+	context.temp_allocator = mem.dynamic_arena_allocator(&scratch)
+	defer mem.dynamic_arena_destroy(&scratch)
+
+	sound_settings.playlists = playlists_load()
+
+	// Save immediately since we may have just calculated gains.
+	sound_settings_save()
 }
 
 sound_play :: proc(filepath: string, volume: f32) -> rl.Sound {
@@ -407,10 +416,6 @@ sound_settings_init :: proc() -> ^SoundSettings {
 	if sound_settings.track_loudness == nil {
 		sound_settings.track_loudness = make(map[PathName]TrackLoudness)
 	}
-	sound_settings.playlists = playlists_load()
-
-	// Save immediately since we may have just calculated gains.
-	sound_settings_save()
 
 	return sound_settings
 }
