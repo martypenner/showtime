@@ -25,7 +25,6 @@ SoundSettings :: struct {
 	music_volume:             f32 `json:"-"`,
 	fade_in_time:             f32,
 	fade_out_time:            f32,
-	stop_fade_time:           f32,
 	start_next_time:          f32,
 	shuffle:                  bool,
 	loop:                     bool,
@@ -141,7 +140,6 @@ MUSIC_DIR :: "assets/sounds/music"
 
 MAX_FADE_IN_TIME :: 10
 MAX_FADE_OUT_TIME :: 10
-MAX_STOP_FADE_TIME :: 10
 MAX_START_NEXT_TIME :: 10
 MIN_TARGET_LOUDNESS :: -12
 MAX_TARGET_LOUDNESS :: -6
@@ -156,7 +154,6 @@ DefaultSoundSettings := SoundSettings {
 	music_volume     = 0.5,
 	fade_in_time     = 2.0,
 	fade_out_time    = 2.0,
-	stop_fade_time   = 2.0,
 	start_next_time  = 4.0,
 	shuffle          = true,
 	loop             = true,
@@ -359,6 +356,8 @@ track_play_next :: proc(playlist: ^Playlist, effect: SoundTransitionEffect) {
 
 	track := track_pick_unplayed(playlist)
 	if track == nil {
+		if !sound_settings.loop do return
+
 		// Reset
 		it := hm.iterator_make(&playlist.tracks)
 		for current_track, _ in hm.iterate(&it) {
@@ -444,7 +443,15 @@ music_fade_amplitude :: proc(fade: f32, fading_in: bool) -> f32 {
 }
 
 music_voice_current_volume :: proc(voice: MusicVoice) -> f32 {
-	return voice.volume * music_fade_amplitude(voice.current_fade, voice.fade_target > voice.current_fade)
+	track_gain := f32(1)
+	if sound_settings.normalize_volume {
+		loudness, ok := sound_settings.track_loudness[PathName(voice.path)]
+		if ok && loudness.volume_multiplier > 0 {
+			track_gain = loudness.volume_multiplier
+		}
+	}
+
+	return voice.volume * track_gain * music_fade_amplitude(voice.current_fade, voice.fade_target > voice.current_fade)
 }
 
 sound_music_current_volume :: proc() -> f32 {
@@ -499,6 +506,18 @@ music_voice_update :: proc(voice: ^MusicVoice, dt: f32) {
 }
 
 track_pick_unplayed :: proc(playlist: ^Playlist) -> ^Track {
+	if !sound_settings.shuffle {
+		fallback: ^Track
+		it := hm.iterator_make(&playlist.tracks)
+		for current_track, _ in hm.iterate(&it) {
+			if current_track.played do continue
+			if fallback == nil do fallback = current_track
+			if playlist.last_played_track == current_track do continue
+			return current_track
+		}
+		return fallback
+	}
+
 	track: ^Track
 	unplayed_seen := 0
 	it := hm.iterator_make(&playlist.tracks)
@@ -520,7 +539,6 @@ sound_settings_save :: proc() {
 	settings := SoundSettings {
 		fade_in_time     = sound_settings.fade_in_time,
 		fade_out_time    = sound_settings.fade_out_time,
-		stop_fade_time   = sound_settings.stop_fade_time,
 		start_next_time  = sound_settings.start_next_time,
 		shuffle          = sound_settings.shuffle,
 		loop             = sound_settings.loop,
