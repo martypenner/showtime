@@ -136,7 +136,7 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 		case .Pre_Show:
 			vol := f32(0.5)
 			playlist_play(
-				"Happy Beats",
+				.Happy_Beats,
 				VolRampEffect {
 					target_volume = vol,
 					ramp_up_duration = gm.sound_settings.fade_in_time,
@@ -147,7 +147,7 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 		case .Post_Show:
 			vol := f32(0.8)
 			playlist_play(
-				"Happy Beats",
+				.Happy_Beats,
 				VolRampEffect {
 					target_volume = vol,
 					ramp_up_duration = gm.sound_settings.fade_in_time,
@@ -158,7 +158,7 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 		case .To_House:
 			vol := f32(0.2)
 			playlist_play(
-				"Easy Listening",
+				.Easy_Listening,
 				VolRampEffect {
 					target_volume = vol,
 					ramp_up_duration = gm.sound_settings.fade_in_time,
@@ -186,7 +186,7 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 			}
 		case .Drop_Needle:
 			vol := f32(1.0)
-			playlist_play("Needle Droppers", CutEffect{target_volume = vol})
+			playlist_play(.Needle_Droppers, CutEffect{target_volume = vol})
 		case .Cat_Meow:
 			// Sound effects carry their own volume, independent of music_volume.
 			sound_play("cat-meow.mp3", 0.6)

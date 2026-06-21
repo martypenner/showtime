@@ -144,9 +144,6 @@ MAX_FADE_OUT_TIME :: 10
 MAX_START_NEXT_TIME :: 10
 MIN_TARGET_LOUDNESS :: -12
 MAX_TARGET_LOUDNESS :: -6
-MUSIC_ACTIVE_SAMPLE_GATE :: f32(0.02)
-MUSIC_ACTIVE_RMS_WINDOW_SECONDS :: f64(0.05)
-MUSIC_MIN_ACTIVE_RMS_SECONDS :: f64(0.5)
 MUSIC_MIN_NORMALIZED_GAIN :: f32(0.05)
 // Raylib clamps per-music volume to 1.0, so normalization is attenuation-only:
 // tracks louder than target_loudness are reduced toward target, and quieter
@@ -229,20 +226,21 @@ playlists_load :: proc() -> Playlists {
 			}
 			thread.pool_add_task(&pool, context.allocator, proc(t: thread.Task) {
 					data := (^PoolData)(t.data)
-					file_hash := hash_file_by_path(data.track_relative_path)
+					asset_hash, asset_hash_ok := TRACK_ASSET_HASHES[data.track_relative_path]
+					log.ensuref(
+						asset_hash_ok,
+						"Missing generated asset hash for %s",
+						data.track_relative_path,
+					)
+					file_hash := fmt.tprint(asset_hash)
 
 					track_key := PathName(data.track_relative_path)
-					active_rms: f32
-					should_measure := sound_settings.normalize_volume
-					{
-						sync.guard(data.mutex)
-						cached, cache_exists := sound_settings.track_loudness[track_key]
-						should_measure = should_measure &&
-							(!cache_exists || cached.file_hash != file_hash || cached.active_rms <= 0)
-					}
-					if should_measure {
-						active_rms = music_active_rms_for_file(data.track_relative_path)
-					}
+					active_rms, active_rms_ok := TRACK_ACTIVE_RMS[data.track_relative_path]
+					log.ensuref(
+						active_rms_ok,
+						"Missing generated active RMS for %s",
+						data.track_relative_path,
+					)
 
 					sync.guard(data.mutex)
 
@@ -250,11 +248,11 @@ playlists_load :: proc() -> Playlists {
 					cache_usable :=
 						cache_exists &&
 						cached.file_hash == file_hash &&
-						(!sound_settings.normalize_volume || cached.active_rms > 0)
+						cached.active_rms == active_rms
 					if !cache_usable {
 						delete(cached.file_hash)
 						loudness := TrackLoudness {
-							file_hash = strings.clone(file_hash),
+							file_hash  = strings.clone(file_hash),
 							active_rms = active_rms,
 						}
 						if !cache_exists {
@@ -285,7 +283,11 @@ playlists_load :: proc() -> Playlists {
 	thread.pool_start(&pool)
 	thread.pool_finish(&pool)
 
-	target_db := math.clamp(sound_settings.target_loudness, MIN_TARGET_LOUDNESS, MAX_TARGET_LOUDNESS)
+	target_db := math.clamp(
+		sound_settings.target_loudness,
+		MIN_TARGET_LOUDNESS,
+		MAX_TARGET_LOUDNESS,
+	)
 	target_rms := f32(math.pow_f64(10, f64(target_db) / 20))
 	for track_key in track_keys {
 		loudness := &sound_settings.track_loudness[track_key]
@@ -300,50 +302,6 @@ playlists_load :: proc() -> Playlists {
 	}
 
 	return playlists
-}
-
-music_active_rms_for_file :: proc(path: string) -> f32 {
-	wave := rl.LoadWave(strings.clone_to_cstring(path, context.temp_allocator))
-	if !rl.IsWaveValid(wave) do return 0
-	defer rl.UnloadWave(wave)
-
-	samples := rl.LoadWaveSamples(wave)
-	if samples == nil do return 0
-	defer rl.UnloadWaveSamples(samples)
-
-	channels := int(wave.channels)
-	frames := int(wave.frameCount)
-	if channels <= 0 || frames <= 0 do return 0
-
-	window_frames := max(int(f64(wave.sampleRate) * MUSIC_ACTIVE_RMS_WINDOW_SECONDS), 1)
-	active_min_frames := int(f64(wave.sampleRate) * MUSIC_MIN_ACTIVE_RMS_SECONDS)
-	active_power_sum: f64
-	active_frame_count: int
-	window_power_sum: f64
-	window_frame_count: int
-
-	for frame in 0 ..< frames {
-		frame_power: f64
-		for channel in 0 ..< channels {
-			sample := f64(samples[frame * channels + channel])
-			frame_power += sample * sample
-		}
-		window_power_sum += frame_power / f64(channels)
-		window_frame_count += 1
-
-		if window_frame_count >= window_frames || frame == frames - 1 {
-			window_rms := math.sqrt(window_power_sum / f64(window_frame_count))
-			if window_rms >= f64(MUSIC_ACTIVE_SAMPLE_GATE) {
-				active_power_sum += window_power_sum
-				active_frame_count += window_frame_count
-			}
-			window_power_sum = 0
-			window_frame_count = 0
-		}
-	}
-
-	if active_frame_count < active_min_frames do return 0
-	return f32(math.sqrt(active_power_sum / f64(active_frame_count)))
 }
 
 playlists_load_async :: proc() {
@@ -374,20 +332,22 @@ sound_play :: proc(filename: string, volume: f32) -> rl.Sound {
 	return sound
 }
 
-playlist_play :: proc(playlist_name: string, effect: SoundTransitionEffect) {
+playlist_play :: proc(playlist_name: PlaylistName, effect: SoundTransitionEffect) {
+	playlist_name_string := playlist_name_string(playlist_name)
+
 	found_playlist: ^Playlist
 	for &playlist in sound_settings.playlists {
-		if playlist.name == playlist_name {
+		if playlist.name == playlist_name_string {
 			found_playlist = &playlist
 			break
 		}
 	}
 	if found_playlist == nil {
-		log.warnf("Couldn't find playlist, skipping: %s", playlist_name)
+		log.warnf("Couldn't find playlist, skipping: %s", playlist_name_string)
 		return
 	}
 
-	log.debugf("Playing playlist %s", playlist_name)
+	log.debugf("Playing playlist %s", playlist_name_string)
 	sound_settings.current_playing_playlist = found_playlist
 
 	track_play_next(found_playlist, effect)

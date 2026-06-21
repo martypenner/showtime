@@ -52,4 +52,3 @@ web_window_size_changed :: proc "c" (w: c.int, h: c.int) {
 	context = web_context
 	game.game_parent_window_size_changed(int(w), int(h))
 }
-

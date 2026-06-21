@@ -70,4 +70,3 @@ NvOptimusEnablement: u32 = 1
 
 @(export)
 AmdPowerXpressRequestHighPerformance: i32 = 1
-

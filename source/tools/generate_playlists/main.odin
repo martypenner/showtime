@@ -1,0 +1,374 @@
+package generate_playlists
+
+import "core:encoding/json"
+import "core:fmt"
+import "core:hash"
+import "core:math"
+import "core:mem"
+import "core:os"
+import "core:slice"
+import "core:strings"
+import "core:sync"
+import "core:thread"
+import "core:unicode/utf8"
+import rl "vendor:raylib"
+
+MUSIC_DIR :: "assets/sounds/music"
+OUT_FILE :: "source/generated_playlists.odin"
+CACHE_FILE :: "source/generated_playlists.rms_cache.sjson"
+
+Playlist :: struct {
+	ident: string,
+	name:  string,
+}
+
+TrackAsset :: struct {
+	path:       string,
+	hash:       u64,
+	active_rms: f32,
+}
+
+RMSCache :: struct {
+	version:                   int,
+	active_sample_gate:        f32,
+	active_rms_window_seconds: f64,
+	min_active_rms_seconds:    f64,
+	tracks:                    map[string]RMSCacheEntry,
+}
+
+RMSCacheEntry :: struct {
+	hash:       u64,
+	active_rms: f32,
+}
+
+MUSIC_ACTIVE_SAMPLE_GATE :: f32(0.02)
+MUSIC_ACTIVE_RMS_WINDOW_SECONDS :: f64(0.05)
+MUSIC_MIN_ACTIVE_RMS_SECONDS :: f64(0.5)
+
+main :: proc() {
+	rms_cache := load_rms_cache()
+	defer delete(rms_cache.tracks)
+
+	entries, err := os.read_all_directory_by_path(MUSIC_DIR, context.temp_allocator)
+	if err != nil {
+		fmt.eprintf("Error reading %s: %v\n", MUSIC_DIR, err)
+		os.exit(1)
+	}
+
+	playlists: [dynamic]Playlist
+	defer delete(playlists)
+	track_assets: [dynamic]TrackAsset
+	defer delete(track_assets)
+
+	pool: thread.Pool
+	thread.pool_init(&pool, context.temp_allocator, os.get_processor_core_count())
+	defer thread.pool_destroy(&pool)
+
+	scratch: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&scratch)
+	defer mem.dynamic_arena_destroy(&scratch)
+	thread_allocator := mem.dynamic_arena_allocator(&scratch)
+
+	mutex: sync.Mutex
+	failed := false
+
+	PoolData :: struct {
+		path:         string,
+		rms_cache:    RMSCache,
+		track_assets: ^[dynamic]TrackAsset,
+		mutex:        ^sync.Mutex,
+		failed:       ^bool,
+	}
+
+	for entry in entries {
+		if entry.type != .Directory && entry.type != .Symlink do continue
+		if len(entry.name) > 0 && entry.name[0] == '.' do continue
+
+		ident := playlist_ident(entry.name, context.allocator)
+		if len(ident) == 0 do continue
+
+		base := ident
+		suffix := 2
+		for playlist_ident_used(playlists[:], ident) {
+			ident = strings.clone(fmt.aprintf("%s_%d", base, suffix))
+			suffix += 1
+		}
+
+		append(&playlists, Playlist{ident = ident, name = strings.clone(entry.name)})
+
+		track_entries, tracks_err := os.read_all_directory_by_path(
+			entry.fullpath,
+			context.temp_allocator,
+		)
+		if tracks_err != nil {
+			fmt.eprintf("Error reading tracks in %s: %v\n", entry.fullpath, tracks_err)
+			os.exit(1)
+		}
+		for track_entry in track_entries {
+			if track_entry.type != .Regular && track_entry.type != .Symlink do continue
+			if !track_file_supported(track_entry.name) do continue
+
+			path := fmt.aprintf("%s/%s/%s", MUSIC_DIR, entry.name, track_entry.name)
+			data := new(PoolData, context.temp_allocator)
+			data^ = PoolData {
+				path         = path,
+				rms_cache    = rms_cache,
+				track_assets = &track_assets,
+				mutex        = &mutex,
+				failed       = &failed,
+			}
+			thread.pool_add_task(&pool, context.allocator, proc(t: thread.Task) {
+					data := (^PoolData)(t.data)
+					track_bytes, read_err := os.read_entire_file(data.path, context.allocator)
+					if read_err != nil {
+						fmt.eprintf("Error reading track %s: %v\n", data.path, read_err)
+						sync.guard(data.mutex)
+						data.failed^ = true
+						return
+					}
+
+					asset_hash := hash.murmur64a(track_bytes)
+					asset := TrackAsset {
+						path       = strings.clone(data.path),
+						hash       = asset_hash,
+						active_rms = active_rms_for_track(data.path, asset_hash, data.rms_cache),
+					}
+
+					sync.guard(data.mutex)
+					append(data.track_assets, asset)
+				}, data)
+		}
+	}
+
+	{
+		context.allocator = thread_allocator
+		thread.pool_start(&pool)
+		thread.pool_finish(&pool)
+		if failed do os.exit(1)
+	}
+
+	slice.sort_by(playlists[:], proc(a, b: Playlist) -> bool {
+		return strings.compare(a.name, b.name) < 0
+	})
+	slice.sort_by(track_assets[:], proc(a, b: TrackAsset) -> bool {
+		return strings.compare(a.path, b.path) < 0
+	})
+
+	builder: strings.Builder
+	strings.builder_init(&builder)
+	defer strings.builder_destroy(&builder)
+
+	fmt.sbprintln(&builder, "#+feature dynamic-literals")
+	fmt.sbprintln(&builder)
+	fmt.sbprintln(&builder, "package game")
+	fmt.sbprintln(&builder)
+	fmt.sbprintln(
+		&builder,
+		"// Generated from assets/sounds/music by source/tools/generate_playlists.",
+	)
+	fmt.sbprintln(&builder, "// Do not edit by hand.")
+	fmt.sbprintln(&builder)
+	fmt.sbprintln(&builder, "PlaylistName :: enum {")
+	for playlist in playlists {
+		fmt.sbprintf(&builder, "\t%s,\n", playlist.ident)
+	}
+	fmt.sbprintln(&builder, "}")
+	fmt.sbprintln(&builder)
+	fmt.sbprintln(&builder, "TRACK_ASSET_HASHES := map[string]u64 {")
+	for asset in track_assets {
+		fmt.sbprintf(&builder, "\t%q = %d,\n", asset.path, asset.hash)
+	}
+	fmt.sbprintln(&builder, "}")
+	fmt.sbprintln(&builder)
+	fmt.sbprintln(&builder, "TRACK_ACTIVE_RMS := map[string]f32 {")
+	for asset in track_assets {
+		fmt.sbprintf(&builder, "\t%q = %.8f,\n", asset.path, asset.active_rms)
+	}
+	fmt.sbprintln(&builder, "}")
+	fmt.sbprintln(&builder)
+	fmt.sbprintln(&builder, "playlist_name_string :: proc(name: PlaylistName) -> string {")
+	fmt.sbprintln(&builder, "\tswitch name {")
+	for playlist in playlists {
+		fmt.sbprintf(&builder, "\tcase .%s: return %q\n", playlist.ident, playlist.name)
+	}
+	fmt.sbprintln(&builder, "\tcase: return \"\"")
+	fmt.sbprintln(&builder, "\t}")
+	fmt.sbprintln(&builder, "}")
+
+	write_err := os.write_entire_file(OUT_FILE, strings.to_string(builder))
+	if write_err != nil {
+		fmt.eprintf("Error writing %s: %v\n", OUT_FILE, write_err)
+		os.exit(1)
+	}
+
+	save_rms_cache(track_assets[:])
+}
+
+active_rms_for_track :: proc(path: string, asset_hash: u64, cache: RMSCache) -> f32 {
+	entry, ok := cache.tracks[path]
+	if ok && entry.hash == asset_hash do return entry.active_rms
+	return music_active_rms_for_file(path)
+}
+
+load_rms_cache :: proc() -> RMSCache {
+	cache := default_rms_cache()
+
+	contents, read_err := os.read_entire_file(CACHE_FILE, context.temp_allocator)
+	if read_err != nil do return cache
+
+	loaded: RMSCache
+	unmarshal_err := json.unmarshal(contents, &loaded, .Bitsquid, context.allocator)
+	if unmarshal_err != nil do return cache
+
+	if loaded.version != cache.version ||
+	   loaded.active_sample_gate != cache.active_sample_gate ||
+	   loaded.active_rms_window_seconds != cache.active_rms_window_seconds ||
+	   loaded.min_active_rms_seconds != cache.min_active_rms_seconds ||
+	   loaded.tracks == nil {
+		delete(loaded.tracks)
+		return cache
+	}
+
+	delete(cache.tracks)
+	return loaded
+}
+
+save_rms_cache :: proc(track_assets: []TrackAsset) {
+	cache := default_rms_cache()
+	defer delete(cache.tracks)
+
+	for asset in track_assets {
+		cache.tracks[asset.path] = RMSCacheEntry {
+			hash       = asset.hash,
+			active_rms = asset.active_rms,
+		}
+	}
+
+	data, marshal_err := json.marshal(
+		cache,
+		json.Marshal_Options {
+			spec = .Bitsquid,
+			pretty = true,
+			use_spaces = true,
+			spaces = 2,
+			mjson_keys_use_equal_sign = true,
+			mjson_keys_use_quotes = true,
+			sort_maps_by_key = true,
+		},
+		context.temp_allocator,
+	)
+	if marshal_err != nil {
+		fmt.eprintf("Error marshaling %s: %v\n", CACHE_FILE, marshal_err)
+		os.exit(1)
+	}
+
+	write_err := os.write_entire_file(CACHE_FILE, data)
+	if write_err != nil {
+		fmt.eprintf("Error writing %s: %v\n", CACHE_FILE, write_err)
+		os.exit(1)
+	}
+}
+
+default_rms_cache :: proc() -> RMSCache {
+	return RMSCache {
+		version = 1,
+		active_sample_gate = MUSIC_ACTIVE_SAMPLE_GATE,
+		active_rms_window_seconds = MUSIC_ACTIVE_RMS_WINDOW_SECONDS,
+		min_active_rms_seconds = MUSIC_MIN_ACTIVE_RMS_SECONDS,
+		tracks = make(map[string]RMSCacheEntry),
+	}
+}
+
+music_active_rms_for_file :: proc(path: string) -> f32 {
+	wave := rl.LoadWave(strings.clone_to_cstring(path, context.temp_allocator))
+	if !rl.IsWaveValid(wave) do return 0
+	defer rl.UnloadWave(wave)
+
+	samples := rl.LoadWaveSamples(wave)
+	if samples == nil do return 0
+	defer rl.UnloadWaveSamples(samples)
+
+	channels := int(wave.channels)
+	frames := int(wave.frameCount)
+	if channels <= 0 || frames <= 0 do return 0
+
+	window_frames := max(int(f64(wave.sampleRate) * MUSIC_ACTIVE_RMS_WINDOW_SECONDS), 1)
+	active_min_frames := int(f64(wave.sampleRate) * MUSIC_MIN_ACTIVE_RMS_SECONDS)
+	active_power_sum: f64
+	active_frame_count: int
+	window_power_sum: f64
+	window_frame_count: int
+
+	for frame in 0 ..< frames {
+		frame_power: f64
+		for channel in 0 ..< channels {
+			sample := f64(samples[frame * channels + channel])
+			frame_power += sample * sample
+		}
+		window_power_sum += frame_power / f64(channels)
+		window_frame_count += 1
+
+		if window_frame_count >= window_frames || frame == frames - 1 {
+			window_rms := math.sqrt(window_power_sum / f64(window_frame_count))
+			if window_rms >= f64(MUSIC_ACTIVE_SAMPLE_GATE) {
+				active_power_sum += window_power_sum
+				active_frame_count += window_frame_count
+			}
+			window_power_sum = 0
+			window_frame_count = 0
+		}
+	}
+
+	if active_frame_count < active_min_frames do return 0
+	return f32(math.sqrt(active_power_sum / f64(active_frame_count)))
+}
+
+// Convert folder names into Odin enum identifiers:
+// "Pirates - Combat!" -> "Pirates_Combat".
+// I...don't love it.
+playlist_ident :: proc(name: string, allocator := context.allocator) -> string {
+	builder: strings.Builder
+	strings.builder_init(&builder, allocator = allocator)
+
+	previous_was_separator := true
+	remaining := name
+	for len(remaining) > 0 {
+		char, size := utf8.decode_rune_in_string(remaining)
+		remaining = remaining[size:]
+
+		if ('a' <= char && char <= 'z') ||
+		   ('A' <= char && char <= 'Z') ||
+		   ('0' <= char && char <= '9') {
+			strings.write_rune(&builder, char)
+			previous_was_separator = false
+		} else if !previous_was_separator {
+			strings.write_byte(&builder, '_')
+			previous_was_separator = true
+		}
+	}
+
+	ident := strings.to_string(builder)
+	for len(ident) > 0 && ident[len(ident) - 1] == '_' {
+		ident = ident[:len(ident) - 1]
+	}
+	if len(ident) > 0 && '0' <= ident[0] && ident[0] <= '9' {
+		ident = fmt.aprintf("_%s", ident)
+	}
+	return strings.clone(ident, allocator)
+}
+
+playlist_ident_used :: proc(playlists: []Playlist, ident: string) -> bool {
+	for playlist in playlists {
+		if playlist.ident == ident do return true
+	}
+	return false
+}
+
+track_file_supported :: proc(name: string) -> bool {
+	return(
+		strings.has_suffix(name, ".wav") ||
+		strings.has_suffix(name, ".mp3") ||
+		strings.has_suffix(name, ".ogg") ||
+		strings.has_suffix(name, ".flac") \
+	)
+}
