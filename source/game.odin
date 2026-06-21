@@ -294,7 +294,7 @@ game_init :: proc() {
 	when ODIN_OS == .JS {
 		// Web is single-threaded and the browser drives the frame loop, so there
 		// is no main thread to draw a loading screen on; load synchronously.
-		gm.sound_settings = sound.init_settings()
+		gm.sound_settings = sound_settings_init()
 	} else {
 		loading_screen_run()
 	}

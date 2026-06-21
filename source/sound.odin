@@ -4,6 +4,7 @@ import hm "core:container/handle_map"
 import "core:encoding/json"
 import "core:fmt"
 import "core:log"
+import "core:math/rand"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
@@ -77,6 +78,7 @@ Playlist :: struct {
 	tracks:                hm.Dynamic_Handle_Map(Track, TrackHandle),
 	played_track_count:    int,
 	current_playing_track: ^Track,
+	last_played_track:     ^Track,
 }
 
 Playlists :: [dynamic; 64]Playlist
@@ -321,29 +323,42 @@ sound_settings_load :: proc() -> SoundSettings {
 }
 
 track_play_next :: proc(playlist: ^Playlist) {
-	i := int(hm.len(playlist.tracks))
-
-	track: ^Track
-	it := hm.iterator_make(&playlist.tracks)
-	played_count := 0
-	for current_track, _ in hm.iterate(&it) {
-		if current_track.played {
-			played_count += 1
-			continue
-		}
-		// index := rand.int_max(i)
-		track = current_track
-		i -= 1
-		break
+	if hm.len(playlist.tracks) == 0 {
+		log.debug("Playlist has no tracks: %v", playlist.name)
+		return
 	}
-	if playlist.played_track_count == played_count {}
+
+	track := track_pick_unplayed(playlist)
+	if track == nil {
+		// Reset
+		it := hm.iterator_make(&playlist.tracks)
+		for current_track, _ in hm.iterate(&it) {
+			current_track.played = false
+		}
+		track = track_pick_unplayed(playlist)
+	}
 
 	track.played = true
+	playlist.last_played_track = playlist.current_playing_track
 	playlist.current_playing_track = track
-	sound_settings.current_playing_playlist = playlist
 	music := rl.LoadMusicStream(strings.clone_to_cstring(track.path, context.temp_allocator))
 	sound_settings.current_music = music
+	rl.SetMusicVolume(music, 1.0)
 	rl.PlayMusicStream(music)
+}
+
+track_pick_unplayed :: proc(playlist: ^Playlist) -> ^Track {
+	track: ^Track
+	unplayed_seen := 0
+	it := hm.iterator_make(&playlist.tracks)
+	for current_track, _ in hm.iterate(&it) {
+		if current_track.played do continue
+		unplayed_seen += 1
+		if rand.int_max(unplayed_seen) == 0 && playlist.last_played_track != current_track {
+			track = current_track
+		}
+	}
+	return track
 }
 
 sound_settings_filename :: proc() -> string {
@@ -415,6 +430,8 @@ sound_update :: proc() {
 			rl.StopMusicStream(sound_settings.current_music)
 			rl.UnloadMusicStream(sound_settings.current_music)
 			sound_settings.current_music = {}
+			sound_settings.current_playing_playlist.current_playing_track = nil
+			sound_settings.current_playing_playlist = nil
 		}
 	}
 }
