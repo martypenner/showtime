@@ -154,6 +154,51 @@ music_volume_applies_track_gain_when_normalized :: proc(t: ^testing.T) {
 }
 
 @(test)
+music_volume_ignores_track_gain_when_normalization_off :: proc(t: ^testing.T) {
+	settings := SoundSettings {
+		normalize_volume = false,
+		track_loudness   = make(map[PathName]TrackLoudness),
+	}
+	defer delete(settings.track_loudness)
+	sound_settings = &settings
+
+	track_path := PathName("track.mp3")
+	settings.track_loudness[track_path] = TrackLoudness {
+		volume_multiplier = 0.5,
+	}
+
+	voice := MusicVoice {
+		active       = true,
+		path         = string(track_path),
+		volume       = 0.8,
+		current_fade = 1,
+		fade_target  = 1,
+	}
+
+	testing.expect_value(t, music_voice_volume_current(voice), f32(0.8))
+}
+
+@(test)
+music_volume_falls_back_to_full_gain_when_loudness_missing :: proc(t: ^testing.T) {
+	settings := SoundSettings {
+		normalize_volume = true,
+		track_loudness   = make(map[PathName]TrackLoudness),
+	}
+	defer delete(settings.track_loudness)
+	sound_settings = &settings
+
+	voice := MusicVoice {
+		active       = true,
+		path         = "missing.mp3",
+		volume       = 0.8,
+		current_fade = 1,
+		fade_target  = 1,
+	}
+
+	testing.expect_value(t, music_voice_volume_current(voice), f32(0.8))
+}
+
+@(test)
 music_amplitude_fade_eases_in_but_fades_out_linearly :: proc(t: ^testing.T) {
 	testing.expect_value(t, music_amplitude_fade(0.5, true), f32(0.25))
 	testing.expect_value(t, music_amplitude_fade(0.5, false), f32(0.5))
