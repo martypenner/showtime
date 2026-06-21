@@ -34,6 +34,7 @@ SoundSettings :: struct {
 	track_loudness:           map[PathName]TrackLoudness,
 	playlists:                Playlists `json:"-"`,
 	current_playing_playlist: ^Playlist `json:"-"`,
+	current_music:            rl.Music `json:"-"`,
 	music_voices:             [MUSIC_VOICE_COUNT]MusicVoice `json:"-"`,
 	current_sounds:           Sounds `json:"-"`,
 	is_sound_playing:         bool `json:"-"`,
@@ -288,7 +289,7 @@ playlist_play :: proc(playlist_name: string, volume: f32, cut := false) {
 	log.debugf("Playing playlist %s", playlist_name)
 	sound_settings.music_volume = volume
 	sound_settings.current_playing_playlist = found_playlist
-	// play_next_track(found_playlist, cut)
+	track_play_next(found_playlist)
 }
 
 playlist_free :: proc(playlist: ^Playlist) {
@@ -319,8 +320,34 @@ sound_settings_load :: proc() -> SoundSettings {
 	return settings
 }
 
+track_play_next :: proc(playlist: ^Playlist) {
+	i := int(hm.len(playlist.tracks))
+
+	track: ^Track
+	it := hm.iterator_make(&playlist.tracks)
+	played_count := 0
+	for current_track, _ in hm.iterate(&it) {
+		if current_track.played {
+			played_count += 1
+			continue
+		}
+		// index := rand.int_max(i)
+		track = current_track
+		i -= 1
+		break
+	}
+	if playlist.played_track_count == played_count {}
+
+	track.played = true
+	playlist.current_playing_track = track
+	sound_settings.current_playing_playlist = playlist
+	music := rl.LoadMusicStream(strings.clone_to_cstring(track.path, context.temp_allocator))
+	sound_settings.current_music = music
+	rl.PlayMusicStream(music)
+}
+
 sound_settings_filename :: proc() -> string {
-	return fmt.tprint("./", "settings.sjson", sep = filepath.SEPARATOR_STRING)
+	return fmt.tprint("settings.sjson", sep = filepath.SEPARATOR_STRING)
 }
 
 sound_settings_save :: proc() {
@@ -379,7 +406,16 @@ sound_update :: proc() {
 			rl.UnloadSound(sound)
 			unordered_remove(&sound_settings.current_sounds, index)
 		}
+	}
 
+	if rl.IsMusicValid(sound_settings.current_music) {
+		if rl.IsMusicStreamPlaying(sound_settings.current_music) {
+			rl.UpdateMusicStream(sound_settings.current_music)
+		} else {
+			rl.StopMusicStream(sound_settings.current_music)
+			rl.UnloadMusicStream(sound_settings.current_music)
+			sound_settings.current_music = {}
+		}
 	}
 }
 
