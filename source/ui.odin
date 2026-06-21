@@ -397,7 +397,7 @@ layout_parse :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(La
 	return controls, nil
 }
 
-volume_set_value :: proc(value: f32, controls: []Control) {
+ui_volume_set_value :: proc(value: f32, controls: []Control) {
 	for &control in controls {
 		if control.name != "Music_Volume" do continue
 		control.state = value

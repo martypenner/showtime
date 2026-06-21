@@ -37,14 +37,3 @@ build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
 	testing.expect_value(t, chrome_seen, 2)
 	testing.expect(t, controls_seen > 0, "expected controls.rgl controls on the Controls tab")
 }
-
-// The Tab_Bar reports the active tab by ToggleGroup index; clamp_tab keeps that
-// index within the defined tabs so a stray option can't activate a page that
-// has no controls.
-@(test)
-clamp_tab_keeps_index_in_range :: proc(t: ^testing.T) {
-	testing.expect_value(t, tab_clamp(int(Tab.Controls)), int(Tab.Controls))
-	testing.expect_value(t, tab_clamp(int(Tab.Music)), int(Tab.Music))
-	testing.expect_value(t, tab_clamp(-1), int(Tab.Controls))
-	testing.expect_value(t, tab_clamp(99), int(Tab.Controls))
-}

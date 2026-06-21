@@ -50,34 +50,7 @@ AppState :: union #no_nil {
 }
 
 AppInitializing :: distinct u8
-AppReady :: struct {
-	show_state: ShowState,
-}
-
-ShowState :: enum {
-	Initial,
-	PreShow,
-	PostShow,
-	House,
-	Scene,
-	DropNeedle,
-	ShowTransitioning,
-}
-
-ShowTransitioning :: struct {
-	target: ^ShowState,
-	effect: TransitionEffect,
-}
-TransitionEffect :: union #no_nil {
-	VolRampEffect,
-	CutEffect,
-}
-VolRampEffect :: struct {
-	ramp_up_duration:  f32,
-	hold_duration:     f32,
-	fade_out_duration: f32,
-}
-CutEffect :: distinct u8
+AppReady :: distinct u8
 
 Show_Action :: enum {
 	Unknown,
@@ -122,17 +95,6 @@ layout_build :: proc() -> Controls {
 	return controls
 }
 
-// Keeps a tab index reported by the Tab_Bar within the defined tabs, so a
-// malformed/extra ToggleGroup option can't activate a page that doesn't exist.
-tab_clamp :: proc(index: int) -> int {
-	switch Tab(index) {
-	case .Controls, .Music:
-		return index
-	case:
-		return int(Tab.Controls)
-	}
-}
-
 // Resolves a layout control name to its presentation style. Destructive styling
 // is an app concern (which controls are dangerous to the show), so this mapping
 // lives here rather than in generic UI/layout code. Keeping it pure lets the
@@ -155,33 +117,56 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 		// and one-shot sounds are transient, so they don't touch the file.
 		switch val {
 		case .Tab_Bar:
-			gm.active_tab = tab_clamp(int(event.value))
+			index := int(event.value)
+			switch Tab(index) {
+			case .Controls, .Music:
+				gm.active_tab = index
+			case:
+				gm.active_tab = int(Tab.Controls)
+			}
 		case .Music_Volume:
 			//sound_music_volume_set(event.value)
 			sound_settings_save()
 		case .Pre_Show:
 			vol := f32(0.5)
-			volume_set_value(vol, gm.ui_controls[:])
-			// Pass the volume to play_playlist so it cross-fades in with the new
-			// track rather than jumping the outgoing track to it.
-			playlist_play("Happy Beats", vol)
+			ui_volume_set_value(vol, gm.ui_controls[:])
+			playlist_play(
+				"Happy Beats",
+				VolRampEffect {
+					target_volume = vol,
+					ramp_up_duration = gm.sound_settings.fade_in_time,
+					fade_out_duration = gm.sound_settings.fade_out_time,
+				},
+			)
 		case .Post_Show:
 			vol := f32(0.8)
-			volume_set_value(vol, gm.ui_controls[:])
-			playlist_play("Happy Beats", vol)
+			ui_volume_set_value(vol, gm.ui_controls[:])
+			playlist_play(
+				"Happy Beats",
+				VolRampEffect {
+					target_volume = vol,
+					ramp_up_duration = gm.sound_settings.fade_in_time,
+					fade_out_duration = gm.sound_settings.fade_out_time,
+				},
+			)
 		case .To_House:
 			vol := f32(0.2)
-			volume_set_value(vol, gm.ui_controls[:])
-			playlist_play("Easy Listening", vol)
+			ui_volume_set_value(vol, gm.ui_controls[:])
+			playlist_play(
+				"Easy Listening",
+				VolRampEffect {
+					target_volume = vol,
+					ramp_up_duration = gm.sound_settings.fade_in_time,
+					fade_out_duration = gm.sound_settings.fade_out_time,
+				},
+			)
 		case .Drop_Needle:
 			vol := f32(1.0)
-			volume_set_value(vol, gm.ui_controls[:])
-			// Drop the needle: hard-cut all music and slam in at full volume,
-			// bypassing the cross-fade the other scene switches use.
-			playlist_play("Needle Droppers", vol, true)
+			ui_volume_set_value(vol, gm.ui_controls[:])
+			playlist_play("Needle Droppers", CutEffect{target_volume = vol})
 		case .Cat_Meow:
 			// Sound effects carry their own volume, independent of music_volume.
-			sound_play("assets/sounds/fx/cat-meow.mp3", 0.6)
+			sound_play("cat-meow.mp3", 0.6)
 		case .Unknown:
 			log.warnf("No app behavior mapped for UI control %q", event.name)
 		}
@@ -192,21 +177,24 @@ update :: proc() {
 	if rl.IsKeyPressed(.ESCAPE) {
 		gm.should_run = false
 	}
-	if rl.IsWindowResized() {
-		controls_prepare_for_render(gm.ui_controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
-	}
 
 	switch s in gm.app_state {
 	case AppInitializing:
 		if gm.loader != nil && thread.is_done(gm.loader) {
 			thread.destroy(gm.loader)
 			gm.loader = nil
-			gm.app_state = AppReady {
-				show_state = .Initial,
-			}
+			gm.app_state = AppReady{}
 		}
 	case AppReady:
+		if rl.IsWindowResized() {
+			controls_prepare_for_render(
+				gm.ui_controls[:],
+				rl.GetRenderWidth(),
+				rl.GetRenderHeight(),
+			)
+		}
 		sound_update()
+	// TODO: set ui volume value when sound changes
 	}
 }
 
@@ -224,7 +212,6 @@ draw :: proc() {
 		dot_count := int(rl.GetTime() / 0.5) % 3 + 1
 		text := fmt.ctprintf("Normalizing audio%s", dots[:dot_count])
 		rl.DrawText(text, x, y, font_size, rl.RAYWHITE)
-
 	case AppReady:
 		events := ui_draw(gm.ui_controls[:], gm.active_tab)
 		ui_dispatch_events(&events)
