@@ -167,14 +167,18 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 				},
 			)
 		case .Scene_Ramp:
-			music_scene_ramp(VolRampEffect {
-				target_volume = 1,
-				ramp_up_duration = 1,
-				hold_duration = 3,
-				fade_out_duration = 1.5,
-			})
+			music_ramp_scene(
+				VolRampEffect {
+					target_volume = 1,
+					ramp_up_duration = 1,
+					hold_duration = 3,
+					fade_out_duration = 1.5,
+				},
+			)
 		case .Scene_Fade:
-			gm.sound_settings.current_effect = VolRampEffect{fade_out_duration = 2}
+			gm.sound_settings.current_effect = VolRampEffect {
+				fade_out_duration = 2,
+			}
 			for &voice in gm.sound_settings.music_voices {
 				if !voice.active do continue
 				voice.fade_target = 0

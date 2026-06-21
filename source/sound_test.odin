@@ -24,7 +24,9 @@ hot_reloaded_restores_settings_pointer :: proc(t: ^testing.T) {
 
 @(test)
 music_current_volume_reports_audible_voice_volume :: proc(t: ^testing.T) {
-	settings := SoundSettings{track_loudness = make(map[PathName]TrackLoudness)}
+	settings := SoundSettings {
+		track_loudness = make(map[PathName]TrackLoudness),
+	}
 	defer delete(settings.track_loudness)
 	sound_settings = &settings
 
@@ -47,8 +49,10 @@ music_current_volume_reports_audible_voice_volume :: proc(t: ^testing.T) {
 }
 
 @(test)
-music_voice_primary_returns_loudest_active_voice :: proc(t: ^testing.T) {
-	settings := SoundSettings{track_loudness = make(map[PathName]TrackLoudness)}
+music_primary_voice_returns_loudest_active_voice :: proc(t: ^testing.T) {
+	settings := SoundSettings {
+		track_loudness = make(map[PathName]TrackLoudness),
+	}
 	defer delete(settings.track_loudness)
 	sound_settings = &settings
 
@@ -65,17 +69,27 @@ music_voice_primary_returns_loudest_active_voice :: proc(t: ^testing.T) {
 		fade_target  = 1,
 	}
 
-	primary := music_voice_primary()
-	testing.expect(t, primary == &settings.music_voices[0], "primary voice should be the loudest audible voice")
+	primary := music_primary_voice()
+	testing.expect(
+		t,
+		primary == &settings.music_voices[0],
+		"primary voice should be the loudest audible voice",
+	)
 
 	settings.music_voices[0].current_fade = 0.2
-	primary = music_voice_primary()
-	testing.expect(t, primary == &settings.music_voices[1], "primary voice should switch as the incoming voice becomes louder")
+	primary = music_primary_voice()
+	testing.expect(
+		t,
+		primary == &settings.music_voices[1],
+		"primary voice should switch as the incoming voice becomes louder",
+	)
 }
 
 @(test)
-music_scene_ramp_cancels_non_primary_crossfade_voice :: proc(t: ^testing.T) {
-	settings := SoundSettings{track_loudness = make(map[PathName]TrackLoudness)}
+music_ramp_scene_cancels_non_primary_crossfade_voice :: proc(t: ^testing.T) {
+	settings := SoundSettings {
+		track_loudness = make(map[PathName]TrackLoudness),
+	}
 	defer delete(settings.track_loudness)
 	sound_settings = &settings
 
@@ -94,12 +108,14 @@ music_scene_ramp_cancels_non_primary_crossfade_voice :: proc(t: ^testing.T) {
 		fade_target  = 1,
 	}
 
-	music_scene_ramp(VolRampEffect {
-		target_volume = 1,
-		ramp_up_duration = 1,
-		hold_duration = 3,
-		fade_out_duration = 1.5,
-	})
+	music_ramp_scene(
+		VolRampEffect {
+			target_volume = 1,
+			ramp_up_duration = 1,
+			hold_duration = 3,
+			fade_out_duration = 1.5,
+		},
+	)
 
 	lead := &settings.music_voices[0]
 
@@ -122,7 +138,9 @@ music_volume_applies_track_gain_when_normalized :: proc(t: ^testing.T) {
 	sound_settings.normalize_volume = true
 
 	track_path := PathName("track.mp3")
-	settings.track_loudness[track_path] = TrackLoudness{volume_multiplier = 0.5}
+	settings.track_loudness[track_path] = TrackLoudness {
+		volume_multiplier = 0.5,
+	}
 
 	voice := MusicVoice {
 		active       = true,
@@ -132,13 +150,13 @@ music_volume_applies_track_gain_when_normalized :: proc(t: ^testing.T) {
 		fade_target  = 1,
 	}
 
-	testing.expect_value(t, music_voice_current_volume(voice), f32(0.4))
+	testing.expect_value(t, music_voice_volume_current(voice), f32(0.4))
 }
 
 @(test)
-music_fade_amplitude_eases_in_but_fades_out_linearly :: proc(t: ^testing.T) {
-	testing.expect_value(t, music_fade_amplitude(0.5, true), f32(0.25))
-	testing.expect_value(t, music_fade_amplitude(0.5, false), f32(0.5))
+music_amplitude_fade_eases_in_but_fades_out_linearly :: proc(t: ^testing.T) {
+	testing.expect_value(t, music_amplitude_fade(0.5, true), f32(0.25))
+	testing.expect_value(t, music_amplitude_fade(0.5, false), f32(0.5))
 }
 
 @(test)
@@ -159,25 +177,29 @@ music_voice_holds_after_fade_in_then_targets_fade_out :: proc(t: ^testing.T) {
 		hold_time_remaining = 3,
 	}
 
-	music_voice_update_fade(&voice, 1)
+	music_voice_fade_update(&voice, 1)
 	testing.expect_value(t, voice.current_fade, f32(1))
 	testing.expect_value(t, voice.fade_target, f32(1))
 	testing.expect_value(t, voice.hold_time_remaining, f32(2))
 
-	music_voice_update_fade(&voice, 2)
+	music_voice_fade_update(&voice, 2)
 	testing.expect_value(t, voice.hold_time_remaining, f32(0))
 	testing.expect_value(t, voice.fade_target, f32(0))
 
-	music_voice_update_fade(&voice, 0.75)
+	music_voice_fade_update(&voice, 0.75)
 	testing.expect_value(t, voice.current_fade, f32(0.5))
 }
 
 @(test)
 track_play_next_respects_loop_setting_when_exhausted :: proc(t: ^testing.T) {
-	settings := SoundSettings{loop = false}
+	settings := SoundSettings {
+		loop = false,
+	}
 	sound_settings = &settings
 
-	playlist := Playlist{name = "test"}
+	playlist := Playlist {
+		name = "test",
+	}
 	hm.dynamic_init(&playlist.tracks, context.allocator)
 	defer hm.dynamic_destroy(&playlist.tracks)
 
@@ -185,7 +207,11 @@ track_play_next_respects_loop_setting_when_exhausted :: proc(t: ^testing.T) {
 	testing.expect(t, err == nil)
 
 	track_play_next(&playlist, VolRampEffect{target_volume = 1})
-	testing.expect(t, playlist.current_playing_track == nil, "loop=false should not restart exhausted playlist")
+	testing.expect(
+		t,
+		playlist.current_playing_track == nil,
+		"loop=false should not restart exhausted playlist",
+	)
 
 	settings.loop = true
 	track := track_pick_unplayed_after_reset_for_test(&playlist)
@@ -194,7 +220,9 @@ track_play_next_respects_loop_setting_when_exhausted :: proc(t: ^testing.T) {
 
 @(test)
 track_pick_unplayed_uses_insertion_order_when_shuffle_off :: proc(t: ^testing.T) {
-	settings := SoundSettings{shuffle = false}
+	settings := SoundSettings {
+		shuffle = false,
+	}
 	sound_settings = &settings
 
 	playlist := sound_test_playlist_make({"first", "second", "third"})
@@ -213,7 +241,9 @@ track_pick_unplayed_uses_insertion_order_when_shuffle_off :: proc(t: ^testing.T)
 
 @(test)
 track_pick_unplayed_avoids_last_track_when_shuffle_off_if_possible :: proc(t: ^testing.T) {
-	settings := SoundSettings{shuffle = false}
+	settings := SoundSettings {
+		shuffle = false,
+	}
 	sound_settings = &settings
 
 	playlist := sound_test_playlist_make({"first", "second"})
@@ -237,7 +267,9 @@ track_pick_unplayed_after_reset_for_test :: proc(playlist: ^Playlist) -> ^Track 
 }
 
 sound_test_playlist_make :: proc(titles: []string) -> Playlist {
-	playlist := Playlist{name = "test"}
+	playlist := Playlist {
+		name = "test",
+	}
 	hm.dynamic_init(&playlist.tracks, context.allocator)
 	for title in titles {
 		_, err := hm.add(&playlist.tracks, Track{title = title, path = title})
