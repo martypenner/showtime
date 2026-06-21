@@ -66,11 +66,12 @@ MusicVoice :: struct {
 	volume:       f32,
 	// Current linear fade position and where it is heading (0 = silent, 1 = full).
 	// fade_target also encodes direction: 1 is fading in, 0 is fading out.
-	current_fade: f32,
-	fade_target:  f32,
+	current_fade:       f32,
+	fade_target:        f32,
+	hold_time_remaining: f32,
 	// Set once the lead (incoming) voice has kicked off the next track, so the
 	// cross-fade is triggered exactly once per track.
-	started_next: bool,
+	started_next:       bool,
 }
 
 Playlist :: struct {
@@ -378,18 +379,25 @@ track_play_next :: proc(playlist: ^Playlist, effect: SoundTransitionEffect) {
 		for &voice in sound_settings.music_voices {
 			if !voice.active do continue
 			voice.fade_target = 0
+			voice.hold_time_remaining = 0
 		}
-		music_voice_start(track, 0, 1, e.target_volume)
+		music_voice_start(track, 0, 1, e.target_volume, e.hold_duration)
 	case CutEffect:
 		sound_settings.music_volume = e.target_volume
 		for &voice in sound_settings.music_voices {
 			music_voice_stop(&voice)
 		}
-		music_voice_start(track, 1, 1, e.target_volume)
+		music_voice_start(track, 1, 1, e.target_volume, 0)
 	}
 }
 
-music_voice_start :: proc(track: ^Track, current_fade: f32, fade_target: f32, volume: f32) {
+music_voice_start :: proc(
+	track: ^Track,
+	current_fade: f32,
+	fade_target: f32,
+	volume: f32,
+	hold_duration: f32,
+) {
 	voice := music_voice_find_available()
 	if voice == nil do return
 
@@ -398,12 +406,13 @@ music_voice_start :: proc(track: ^Track, current_fade: f32, fade_target: f32, vo
 	rl.PlayMusicStream(music)
 
 	voice^ = MusicVoice {
-		music        = music,
-		active       = true,
-		path         = track.path,
-		volume       = volume,
-		current_fade = current_fade,
-		fade_target  = fade_target,
+		music               = music,
+		active              = true,
+		path                = track.path,
+		volume              = volume,
+		current_fade        = current_fade,
+		fade_target         = fade_target,
+		hold_time_remaining = hold_duration,
 	}
 }
 
@@ -464,6 +473,43 @@ sound_music_current_volume :: proc() -> f32 {
 	return current_volume
 }
 
+music_voice_primary :: proc() -> ^MusicVoice {
+	primary: ^MusicVoice
+	primary_volume: f32
+	for &voice in sound_settings.music_voices {
+		if !voice.active do continue
+		voice_volume := music_voice_current_volume(voice)
+		if primary == nil || voice_volume > primary_volume {
+			primary = &voice
+			primary_volume = voice_volume
+		}
+	}
+	return primary
+}
+
+music_scene_ramp :: proc(effect: VolRampEffect) {
+	sound_settings.current_effect = effect
+	sound_settings.music_volume = effect.target_volume
+
+	primary := music_voice_primary()
+	for &voice in sound_settings.music_voices {
+		if !voice.active do continue
+		if primary != nil && &voice == primary {
+			audible_volume := music_voice_current_volume(voice)
+			if effect.target_volume > 0 {
+				voice.current_fade = math.sqrt(math.clamp(audible_volume / effect.target_volume, 0, 1))
+			} else {
+				voice.current_fade = 0
+			}
+			voice.volume = effect.target_volume
+			voice.fade_target = 1
+			voice.hold_time_remaining = effect.hold_duration
+		} else {
+			voice.active = false
+		}
+	}
+}
+
 music_voice_fade_duration :: proc(voice: ^MusicVoice) -> f32 {
 	effect, ok := sound_settings.current_effect.(VolRampEffect)
 	if !ok do return 0
@@ -475,7 +521,24 @@ music_voice_update :: proc(voice: ^MusicVoice, dt: f32) {
 	if !voice.active do return
 
 	rl.UpdateMusicStream(voice.music)
+	music_voice_update_fade(voice, dt)
 
+	// track_loudness, ok := sound_settings.track_loudness[track.path]
+	// if !ok do track_loudness = 1.0
+	// rl.SetMusicVolume(music, track_loudness)
+	rl.SetMusicVolume(voice.music, music_voice_current_volume(voice^))
+
+	if voice.current_fade <= 0 && voice.fade_target <= 0 {
+		music_voice_stop(voice)
+		return
+	}
+
+	if !rl.IsMusicStreamPlaying(voice.music) {
+		music_voice_stop(voice)
+	}
+}
+
+music_voice_update_fade :: proc(voice: ^MusicVoice, dt: f32) {
 	if voice.current_fade != voice.fade_target {
 		duration := music_voice_fade_duration(voice)
 		if duration <= 0 {
@@ -490,18 +553,11 @@ music_voice_update :: proc(voice: ^MusicVoice, dt: f32) {
 		}
 	}
 
-	// track_loudness, ok := sound_settings.track_loudness[track.path]
-	// if !ok do track_loudness = 1.0
-	// rl.SetMusicVolume(music, track_loudness)
-	rl.SetMusicVolume(voice.music, music_voice_current_volume(voice^))
-
-	if voice.current_fade <= 0 && voice.fade_target <= 0 {
-		music_voice_stop(voice)
-		return
-	}
-
-	if !rl.IsMusicStreamPlaying(voice.music) {
-		music_voice_stop(voice)
+	if voice.current_fade >= 1 && voice.fade_target >= 1 && voice.hold_time_remaining > 0 {
+		voice.hold_time_remaining = max(voice.hold_time_remaining - dt, 0)
+		if voice.hold_time_remaining <= 0 {
+			voice.fade_target = 0
+		}
 	}
 }
 

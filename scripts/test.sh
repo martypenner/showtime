@@ -27,6 +27,7 @@ mkdir -p build/hot_reload
 odin test source \
 	-all-packages \
 	-out:build/hot_reload/source_test.bin \
+	-define:ODIN_TEST_THREADS=1 \
 	-define:RAYLIB_SHARED=true \
 	-extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
 	-strict-style -vet

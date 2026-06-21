@@ -61,6 +61,8 @@ Show_Action :: enum {
 	Pre_Show,
 	Post_Show,
 	To_House,
+	Scene_Ramp,
+	Scene_Fade,
 	Drop_Needle,
 	// Sounds
 	Cat_Meow,
@@ -138,6 +140,7 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 				VolRampEffect {
 					target_volume = vol,
 					ramp_up_duration = gm.sound_settings.fade_in_time,
+					hold_duration = 0,
 					fade_out_duration = gm.sound_settings.fade_out_time,
 				},
 			)
@@ -148,6 +151,7 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 				VolRampEffect {
 					target_volume = vol,
 					ramp_up_duration = gm.sound_settings.fade_in_time,
+					hold_duration = 0,
 					fade_out_duration = gm.sound_settings.fade_out_time,
 				},
 			)
@@ -158,9 +162,24 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 				VolRampEffect {
 					target_volume = vol,
 					ramp_up_duration = gm.sound_settings.fade_in_time,
+					hold_duration = 0,
 					fade_out_duration = gm.sound_settings.fade_out_time,
 				},
 			)
+		case .Scene_Ramp:
+			music_scene_ramp(VolRampEffect {
+				target_volume = 1,
+				ramp_up_duration = 1,
+				hold_duration = 3,
+				fade_out_duration = 1.5,
+			})
+		case .Scene_Fade:
+			gm.sound_settings.current_effect = VolRampEffect{fade_out_duration = 2}
+			for &voice in gm.sound_settings.music_voices {
+				if !voice.active do continue
+				voice.fade_target = 0
+				voice.hold_time_remaining = 0
+			}
 		case .Drop_Needle:
 			vol := f32(1.0)
 			playlist_play("Needle Droppers", CutEffect{target_volume = vol})
