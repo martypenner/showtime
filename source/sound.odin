@@ -4,9 +4,12 @@ import hm "core:container/handle_map"
 import "core:encoding/json"
 import "core:fmt"
 import "core:log"
+import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:sync"
+import "core:thread"
 import rl "vendor:raylib"
 
 // Sound-owned data lives here, next to the behavior that reads and mutates it.
@@ -107,6 +110,8 @@ TrackLoudness :: struct {
 
 Sounds :: [dynamic; 32]rl.Sound
 
+TrackKeys :: [dynamic; 512]PathName
+
 sound_settings: ^SoundSettings
 
 // Track paths are stored relative to the directory the binary is run from so
@@ -142,17 +147,41 @@ DefaultSoundSettings := SoundSettings {
 }
 
 playlists_load :: proc() -> Playlists {
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	alloc := mem.dynamic_arena_allocator(&arena)
+	defer free_all(alloc)
+
 	potential_playlists, err := os.read_all_directory_by_path(MUSIC_DIR, context.temp_allocator)
 	log.ensuref(err == nil, "Error reading music dir: %s", err)
 
+	pool: thread.Pool
+	thread.pool_init(&pool, context.temp_allocator, os.get_processor_core_count())
+	defer thread.pool_destroy(&pool)
+
+	PoolData :: struct {
+		track_relative_path: string,
+		track_name:          string,
+		track_keys:          ^TrackKeys,
+		tracks:              ^hm.Dynamic_Handle_Map(Track, TrackHandle),
+		playlist_name:       string,
+		// All tasks share one mutex guarding the writes to sound_settings'
+		// track_loudness map, the shared track_keys list, and each playlist's
+		// handle map (tracks of the same playlist are added concurrently).
+		mutex:               ^sync.Mutex,
+	}
+
 	playlists: Playlists
-	track_keys: [dynamic; 512]PathName
+	track_keys: TrackKeys
+	mutex: sync.Mutex
+
 	for playlist_dir in potential_playlists {
 		if playlist_dir.type != .Directory && playlist_dir.type != .Symlink do continue
 
-		playlist := Playlist{}
-		playlist.name = strings.clone(playlist_dir.name)
+		append(&playlists, Playlist{name = strings.clone(playlist_dir.name)})
+		playlist := &playlists[len(playlists) - 1]
 		hm.dynamic_init(&playlist.tracks, context.allocator)
+
 		track_files, tracks_err := os.read_all_directory_by_path(
 			playlist_dir.fullpath,
 			context.temp_allocator,
@@ -164,7 +193,6 @@ playlists_load :: proc() -> Playlists {
 			name := strings.clone_to_cstring(track_file.name, context.temp_allocator)
 			if !rl.IsFileExtension(name, ".wav;.mp3;.ogg;.flac") do continue
 
-			title := strings.clone(os.stem(track_file.name))
 			rel_path, rel_err := filepath.join(
 				{MUSIC_DIR, playlist_dir.name, track_file.name},
 				context.temp_allocator,
@@ -177,45 +205,60 @@ playlists_load :: proc() -> Playlists {
 				rel_err,
 			)
 
-			track_path := strings.clone(rel_path)
-			file_hash := hash_file_by_path(track_file.fullpath)
-			track_key := PathName(track_path)
-			cached, cache_exists := sound_settings.track_loudness[track_key]
-			cache_usable :=
-				cache_exists &&
-				cached.file_hash == file_hash &&
-				(!sound_settings.normalize_volume || cached.active_rms > 0)
-			if !cache_usable {
-				delete(cached.file_hash)
-				loudness := TrackLoudness {
-					file_hash = strings.clone(file_hash),
-				}
-				if sound_settings.normalize_volume {
-				}
-				if cache_exists {
-					track_key = PathName(strings.clone(track_path))
-				}
-				sound_settings.track_loudness[track_key] = loudness
+			data := new(PoolData, context.temp_allocator)
+			data^ = PoolData {
+				track_relative_path = rel_path,
+				track_name          = track_file.name,
+				track_keys          = &track_keys,
+				tracks              = &playlist.tracks,
+				playlist_name       = playlist.name,
+				mutex               = &mutex,
 			}
-			append(&track_keys, track_key)
+			thread.pool_add_task(&pool, context.allocator, proc(t: thread.Task) {
+					data := (^PoolData)(t.data)
+					file_hash := hash_file_by_path(data.track_relative_path)
 
-			track := Track {
-				title  = title,
-				path   = track_path,
-				played = false,
-			}
-			_, err := hm.add(&playlist.tracks, track)
-			log.ensuref(
-				err == nil,
-				"Error adding track `%s` to playlist `%s`: %v",
-				track,
-				playlist.name,
-				err,
-			)
+					sync.guard(data.mutex)
+
+					track_key := PathName(data.track_relative_path)
+					cached, cache_exists := sound_settings.track_loudness[track_key]
+					cache_usable :=
+						cache_exists &&
+						cached.file_hash == file_hash &&
+						(!sound_settings.normalize_volume || cached.active_rms > 0)
+					if !cache_usable {
+						delete(cached.file_hash)
+						loudness := TrackLoudness {
+							file_hash = strings.clone(file_hash),
+						}
+						if sound_settings.normalize_volume {}
+						if !cache_exists {
+							track_key = PathName(strings.clone(data.track_relative_path))
+						}
+						sound_settings.track_loudness[track_key] = loudness
+					}
+
+					append(&data.track_keys^, track_key)
+
+					track := Track {
+						title  = strings.clone(os.stem(data.track_name)),
+						path   = strings.clone(data.track_relative_path),
+						played = false,
+					}
+					_, err := hm.add(&data.tracks^, track)
+					log.ensuref(
+						err == nil,
+						"Error adding track `%s` to playlist `%s`: %v",
+						track,
+						data.playlist_name,
+						err,
+					)
+				}, data)
 		}
-
-		append(&playlists, playlist)
 	}
+
+	thread.pool_start(&pool)
+	thread.pool_finish(&pool)
 
 	return playlists
 }
@@ -270,17 +313,8 @@ sound_settings_load :: proc() -> SoundSettings {
 	settings_data, err := os.read_entire_file(filename, context.temp_allocator)
 	log.ensuref(err == nil, "Error reading settings file: %v", err)
 
-	json_err := json.unmarshal(settings_data, &settings, .Bitsquid, context.temp_allocator)
+	json_err := json.unmarshal(settings_data, &settings, .Bitsquid, context.allocator)
 	log.ensuref(json_err == nil, "Error unmarshaling json from settings file: %v", json_err)
-	// if settings.track_loudness != nil {
-	// 	loaded := settings.track_loudness
-	// 	settings.track_loudness = make(map[PathName]TrackLoudness)
-	// 	for track_key, loudness in loaded {
-	// 		cloned := loudness
-	// 		cloned.file_hash = strings.clone(loudness.file_hash)
-	// 		settings.track_loudness[PathName(strings.clone(string(track_key)))] = cloned
-	// 	}
-	// }
 
 	return settings
 }
@@ -339,8 +373,6 @@ sound_settings_init :: proc() -> ^SoundSettings {
 	return sound_settings
 }
 
-// Must be called every frame. It keeps raylib's music stream buffers filled.
-// Without this, a Music stream produces no sound.
 sound_update :: proc() {
 	for sound, index in sound_settings.current_sounds {
 		if !rl.IsSoundPlaying(sound) {
@@ -369,6 +401,12 @@ sound_shutdown :: proc() {
 		for &playlist in sound_settings.playlists {
 			playlist_free(&playlist)
 		}
+
+		for key, loudness in sound_settings.track_loudness {
+			delete(key)
+			delete(loudness.file_hash)
+		}
+		delete(sound_settings.track_loudness)
 
 		free(sound_settings)
 		sound_settings = nil
