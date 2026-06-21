@@ -20,3 +20,26 @@ hot_reloaded_restores_settings_pointer :: proc(t: ^testing.T) {
 	testing.expect(t, sound_settings == &settings, "settings pointer not restored")
 	testing.expect_value(t, sound_settings.music_volume, f32(0.5))
 }
+
+@(test)
+music_current_volume_reports_audible_voice_volume :: proc(t: ^testing.T) {
+	settings := SoundSettings{}
+	sound_settings = &settings
+
+	settings.music_voices[0] = MusicVoice {
+		active       = true,
+		volume       = 0.8,
+		current_fade = 0.5,
+		fade_target  = 1,
+	}
+	settings.music_voices[1] = MusicVoice {
+		active       = true,
+		volume       = 0.3,
+		current_fade = 1,
+		fade_target  = 0,
+	}
+
+	// Fading in uses the squared fade curve, so 0.8 * 0.5^2 = 0.2. The UI
+	// should reflect the loudest currently audible track, not the target 0.8.
+	testing.expect_value(t, sound_music_current_volume(), f32(0.3))
+}

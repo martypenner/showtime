@@ -125,11 +125,14 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 				gm.active_tab = int(Tab.Controls)
 			}
 		case .Music_Volume:
-			//sound_music_volume_set(event.value)
+			gm.sound_settings.music_volume = event.value
+			for &voice in gm.sound_settings.music_voices {
+				if !voice.active do continue
+				voice.volume = event.value
+			}
 			sound_settings_save()
 		case .Pre_Show:
 			vol := f32(0.5)
-			ui_volume_set_value(vol, gm.ui_controls[:])
 			playlist_play(
 				"Happy Beats",
 				VolRampEffect {
@@ -140,7 +143,6 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 			)
 		case .Post_Show:
 			vol := f32(0.8)
-			ui_volume_set_value(vol, gm.ui_controls[:])
 			playlist_play(
 				"Happy Beats",
 				VolRampEffect {
@@ -151,7 +153,6 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 			)
 		case .To_House:
 			vol := f32(0.2)
-			ui_volume_set_value(vol, gm.ui_controls[:])
 			playlist_play(
 				"Easy Listening",
 				VolRampEffect {
@@ -162,7 +163,6 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 			)
 		case .Drop_Needle:
 			vol := f32(1.0)
-			ui_volume_set_value(vol, gm.ui_controls[:])
 			playlist_play("Needle Droppers", CutEffect{target_volume = vol})
 		case .Cat_Meow:
 			// Sound effects carry their own volume, independent of music_volume.
@@ -194,7 +194,7 @@ update :: proc() {
 			)
 		}
 		sound_update()
-	// TODO: set ui volume value when sound changes
+		ui_volume_set_value(sound_music_current_volume(), gm.ui_controls[:])
 	}
 }
 

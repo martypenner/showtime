@@ -443,6 +443,20 @@ music_fade_amplitude :: proc(fade: f32, fading_in: bool) -> f32 {
 	return clamped
 }
 
+music_voice_current_volume :: proc(voice: MusicVoice) -> f32 {
+	return voice.volume * music_fade_amplitude(voice.current_fade, voice.fade_target > voice.current_fade)
+}
+
+sound_music_current_volume :: proc() -> f32 {
+	current_volume: f32
+	for voice in sound_settings.music_voices {
+		if !voice.active do continue
+		voice_volume := music_voice_current_volume(voice)
+		current_volume = max(current_volume, voice_volume)
+	}
+	return current_volume
+}
+
 music_voice_fade_duration :: proc(voice: ^MusicVoice) -> f32 {
 	effect, ok := sound_settings.current_effect.(VolRampEffect)
 	if !ok do return 0
@@ -472,10 +486,7 @@ music_voice_update :: proc(voice: ^MusicVoice, dt: f32) {
 	// track_loudness, ok := sound_settings.track_loudness[track.path]
 	// if !ok do track_loudness = 1.0
 	// rl.SetMusicVolume(music, track_loudness)
-	rl.SetMusicVolume(
-		voice.music,
-		voice.volume * music_fade_amplitude(voice.current_fade, voice.fade_target > voice.current_fade),
-	)
+	rl.SetMusicVolume(voice.music, music_voice_current_volume(voice^))
 
 	if voice.current_fade <= 0 && voice.fade_target <= 0 {
 		music_voice_stop(voice)
