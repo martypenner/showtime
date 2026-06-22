@@ -30,13 +30,10 @@ SoundSettings :: struct {
 	loop:                     bool,
 	normalize_volume:         bool,
 	target_loudness:          f32,
-	// Cached per-track loudness measurements, keyed by track path, so we don't
-	// re-decode unchanged files on every launch.
-	track_loudness:           map[PathName]TrackLoudness,
 	playlists:                Playlists `json:"-"`,
 	current_playing_playlist: ^Playlist `json:"-"`,
 	music_voices:             [MUSIC_VOICE_COUNT]MusicVoice `json:"-"`,
-	current_effect:           SoundTransitionEffect,
+	current_effect:           SoundTransitionEffect `json:"-"`,
 	current_sounds:           Sounds `json:"-"`,
 	is_sound_playing:         bool `json:"-"`,
 }
@@ -102,16 +99,6 @@ Track :: struct {
 
 PathName :: string
 
-// A cached loudness measurement for one track. file_hash and active_rms persist
-// so we can skip re-decoding unchanged files. volume_multiplier is derived from
-// the whole set at load time (see compute_playback_gains) and never persisted.
-TrackLoudness :: struct {
-	// Used to only re-measure if the hash has changed.
-	file_hash:         string,
-	active_rms:        f32,
-	volume_multiplier: f32 `json:"-"`,
-}
-
 Sounds :: [dynamic; 32]rl.Sound
 
 TrackKeys :: [dynamic; 512]PathName
@@ -175,9 +162,9 @@ playlists_load :: proc() -> Playlists {
 		track_keys:          ^TrackKeys,
 		tracks:              ^hm.Dynamic_Handle_Map(Track, TrackHandle),
 		playlist_name:       string,
-		// All tasks share one mutex guarding the writes to sound_settings'
-		// track_loudness map, the shared track_keys list, and each playlist's
-		// handle map (tracks of the same playlist are added concurrently).
+		// All tasks share one mutex guarding the writes to the shared track_keys
+		// list and each playlist's handle map (tracks of the same playlist are
+		// added concurrently).
 		mutex:               ^sync.Mutex,
 	}
 
@@ -226,7 +213,7 @@ playlists_load :: proc() -> Playlists {
 			}
 			thread.pool_add_task(&pool, context.allocator, proc(t: thread.Task) {
 					data := (^PoolData)(t.data)
-					generated_track, generated_track_ok := TRACKS[data.track_relative_path]
+					_, generated_track_ok := TRACKS[data.track_relative_path]
 					log.ensuref(
 						generated_track_ok,
 						"Missing generated track metadata for %s",
@@ -236,23 +223,6 @@ playlists_load :: proc() -> Playlists {
 					track_key := PathName(data.track_relative_path)
 
 					sync.guard(data.mutex)
-
-					cached, cache_exists := sound_settings.track_loudness[track_key]
-					cache_usable :=
-						cache_exists &&
-						cached.file_hash == generated_track.file_hash &&
-						cached.active_rms == generated_track.active_rms
-					if !cache_usable {
-						delete(cached.file_hash)
-						loudness := TrackLoudness {
-							file_hash  = strings.clone(generated_track.file_hash),
-							active_rms = generated_track.active_rms,
-						}
-						if !cache_exists {
-							track_key = PathName(strings.clone(data.track_relative_path))
-						}
-						sound_settings.track_loudness[track_key] = loudness
-					}
 
 					append(&data.track_keys^, track_key)
 
@@ -276,25 +246,28 @@ playlists_load :: proc() -> Playlists {
 	thread.pool_start(&pool)
 	thread.pool_finish(&pool)
 
+	for track_key in track_keys {
+		_, generated_track_ok := TRACKS[string(track_key)]
+		log.ensuref(generated_track_ok, "Missing generated track metadata for %s", track_key)
+	}
+
+	return playlists
+}
+
+track_volume_multiplier :: proc(active_rms: f32) -> f32 {
+	if !sound_settings.normalize_volume || active_rms <= 0 do return 1
+
 	target_db := math.clamp(
 		sound_settings.target_loudness,
 		MIN_TARGET_LOUDNESS,
 		MAX_TARGET_LOUDNESS,
 	)
 	target_rms := f32(math.pow_f64(10, f64(target_db) / 20))
-	for track_key in track_keys {
-		loudness := &sound_settings.track_loudness[track_key]
-		loudness.volume_multiplier = 1
-		if sound_settings.normalize_volume && loudness.active_rms > 0 {
-			loudness.volume_multiplier = math.clamp(
-				target_rms / loudness.active_rms,
-				MUSIC_MIN_NORMALIZED_GAIN,
-				MUSIC_MAX_NORMALIZED_GAIN,
-			)
-		}
-	}
-
-	return playlists
+	return math.clamp(
+		target_rms / active_rms,
+		MUSIC_MIN_NORMALIZED_GAIN,
+		MUSIC_MAX_NORMALIZED_GAIN,
+	)
 }
 
 playlists_load_async :: proc() {
@@ -306,9 +279,6 @@ playlists_load_async :: proc() {
 	defer mem.dynamic_arena_destroy(&scratch)
 
 	sound_settings.playlists = playlists_load()
-
-	// Save immediately since we may have just calculated gains.
-	sound_settings_save()
 }
 
 sound_play :: proc(name: SoundEffectName, volume: f32) -> rl.Sound {
@@ -479,10 +449,9 @@ music_amplitude_fade :: proc(fade: f32, fading_in: bool) -> f32 {
 music_voice_volume_current :: proc(voice: MusicVoice) -> f32 {
 	track_gain := f32(1)
 	if sound_settings.normalize_volume {
-		loudness, ok := sound_settings.track_loudness[PathName(voice.path)]
-		if ok && loudness.volume_multiplier > 0 {
-			track_gain = loudness.volume_multiplier
-		}
+		generated_track, ok := TRACKS[voice.path]
+		log.ensuref(ok, "Missing generated track metadata for %s", voice.path)
+		track_gain = track_volume_multiplier(generated_track.active_rms)
 	}
 
 	return(
@@ -554,9 +523,6 @@ music_voice_update :: proc(voice: ^MusicVoice, dt: f32) {
 	rl.UpdateMusicStream(voice.music)
 	music_voice_fade_update(voice, dt)
 
-	// track_loudness, ok := sound_settings.track_loudness[track.path]
-	// if !ok do track_loudness = 1.0
-	// rl.SetMusicVolume(music, track_loudness)
 	rl.SetMusicVolume(voice.music, music_voice_volume_current(voice^))
 
 	if voice.current_fade <= 0 && voice.fade_target <= 0 {
@@ -631,7 +597,6 @@ sound_settings_save :: proc() {
 		loop             = sound_settings.loop,
 		normalize_volume = sound_settings.normalize_volume,
 		target_loudness  = sound_settings.target_loudness,
-		track_loudness   = sound_settings.track_loudness,
 	}
 
 	settings_json, json_err := json.marshal(
@@ -660,9 +625,6 @@ sound_settings_init :: proc() -> ^SoundSettings {
 
 	sound_settings = new(SoundSettings)
 	sound_settings^ = sound_settings_load()
-	if sound_settings.track_loudness == nil {
-		sound_settings.track_loudness = make(map[PathName]TrackLoudness)
-	}
 
 	return sound_settings
 }
@@ -727,12 +689,6 @@ sound_shutdown :: proc() {
 		for &playlist in sound_settings.playlists {
 			playlist_free(&playlist)
 		}
-
-		for key, loudness in sound_settings.track_loudness {
-			delete(key)
-			delete(loudness.file_hash)
-		}
-		delete(sound_settings.track_loudness)
 
 		free(sound_settings)
 		sound_settings = nil

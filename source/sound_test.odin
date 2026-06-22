@@ -24,10 +24,7 @@ hot_reloaded_restores_settings_pointer :: proc(t: ^testing.T) {
 
 @(test)
 music_current_volume_reports_audible_voice_volume :: proc(t: ^testing.T) {
-	settings := SoundSettings {
-		track_loudness = make(map[PathName]TrackLoudness),
-	}
-	defer delete(settings.track_loudness)
+	settings := SoundSettings{}
 	sound_settings = &settings
 
 	settings.music_voices[0] = MusicVoice {
@@ -50,10 +47,7 @@ music_current_volume_reports_audible_voice_volume :: proc(t: ^testing.T) {
 
 @(test)
 music_primary_voice_returns_loudest_active_voice :: proc(t: ^testing.T) {
-	settings := SoundSettings {
-		track_loudness = make(map[PathName]TrackLoudness),
-	}
-	defer delete(settings.track_loudness)
+	settings := SoundSettings{}
 	sound_settings = &settings
 
 	settings.music_voices[0] = MusicVoice {
@@ -87,10 +81,7 @@ music_primary_voice_returns_loudest_active_voice :: proc(t: ^testing.T) {
 
 @(test)
 music_ramp_scene_cancels_non_primary_crossfade_voice :: proc(t: ^testing.T) {
-	settings := SoundSettings {
-		track_loudness = make(map[PathName]TrackLoudness),
-	}
-	defer delete(settings.track_loudness)
+	settings := SoundSettings{}
 	sound_settings = &settings
 
 	settings.music_voices[0] = MusicVoice {
@@ -131,60 +122,29 @@ music_ramp_scene_cancels_non_primary_crossfade_voice :: proc(t: ^testing.T) {
 music_volume_applies_track_gain_when_normalized :: proc(t: ^testing.T) {
 	settings := SoundSettings {
 		normalize_volume = true,
-		track_loudness   = make(map[PathName]TrackLoudness),
+		target_loudness  = -12,
 	}
-	defer delete(settings.track_loudness)
 	sound_settings = &settings
-	sound_settings.normalize_volume = true
 
-	track_path := PathName("track.mp3")
-	settings.track_loudness[track_path] = TrackLoudness {
-		volume_multiplier = 0.5,
-	}
+	track_path := "assets/sounds/music/Easy Listening/01 - Happy and Fun Pop Background Music For Videos.mp3"
+	expected_gain := track_volume_multiplier(TRACKS[track_path].active_rms)
 
 	voice := MusicVoice {
 		active       = true,
-		path         = string(track_path),
+		path         = track_path,
 		volume       = 0.8,
 		current_fade = 1,
 		fade_target  = 1,
 	}
 
-	testing.expect_value(t, music_voice_volume_current(voice), f32(0.4))
+	testing.expect_value(t, music_voice_volume_current(voice), f32(0.8) * expected_gain)
 }
 
 @(test)
 music_volume_ignores_track_gain_when_normalization_off :: proc(t: ^testing.T) {
 	settings := SoundSettings {
 		normalize_volume = false,
-		track_loudness   = make(map[PathName]TrackLoudness),
 	}
-	defer delete(settings.track_loudness)
-	sound_settings = &settings
-
-	track_path := PathName("track.mp3")
-	settings.track_loudness[track_path] = TrackLoudness {
-		volume_multiplier = 0.5,
-	}
-
-	voice := MusicVoice {
-		active       = true,
-		path         = string(track_path),
-		volume       = 0.8,
-		current_fade = 1,
-		fade_target  = 1,
-	}
-
-	testing.expect_value(t, music_voice_volume_current(voice), f32(0.8))
-}
-
-@(test)
-music_volume_falls_back_to_full_gain_when_loudness_missing :: proc(t: ^testing.T) {
-	settings := SoundSettings {
-		normalize_volume = true,
-		track_loudness   = make(map[PathName]TrackLoudness),
-	}
-	defer delete(settings.track_loudness)
 	sound_settings = &settings
 
 	voice := MusicVoice {
