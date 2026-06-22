@@ -66,7 +66,17 @@ Show_Action :: enum {
 	Scene_Fade,
 	Drop_Needle,
 	// Sounds
+	Glass_Break,
+	Gunshot,
+	Scream,
+	Lightning,
+	Fireworks,
+	Train_Horn,
+	Tick_Tick_Ding,
+	Ding,
+	Calming_Rain,
 	Cat_Meow,
+	Yeeeeaaaaaaaahh,
 	// Later: lighting
 }
 
@@ -179,9 +189,32 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 		case .Drop_Needle:
 			vol := f32(1.0)
 			playlist_play(.Needle_Droppers, CutEffect{target_volume = vol})
+		case .Glass_Break:
+			sound_play(
+				.Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY,
+				0.8,
+			)
+		case .Gunshot:
+			sound_play(.Single_Gunshot_54_40780, 0.8)
+		case .Scream:
+			sound_play(.Woman_Screaming_Sfx_Screaming_Sound_Effect_320169, 0.8)
+		case .Lightning:
+			sound_play(.Lightning_237994, 0.8)
+		case .Fireworks:
+			sound_play(.Fireworks_13_419033, 0.8)
+		case .Train_Horn:
+			sound_play(.Train_Horn_337875, 0.8)
+		case .Tick_Tick_Ding:
+			sound_play(.Ticktickding, 0.8)
+		case .Ding:
+			sound_play(.Ding_126626, 0.8)
+		case .Calming_Rain:
+			sound_play(.Calming_Rain_257596, 0.8)
 		case .Cat_Meow:
 			// Sound effects carry their own volume, independent of music_volume.
 			sound_play(.Cat_Meow, 0.6)
+		case .Yeeeeaaaaaaaahh:
+			sound_play(.Yeeeeaaaaaaaahh, 0.8)
 		case .Unknown:
 			log.warnf("No app behavior mapped for UI control %q", event.name)
 		}

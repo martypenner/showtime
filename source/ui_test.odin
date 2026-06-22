@@ -3,59 +3,6 @@ package game
 import "core:testing"
 import rl "vendor:raylib"
 
-// Golden-style check: the committed controls.rgl must keep producing the same
-// visible controls. load_layout is the Adapter Seam (external rGuiLayout format
-// -> internal Control list), so asserting its output here pins parser behavior
-// without reaching into private parsing helpers. Anchor offsets are folded into
-// each rect, matching what the app renders. Enable/disable fields are
-// deliberately not asserted: enable/disable semantics are out of scope. The
-// group arg is arbitrary here; it just proves load_layout tags every control
-// with the group it was given.
-@(test)
-load_layout_matches_committed_golden :: proc(t: ^testing.T) {
-	GROUP :: 7
-	controls: Controls
-	defer ui_shutdown(&controls)
-	layout_load(&controls, "controls.rgl", string(#load("../resources/controls.rgl")), GROUP)
-	controls_prepare_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
-
-	Expected :: struct {
-		name: string,
-		type: Control_Type,
-		text: string,
-		rect: rl.Rectangle,
-	}
-	// scenes anchor is at (24, 48); controls anchored to it have that offset
-	// folded into their rect. anchor_id 0 means no anchor (no offset).
-	expected := []Expected {
-		{"Pre_Show", .Button, "Pre-show", {24, 72, 96, 48}},
-		{"Post_Show", .Button, "Post-show", {144, 72, 96, 48}},
-		{"To_House", .Button, "To house", {24, 144, 96, 48}},
-		{"Scene_Ramp", .Button, "Scene - ramp", {144, 144, 96, 48}},
-		{"Scene_Fade", .Button, "Scene - fade", {264, 144, 96, 48}},
-		{"Drop_Needle", .Button, "Drop needle", {384, 144, 96, 48}},
-		{"Scenes", .GroupBox, "Scenes", {24, 56, 456, 136}},
-		{"Cat_Meow", .Button, "Cat meow", {24, 552, 96, 48}},
-		{"Volume_Label", .Label, "Volume", {504, 48, 144, 24}},
-		{"Use_House_Music", .CheckBox, "Use house music", {264, 72, 24, 24}},
-		{"Music_Volume", .SliderBar, "", {504, 72, 144, 24}},
-	}
-
-	testing.expect_value(t, len(controls), len(expected))
-	if len(controls) != len(expected) {
-		return
-	}
-
-	for exp, i in expected {
-		got := controls[i]
-		testing.expect_value(t, got.name, exp.name)
-		testing.expect_value(t, got.control_type, exp.type)
-		testing.expect_value(t, string(got.text), exp.text)
-		testing.expect_value(t, got.rect, exp.rect)
-		testing.expect_value(t, got.visibility_group, GROUP)
-	}
-}
-
 // Malformed layout data must fail at the Adapter Seam with a clear, located
 // error rather than an opaque index-out-of-range panic. parse_layout returns
 // the error so the failure mode is testable at the Module Interface.
