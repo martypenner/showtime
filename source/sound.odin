@@ -226,34 +226,27 @@ playlists_load :: proc() -> Playlists {
 			}
 			thread.pool_add_task(&pool, context.allocator, proc(t: thread.Task) {
 					data := (^PoolData)(t.data)
-					asset_hash, asset_hash_ok := TRACK_ASSET_HASHES[data.track_relative_path]
+					generated_track, generated_track_ok := TRACKS[data.track_relative_path]
 					log.ensuref(
-						asset_hash_ok,
-						"Missing generated asset hash for %s",
+						generated_track_ok,
+						"Missing generated track metadata for %s",
 						data.track_relative_path,
 					)
-					file_hash := fmt.tprint(asset_hash)
 
 					track_key := PathName(data.track_relative_path)
-					active_rms, active_rms_ok := TRACK_ACTIVE_RMS[data.track_relative_path]
-					log.ensuref(
-						active_rms_ok,
-						"Missing generated active RMS for %s",
-						data.track_relative_path,
-					)
 
 					sync.guard(data.mutex)
 
 					cached, cache_exists := sound_settings.track_loudness[track_key]
 					cache_usable :=
 						cache_exists &&
-						cached.file_hash == file_hash &&
-						cached.active_rms == active_rms
+						cached.file_hash == generated_track.file_hash &&
+						cached.active_rms == generated_track.active_rms
 					if !cache_usable {
 						delete(cached.file_hash)
 						loudness := TrackLoudness {
-							file_hash  = strings.clone(file_hash),
-							active_rms = active_rms,
+							file_hash  = strings.clone(generated_track.file_hash),
+							active_rms = generated_track.active_rms,
 						}
 						if !cache_exists {
 							track_key = PathName(strings.clone(data.track_relative_path))

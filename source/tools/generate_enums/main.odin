@@ -28,9 +28,9 @@ SoundEffect :: struct {
 	path:  string,
 }
 
-TrackAsset :: struct {
+GeneratedTrack :: struct {
 	path:       string,
-	hash:       u64,
+	file_hash:  string,
 	active_rms: f32,
 }
 
@@ -43,7 +43,7 @@ RMSCache :: struct {
 }
 
 RMSCacheEntry :: struct {
-	hash:       u64,
+	file_hash:  string,
 	active_rms: f32,
 }
 
@@ -65,8 +65,8 @@ main :: proc() {
 	defer delete(playlists)
 	sound_effects := load_sound_effects()
 	defer delete(sound_effects)
-	track_assets: [dynamic]TrackAsset
-	defer delete(track_assets)
+	tracks: [dynamic]GeneratedTrack
+	defer delete(tracks)
 
 	pool: thread.Pool
 	thread.pool_init(&pool, context.temp_allocator, os.get_processor_core_count())
@@ -81,11 +81,11 @@ main :: proc() {
 	failed := false
 
 	PoolData :: struct {
-		path:         string,
-		rms_cache:    RMSCache,
-		track_assets: ^[dynamic]TrackAsset,
-		mutex:        ^sync.Mutex,
-		failed:       ^bool,
+		path:      string,
+		rms_cache: RMSCache,
+		tracks:    ^[dynamic]GeneratedTrack,
+		mutex:     ^sync.Mutex,
+		failed:    ^bool,
 	}
 
 	for entry in entries {
@@ -119,11 +119,11 @@ main :: proc() {
 			path := fmt.aprintf("%s/%s/%s", MUSIC_DIR, entry.name, track_entry.name)
 			data := new(PoolData, context.temp_allocator)
 			data^ = PoolData {
-				path         = path,
-				rms_cache    = rms_cache,
-				track_assets = &track_assets,
-				mutex        = &mutex,
-				failed       = &failed,
+				path      = path,
+				rms_cache = rms_cache,
+				tracks    = &tracks,
+				mutex     = &mutex,
+				failed    = &failed,
 			}
 			thread.pool_add_task(&pool, context.allocator, proc(t: thread.Task) {
 					data := (^PoolData)(t.data)
@@ -135,15 +135,15 @@ main :: proc() {
 						return
 					}
 
-					asset_hash := hash.murmur64a(track_bytes)
-					asset := TrackAsset {
+					file_hash := fmt.tprint(hash.murmur64a(track_bytes))
+					track := GeneratedTrack {
 						path       = strings.clone(data.path),
-						hash       = asset_hash,
-						active_rms = active_rms_for_track(data.path, asset_hash, data.rms_cache),
+						file_hash  = strings.clone(file_hash),
+						active_rms = active_rms_for_track(data.path, file_hash, data.rms_cache),
 					}
 
 					sync.guard(data.mutex)
-					append(data.track_assets, asset)
+					append(data.tracks, track)
 				}, data)
 		}
 	}
@@ -158,7 +158,7 @@ main :: proc() {
 	slice.sort_by(playlists[:], proc(a, b: Playlist) -> bool {
 		return strings.compare(a.name, b.name) < 0
 	})
-	slice.sort_by(track_assets[:], proc(a, b: TrackAsset) -> bool {
+	slice.sort_by(tracks[:], proc(a, b: GeneratedTrack) -> bool {
 		return strings.compare(a.path, b.path) < 0
 	})
 
@@ -188,15 +188,20 @@ main :: proc() {
 	}
 	fmt.sbprintln(&builder, "}")
 	fmt.sbprintln(&builder)
-	fmt.sbprintln(&builder, "TRACK_ASSET_HASHES := map[string]u64 {")
-	for asset in track_assets {
-		fmt.sbprintf(&builder, "\t%q = %d,\n", asset.path, asset.hash)
-	}
+	fmt.sbprintln(&builder, "GeneratedTrack :: struct {")
+	fmt.sbprintln(&builder, "\tfile_hash: string,")
+	fmt.sbprintln(&builder, "\tactive_rms: f32,")
 	fmt.sbprintln(&builder, "}")
 	fmt.sbprintln(&builder)
-	fmt.sbprintln(&builder, "TRACK_ACTIVE_RMS := map[string]f32 {")
-	for asset in track_assets {
-		fmt.sbprintf(&builder, "\t%q = %.8f,\n", asset.path, asset.active_rms)
+	fmt.sbprintln(&builder, "TRACKS := map[string]GeneratedTrack {")
+	for track in tracks {
+		fmt.sbprintf(
+			&builder,
+			"\t%q = {{file_hash = %q, active_rms = %.8f}},\n",
+			track.path,
+			track.file_hash,
+			track.active_rms,
+		)
 	}
 	fmt.sbprintln(&builder, "}")
 	fmt.sbprintln(&builder)
@@ -229,7 +234,7 @@ main :: proc() {
 		os.exit(1)
 	}
 
-	save_rms_cache(track_assets[:])
+	save_rms_cache(tracks[:])
 }
 
 load_sound_effects :: proc() -> [dynamic]SoundEffect {
@@ -266,9 +271,9 @@ load_sound_effects :: proc() -> [dynamic]SoundEffect {
 	return sound_effects
 }
 
-active_rms_for_track :: proc(path: string, asset_hash: u64, cache: RMSCache) -> f32 {
+active_rms_for_track :: proc(path: string, file_hash: string, cache: RMSCache) -> f32 {
 	entry, ok := cache.tracks[path]
-	if ok && entry.hash == asset_hash do return entry.active_rms
+	if ok && entry.file_hash == file_hash do return entry.active_rms
 	return music_active_rms_for_file(path)
 }
 
@@ -295,14 +300,14 @@ load_rms_cache :: proc() -> RMSCache {
 	return loaded
 }
 
-save_rms_cache :: proc(track_assets: []TrackAsset) {
+save_rms_cache :: proc(tracks: []GeneratedTrack) {
 	cache := default_rms_cache()
 	defer delete(cache.tracks)
 
-	for asset in track_assets {
-		cache.tracks[asset.path] = RMSCacheEntry {
-			hash       = asset.hash,
-			active_rms = asset.active_rms,
+	for track in tracks {
+		cache.tracks[track.path] = RMSCacheEntry {
+			file_hash  = track.file_hash,
+			active_rms = track.active_rms,
 		}
 	}
 
