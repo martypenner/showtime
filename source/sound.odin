@@ -35,7 +35,7 @@ SoundSettings :: struct {
 	current_playing_playlist: ^Playlist `json:"-"`,
 	music_voices:             [MUSIC_VOICE_COUNT]MusicVoice `json:"-"`,
 	current_effect:           SoundTransitionEffect `json:"-"`,
-	current_sounds:           Sounds `json:"-"`,
+	current_sounds:           SoundVoices `json:"-"`,
 	is_sound_playing:         bool `json:"-"`,
 }
 
@@ -100,7 +100,25 @@ Track :: struct {
 
 PathName :: string
 
-Sounds :: [dynamic; 32]rl.Sound
+SOUND_FADE_OUT_DURATION :: f32(2.0)
+SOUND_REPLAY_FADE_THRESHOLD :: f32(4.0)
+
+SoundVoice :: struct {
+	sound:        rl.Sound,
+	name:         SoundEffectName,
+	volume:       f32,
+	duration:     f32,
+	fading:       bool,
+	fade_elapsed: f32,
+}
+
+SoundVoices :: [dynamic; 32]SoundVoice
+
+SoundRetriggerAction :: enum {
+	Leave_Alone,
+	// Fade the current long sound out instead of starting another copy.
+	Fade_Out,
+}
 
 TrackKeys :: [dynamic; 512]PathName
 
@@ -283,14 +301,67 @@ playlists_load_async :: proc() {
 	sound_settings.playlists = playlists_load()
 }
 
+sound_retrigger_action :: proc(
+	voice_name: SoundEffectName,
+	trigger_name: SoundEffectName,
+	is_playing: bool,
+	duration: f32,
+) -> SoundRetriggerAction {
+	if voice_name != trigger_name || !is_playing do return .Leave_Alone
+	if duration > SOUND_REPLAY_FADE_THRESHOLD do return .Fade_Out
+	return .Leave_Alone
+}
+
+sound_retrigger_starts_new_sound :: proc(action: SoundRetriggerAction) -> bool {
+	return action != .Fade_Out
+}
+
 sound_play :: proc(name: SoundEffectName, volume: f32) -> rl.Sound {
+	start_new_sound := true
+	faded_sound: rl.Sound
+	sound_index := 0
+	for sound_index < len(sound_settings.current_sounds) {
+		voice := &sound_settings.current_sounds[sound_index]
+		action := sound_retrigger_action(
+			voice.name,
+			name,
+			rl.IsSoundPlaying(voice.sound),
+			voice.duration,
+		)
+		if !sound_retrigger_starts_new_sound(action) {
+			start_new_sound = false
+			if faded_sound.frameCount == 0 do faded_sound = voice.sound
+		}
+
+		switch action {
+		case .Leave_Alone:
+			sound_index += 1
+		case .Fade_Out:
+			if voice.fading {
+				sound_index += 1
+				continue
+			}
+			voice.fading = true
+			voice.fade_elapsed = 0
+			sound_index += 1
+		}
+	}
+	if !start_new_sound do return faded_sound
+
 	sound := rl.LoadSound(
 		strings.clone_to_cstring(sound_effect_path(name), context.temp_allocator),
 	)
-	rl.PlaySound(sound)
+	if !rl.IsSoundValid(sound) do return sound
+
+	duration := f32(sound.frameCount) / f32(sound.sampleRate)
+
 	rl.SetSoundVolume(sound, volume)
+	rl.PlaySound(sound)
 	sound_settings.is_sound_playing = true
-	append(&sound_settings.current_sounds, sound)
+	append(
+		&sound_settings.current_sounds,
+		SoundVoice{sound = sound, name = name, volume = volume, duration = duration},
+	)
 	return sound
 }
 
@@ -649,14 +720,32 @@ sound_settings_init :: proc() -> ^SoundSettings {
 }
 
 sound_update :: proc() {
-	for sound, index in sound_settings.current_sounds {
-		if !rl.IsSoundPlaying(sound) {
-			rl.UnloadSound(sound)
-			unordered_remove(&sound_settings.current_sounds, index)
-		}
-	}
-
 	dt := rl.GetFrameTime()
+
+	sound_index := 0
+	for sound_index < len(sound_settings.current_sounds) {
+		voice := &sound_settings.current_sounds[sound_index]
+		if voice.fading {
+			voice.fade_elapsed = min(voice.fade_elapsed + dt, SOUND_FADE_OUT_DURATION)
+			rl.SetSoundVolume(
+				voice.sound,
+				voice.volume * (1 - voice.fade_elapsed / SOUND_FADE_OUT_DURATION),
+			)
+			if voice.fade_elapsed >= SOUND_FADE_OUT_DURATION {
+				rl.StopSound(voice.sound)
+			}
+		}
+
+		if !rl.IsSoundPlaying(voice.sound) {
+			rl.UnloadSound(voice.sound)
+			unordered_remove(&sound_settings.current_sounds, sound_index)
+			continue
+		}
+
+		sound_index += 1
+	}
+	sound_settings.is_sound_playing = len(sound_settings.current_sounds) > 0
+
 	active_music_count := 0
 	for &voice in sound_settings.music_voices {
 		if !voice.active do continue
@@ -701,8 +790,8 @@ sound_shutdown :: proc() {
 			rl.StopMusicStream(voice.music)
 			rl.UnloadMusicStream(voice.music)
 		}
-		for sound in sound_settings.current_sounds {
-			rl.UnloadSound(sound)
+		for voice in sound_settings.current_sounds {
+			rl.UnloadSound(voice.sound)
 		}
 
 		for &playlist in sound_settings.playlists {
