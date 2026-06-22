@@ -1,8 +1,9 @@
-package generate_playlists
+package generate_enums
 
 import "core:encoding/json"
 import "core:fmt"
 import "core:hash"
+import "core:log"
 import "core:math"
 import "core:mem"
 import "core:os"
@@ -10,16 +11,21 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
-import "core:unicode/utf8"
 import rl "vendor:raylib"
 
 MUSIC_DIR :: "assets/sounds/music"
-OUT_FILE :: "source/generated_playlists.odin"
+FX_DIR :: "assets/sounds/fx"
+OUT_FILE :: "source/generated_enums.odin"
 CACHE_FILE :: "source/generated_playlists.rms_cache.sjson"
 
 Playlist :: struct {
 	ident: string,
 	name:  string,
+}
+
+SoundEffect :: struct {
+	ident: string,
+	path:  string,
 }
 
 TrackAsset :: struct {
@@ -57,6 +63,8 @@ main :: proc() {
 
 	playlists: [dynamic]Playlist
 	defer delete(playlists)
+	sound_effects := load_sound_effects()
+	defer delete(sound_effects)
 	track_assets: [dynamic]TrackAsset
 	defer delete(track_assets)
 
@@ -174,6 +182,12 @@ main :: proc() {
 	}
 	fmt.sbprintln(&builder, "}")
 	fmt.sbprintln(&builder)
+	fmt.sbprintln(&builder, "SoundEffectName :: enum {")
+	for sound_effect in sound_effects {
+		fmt.sbprintf(&builder, "\t%s,\n", sound_effect.ident)
+	}
+	fmt.sbprintln(&builder, "}")
+	fmt.sbprintln(&builder)
 	fmt.sbprintln(&builder, "TRACK_ASSET_HASHES := map[string]u64 {")
 	for asset in track_assets {
 		fmt.sbprintf(&builder, "\t%q = %d,\n", asset.path, asset.hash)
@@ -194,6 +208,20 @@ main :: proc() {
 	fmt.sbprintln(&builder, "\tcase: return \"\"")
 	fmt.sbprintln(&builder, "\t}")
 	fmt.sbprintln(&builder, "}")
+	fmt.sbprintln(&builder)
+	fmt.sbprintln(&builder, "sound_effect_path :: proc(name: SoundEffectName) -> string {")
+	fmt.sbprintln(&builder, "\tswitch name {")
+	for sound_effect in sound_effects {
+		fmt.sbprintf(
+			&builder,
+			"\tcase .%s:\n\t\treturn %q\n",
+			sound_effect.ident,
+			sound_effect.path,
+		)
+	}
+	fmt.sbprintln(&builder, "\tcase: return \"\"")
+	fmt.sbprintln(&builder, "\t}")
+	fmt.sbprintln(&builder, "}")
 
 	write_err := os.write_entire_file(OUT_FILE, strings.to_string(builder))
 	if write_err != nil {
@@ -202,6 +230,40 @@ main :: proc() {
 	}
 
 	save_rms_cache(track_assets[:])
+}
+
+load_sound_effects :: proc() -> [dynamic]SoundEffect {
+	entries, err := os.read_all_directory_by_path(FX_DIR, context.temp_allocator)
+	if err != nil do return nil
+
+	sound_effects: [dynamic]SoundEffect
+	for entry in entries {
+		if entry.type != .Regular && entry.type != .Symlink do continue
+		if !track_file_supported(entry.name) do continue
+
+		ident := sound_effect_ident(entry.name, context.allocator)
+		if len(ident) == 0 do continue
+
+		base := ident
+		suffix := 2
+		for sound_effect_ident_used(sound_effects[:], ident) {
+			ident = strings.clone(fmt.aprintf("%s_%d", base, suffix))
+			suffix += 1
+		}
+
+		append(
+			&sound_effects,
+			SoundEffect {
+				ident = ident,
+				path = strings.clone(fmt.aprintf("%s/%s", FX_DIR, entry.name)),
+			},
+		)
+	}
+
+	slice.sort_by(sound_effects[:], proc(a, b: SoundEffect) -> bool {
+		return strings.compare(a.path, b.path) < 0
+	})
+	return sound_effects
 }
 
 active_rms_for_track :: proc(path: string, asset_hash: u64, cache: RMSCache) -> f32 {
@@ -325,41 +387,49 @@ music_active_rms_for_file :: proc(path: string) -> f32 {
 
 // Convert folder names into Odin enum identifiers:
 // "Pirates - Combat!" -> "Pirates_Combat".
-// I...don't love it.
 playlist_ident :: proc(name: string, allocator := context.allocator) -> string {
-	builder: strings.Builder
-	strings.builder_init(&builder, allocator = allocator)
+	parts, err := strings.fields_proc(name, enum_ident_separator, context.temp_allocator)
+	log.ensuref(err == nil, "Error splitting enum identifier %q: %v", name, err)
+	log.ensuref(len(parts) > 0, "No valid enum identifier parts in %q", name)
 
-	previous_was_separator := true
-	remaining := name
-	for len(remaining) > 0 {
-		char, size := utf8.decode_rune_in_string(remaining)
-		remaining = remaining[size:]
-
-		if ('a' <= char && char <= 'z') ||
-		   ('A' <= char && char <= 'Z') ||
-		   ('0' <= char && char <= '9') {
-			strings.write_rune(&builder, char)
-			previous_was_separator = false
-		} else if !previous_was_separator {
-			strings.write_byte(&builder, '_')
-			previous_was_separator = true
-		}
-	}
-
-	ident := strings.to_string(builder)
-	for len(ident) > 0 && ident[len(ident) - 1] == '_' {
-		ident = ident[:len(ident) - 1]
-	}
+	ident, join_err := strings.join(parts, "_", allocator)
+	log.ensuref(join_err == nil, "Error joining enum identifier %q: %v", name, join_err)
 	if len(ident) > 0 && '0' <= ident[0] && ident[0] <= '9' {
 		ident = fmt.aprintf("_%s", ident)
 	}
-	return strings.clone(ident, allocator)
+	return ident
+}
+
+enum_ident_separator :: proc(r: rune) -> bool {
+	return !(('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9'))
 }
 
 playlist_ident_used :: proc(playlists: []Playlist, ident: string) -> bool {
 	for playlist in playlists {
 		if playlist.ident == ident do return true
+	}
+	return false
+}
+
+sound_effect_ident :: proc(name: string, allocator := context.allocator) -> string {
+	ident := playlist_ident(os.stem(name), allocator)
+	parts, err := strings.split(ident, "_", context.temp_allocator)
+	log.ensuref(err == nil, "Error splitting sound effect identifier %q: %v", ident, err)
+
+	for &part in parts {
+		if len(part) > 0 && 'a' <= part[0] && part[0] <= 'z' {
+			part = fmt.aprintf("%c%s", part[0] - 'a' + 'A', part[1:])
+		}
+	}
+
+	final_ident, join_err := strings.join(parts, "_", allocator)
+	log.ensuref(join_err == nil, "Error joining sound effect identifier %q: %v", ident, join_err)
+	return final_ident
+}
+
+sound_effect_ident_used :: proc(sound_effects: []SoundEffect, ident: string) -> bool {
+	for sound_effect in sound_effects {
+		if sound_effect.ident == ident do return true
 	}
 	return false
 }

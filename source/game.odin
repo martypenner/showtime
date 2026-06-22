@@ -189,7 +189,7 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 			playlist_play(.Needle_Droppers, CutEffect{target_volume = vol})
 		case .Cat_Meow:
 			// Sound effects carry their own volume, independent of music_volume.
-			sound_play("cat-meow.mp3", 0.6)
+			sound_play(.Cat_Meow, 0.6)
 		case .Unknown:
 			log.warnf("No app behavior mapped for UI control %q", event.name)
 		}

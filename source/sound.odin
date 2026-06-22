@@ -318,12 +318,9 @@ playlists_load_async :: proc() {
 	sound_settings_save()
 }
 
-sound_play :: proc(filename: string, volume: f32) -> rl.Sound {
+sound_play :: proc(name: SoundEffectName, volume: f32) -> rl.Sound {
 	sound := rl.LoadSound(
-		strings.clone_to_cstring(
-			fmt.tprint("assets/sounds/fx", filename, sep = filepath.SEPARATOR_STRING),
-			context.temp_allocator,
-		),
+		strings.clone_to_cstring(sound_effect_path(name), context.temp_allocator),
 	)
 	rl.PlaySound(sound)
 	rl.SetSoundVolume(sound, volume)
