@@ -57,6 +57,7 @@ Show_Action :: enum {
 	// Main controls
 	Tab_Bar,
 	Music_Volume,
+	Use_House_Music,
 	// Scene changes
 	Pre_Show,
 	Post_Show,
@@ -133,6 +134,13 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 				voice.volume = event.value
 			}
 			sound_settings_save()
+		case .Use_House_Music:
+			use_house_music := event.value != 0
+			if !use_house_music && playlist_is_current(.Happy_Beats) {
+				music_fade_out(gm.sound_settings.fade_out_time)
+			}
+			gm.sound_settings.use_house_music = use_house_music
+			sound_settings_save()
 		case .Pre_Show:
 			vol := f32(0.5)
 			playlist_play(
@@ -156,16 +164,7 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 				},
 			)
 		case .To_House:
-			vol := f32(0.2)
-			playlist_play(
-				.Easy_Listening,
-				VolRampEffect {
-					target_volume = vol,
-					ramp_up_duration = gm.sound_settings.fade_in_time,
-					hold_duration = 0,
-					fade_out_duration = gm.sound_settings.fade_out_time,
-				},
-			)
+			to_house_transition()
 		case .Scene_Ramp:
 			music_ramp_scene(
 				VolRampEffect {
@@ -176,14 +175,7 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 				},
 			)
 		case .Scene_Fade:
-			gm.sound_settings.current_effect = VolRampEffect {
-				fade_out_duration = 2,
-			}
-			for &voice in gm.sound_settings.music_voices {
-				if !voice.active do continue
-				voice.fade_target = 0
-				voice.hold_time_remaining = 0
-			}
+			music_fade_out(2)
 		case .Drop_Needle:
 			vol := f32(1.0)
 			playlist_play(.Needle_Droppers, CutEffect{target_volume = vol})
@@ -193,6 +185,23 @@ ui_dispatch_events :: proc(events: ^UI_Events) {
 		case .Unknown:
 			log.warnf("No app behavior mapped for UI control %q", event.name)
 		}
+	}
+}
+
+to_house_transition :: proc() {
+	vol := f32(0.2)
+	if gm.sound_settings.use_house_music {
+		playlist_play(
+			.Happy_Beats,
+			VolRampEffect {
+				target_volume = vol,
+				ramp_up_duration = gm.sound_settings.fade_in_time,
+				hold_duration = 0,
+				fade_out_duration = gm.sound_settings.fade_out_time,
+			},
+		)
+	} else {
+		music_fade_out(gm.sound_settings.fade_out_time)
 	}
 }
 
@@ -293,6 +302,7 @@ game_init :: proc() {
 	}
 
 	gm.sound_settings = sound_settings_init()
+	ui_checkbox_set_value("Use_House_Music", gm.sound_settings.use_house_music, gm.ui_controls[:])
 	gm.loader = thread.create_and_start(playlists_load_async, context)
 
 	game_hot_reloaded(gm)

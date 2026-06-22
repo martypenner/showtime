@@ -23,6 +23,7 @@ SoundSettings :: struct {
 	// per-track normalization gain. It is deliberately NOT raylib's global
 	// master volume, which would also attenuate sound effects.
 	music_volume:             f32 `json:"-"`,
+	use_house_music:          bool,
 	fade_in_time:             f32,
 	fade_out_time:            f32,
 	start_next_time:          f32,
@@ -139,6 +140,7 @@ MUSIC_MAX_NORMALIZED_GAIN :: f32(1.0)
 
 DefaultSoundSettings := SoundSettings {
 	music_volume     = 0.5,
+	use_house_music  = false,
 	fade_in_time     = 2.0,
 	fade_out_time    = 2.0,
 	start_next_time  = 4.0,
@@ -313,6 +315,26 @@ playlist_play :: proc(playlist_name: PlaylistName, effect: SoundTransitionEffect
 	track_play_next(found_playlist, effect)
 }
 
+playlist_is_current :: proc(playlist_name: PlaylistName) -> bool {
+	playlist := sound_settings.current_playing_playlist
+	return playlist != nil && playlist.name == playlist_name_string(playlist_name)
+}
+
+music_voices_fade_out :: proc() {
+	for &voice in sound_settings.music_voices {
+		if !voice.active do continue
+		voice.fade_target = 0
+		voice.hold_time_remaining = 0
+	}
+}
+
+music_fade_out :: proc(fade_out_duration: f32) {
+	sound_settings.current_effect = VolRampEffect {
+		fade_out_duration = fade_out_duration,
+	}
+	music_voices_fade_out()
+}
+
 playlist_free :: proc(playlist: ^Playlist) {
 	delete(playlist.name)
 
@@ -368,11 +390,7 @@ track_play_next :: proc(playlist: ^Playlist, effect: SoundTransitionEffect) {
 	switch e in effect {
 	case VolRampEffect:
 		sound_settings.music_volume = e.target_volume
-		for &voice in sound_settings.music_voices {
-			if !voice.active do continue
-			voice.fade_target = 0
-			voice.hold_time_remaining = 0
-		}
+		music_voices_fade_out()
 		music_voice_start(track, 0, 1, e.target_volume, e.hold_duration)
 	case CutEffect:
 		sound_settings.music_volume = e.target_volume
@@ -590,6 +608,7 @@ sound_settings_filename :: proc() -> string {
 
 sound_settings_save :: proc() {
 	settings := SoundSettings {
+		use_house_music  = sound_settings.use_house_music,
 		fade_in_time     = sound_settings.fade_in_time,
 		fade_out_time    = sound_settings.fade_out_time,
 		start_next_time  = sound_settings.start_next_time,

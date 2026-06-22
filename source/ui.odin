@@ -213,7 +213,15 @@ control_render :: proc(control: ^Control) -> Maybe(UI_Event) {
 			return UI_Event{name = control.name, kind = .Clicked}
 		}
 	case .CheckBox:
+		prev_state := control.state.(bool)
 		rl.GuiCheckBox(control.rect, control.text, &control.state.(bool))
+		if prev_state != control.state.(bool) {
+			return UI_Event {
+				name = control.name,
+				kind = .Value_Changed,
+				value = f32(cast(int)control.state.(bool)),
+			}
+		}
 	case .Toggle:
 		rl.GuiToggle(control.rect, control.text, &control.state.(bool))
 	case .ToggleGroup:
@@ -400,6 +408,14 @@ layout_parse :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(La
 ui_volume_set_value :: proc(value: f32, controls: []Control) {
 	for &control in controls {
 		if control.name != "Music_Volume" do continue
+		control.state = value
+		return
+	}
+}
+
+ui_checkbox_set_value :: proc(name: string, value: bool, controls: []Control) {
+	for &control in controls {
+		if control.name != name do continue
 		control.state = value
 		return
 	}
