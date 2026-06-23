@@ -1,0 +1,27 @@
+when:
+  - event: ["push", "manual"]
+    branch: ["main"]
+  - event: ["pull_request"]
+    branch: ["main"]
+
+engine: "nixery"
+
+dependencies:
+  nixpkgs:
+    - bash
+    - emscripten
+  nixpkgs/nixpkgs-unstable:
+    - odin
+
+steps:
+  - name: "Build hot reload"
+    command: "./scripts/build_hot_reload.sh"
+
+  - name: "Build release"
+    command: "./scripts/build_release.sh"
+
+  - name: "Build debug"
+    command: "./scripts/build_debug.sh"
+
+  - name: "Build web"
+    command: "./scripts/build_web.sh"
