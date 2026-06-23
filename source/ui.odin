@@ -135,34 +135,6 @@ default_control_state :: proc(type: Control_Type) -> Control_State {
 	return nil
 }
 
-UI_Event_Kind :: enum u8 {
-	Clicked,
-	Value_Changed,
-}
-
-UI_Event :: struct {
-	name:  string,
-	kind:  UI_Event_Kind,
-	value: f32,
-}
-
-UI_Events :: [dynamic; 64]UI_Event
-
-ui_draw :: proc(controls: []Control, active_group: int) -> UI_Events {
-	events: UI_Events
-
-	for &ui_control in controls {
-		if !control_is_visible(ui_control, active_group) {
-			continue
-		}
-		if event, ok := control_render(&ui_control).?; ok {
-			append(&events, event)
-		}
-	}
-
-	return events
-}
-
 ui_shutdown :: proc(controls: ^Controls) {
 	for &control in controls {
 		delete(control.name)
@@ -178,114 +150,6 @@ control_is_visible :: proc(control: Control, active_group: int) -> bool {
 		control.visibility_group == VISIBLE_ON_ALL_GROUPS ||
 		control.visibility_group == active_group \
 	)
-}
-
-control_render :: proc(control: ^Control) -> Maybe(UI_Event) {
-	switch control.control_type {
-	case .WindowBox:
-		rl.GuiWindowBox(control.rect, control.text)
-	case .GroupBox:
-		rl.GuiGroupBox(control.rect, control.text)
-	case .Line:
-		rl.GuiLine(control.rect, control.text)
-	case .Panel:
-		rl.GuiPanel(control.rect, control.text)
-	case .Label:
-		rl.GuiLabel(control.rect, control.text)
-	case .LabelButton:
-		if (rl.GuiLabelButton(control.rect, control.text)) {
-			log.debugf("Clicked label button %s", control.text)
-		}
-	case .Button:
-		prev := rl.GuiGetStyle(rl.GuiControl.BUTTON, i32(rl.GuiControlProperty.BASE_COLOR_NORMAL))
-		if control.ui_type == .Destructive {
-			rl.GuiSetStyle(
-				rl.GuiControl.BUTTON,
-				i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
-				i32(rl.ColorToInt(rl.Color{100, 0, 0, 255})),
-			)
-		}
-		button := rl.GuiButton(control.rect, control.text)
-		rl.GuiSetStyle(rl.GuiControl.BUTTON, i32(rl.GuiControlProperty.BASE_COLOR_NORMAL), prev)
-
-		if button {
-			log.debugf("Clicked button %s", control.name)
-			return UI_Event{name = control.name, kind = .Clicked}
-		}
-	case .CheckBox:
-		prev_state := control.state.(bool)
-		rl.GuiCheckBox(control.rect, control.text, &control.state.(bool))
-		if prev_state != control.state.(bool) {
-			return UI_Event {
-				name = control.name,
-				kind = .Value_Changed,
-				value = f32(cast(int)control.state.(bool)),
-			}
-		}
-	case .Toggle:
-		rl.GuiToggle(control.rect, control.text, &control.state.(bool))
-	case .ToggleGroup:
-		prev_state := control.state.(i32)
-		rl.GuiToggleGroup(control.rect, control.text, &control.state.(i32))
-		if prev_state != control.state.(i32) {
-			return UI_Event {
-				name = control.name,
-				kind = .Value_Changed,
-				value = f32(control.state.(i32)),
-			}
-		}
-	case .ComboBox:
-		rl.GuiComboBox(control.rect, control.text, &control.state.(i32))
-	case .DropdownBox:
-		s := &control.state.(Choice_State)
-		if (rl.GuiDropdownBox(control.rect, control.text, &s.active, s.edit_mode)) {
-			s.edit_mode = !s.edit_mode
-		}
-	case .TextBox:
-		s := &control.state.(Text_State)
-		if (rl.GuiTextBox(control.rect, cstring(&s.buffer[0]), i32(len(s.buffer)), s.edit_mode)) {
-			s.edit_mode = !s.edit_mode
-		}
-	case .ValueBox:
-		s := &control.state.(Number_State)
-		if (rl.GuiValueBox(control.rect, control.text, &s.value, 0, 100, s.edit_mode)) > 0 {
-			s.edit_mode = !s.edit_mode
-		}
-	case .TextMultiBox:
-	case .Spinner:
-		s := &control.state.(Number_State)
-		if (rl.GuiSpinner(control.rect, control.text, &s.value, 0, 100, s.edit_mode)) > 0 {
-			s.edit_mode = !s.edit_mode
-		}
-	case .Slider:
-		rl.GuiSlider(control.rect, nil, nil, &control.state.(f32), 0, 1)
-	case .SliderBar:
-		prev_state := control.state.(f32)
-		rl.GuiSliderBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
-		if prev_state != control.state.(f32) {
-			return UI_Event {
-				name = control.name,
-				kind = .Value_Changed,
-				value = control.state.(f32),
-			}
-		}
-	case .ProgressBar:
-		rl.GuiProgressBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
-	case .StatusBar:
-		rl.GuiStatusBar(control.rect, control.text)
-	case .ScrollPanel:
-		s := &control.state.(Scroll_State)
-		rl.GuiScrollPanel(control.rect, control.text, control.rect, &s.scroll, &s.view)
-	case .ListView:
-		s := &control.state.(List_State)
-		rl.GuiListView(control.rect, control.text, &s.scroll_index, &s.active)
-	case .ColorPicker:
-		rl.GuiColorPicker(control.rect, control.text, &control.state.(rl.Color))
-	case .DummyRect:
-		rl.GuiDummyRec(control.rect, control.text)
-	}
-
-	return nil
 }
 
 controls_prepare_for_render :: proc(controls: []Control, render_width: i32, render_height: i32) {
@@ -403,22 +267,6 @@ layout_parse :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(La
 	}
 
 	return controls, nil
-}
-
-ui_volume_set_value :: proc(value: f32, controls: []Control) {
-	for &control in controls {
-		if control.name != "Music_Volume" do continue
-		control.state = value
-		return
-	}
-}
-
-ui_checkbox_set_value :: proc(name: string, value: bool, controls: []Control) {
-	for &control in controls {
-		if control.name != name do continue
-		control.state = value
-		return
-	}
 }
 
 @(private)

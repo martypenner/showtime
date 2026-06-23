@@ -121,120 +121,235 @@ ui_resolve_type :: proc(name: string) -> UI_Type {
 	}
 }
 
-ui_dispatch_events :: proc(events: ^UI_Events) {
-	for event in events {
-		val, ok := fmt.string_to_enum_value(Show_Action, event.name)
-		if !ok do val = .Unknown
+controls_draw :: proc() {
+	active_group := gm.active_tab
 
-		// Only actions that mutate persisted settings save them. Tab switches
-		// and one-shot sounds are transient, so they don't touch the file.
-		switch val {
+	for &control in gm.ui_controls {
+		if !control_is_visible(control, active_group) {
+			continue
+		}
+
+		action, ok := fmt.string_to_enum_value(Show_Action, control.name)
+		if !ok do action = .Unknown
+
+		// Controls draw themselves here and immediately handle their app behavior.
+		// Only controls that mutate persisted settings save them; tab switches and
+		// one-shot sounds remain transient.
+		switch action {
 		case .Tab_Bar:
-			index := int(event.value)
-			switch Tab(index) {
-			case .Controls, .Music:
-				gm.active_tab = index
-			case:
-				gm.active_tab = int(Tab.Controls)
+			prev := control.state.(i32)
+			rl.GuiToggleGroup(control.rect, control.text, &control.state.(i32))
+			if prev != control.state.(i32) {
+				index := int(control.state.(i32))
+				switch Tab(index) {
+				case .Controls, .Music:
+					gm.active_tab = index
+				case:
+					gm.active_tab = int(Tab.Controls)
+				}
 			}
 		case .Music_Volume:
-			gm.sound_settings.music_volume = event.value
-			for &voice in gm.sound_settings.music_voices {
-				if !voice.active do continue
-				voice.volume = event.value
+			prev := control.state.(f32)
+			rl.GuiSliderBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
+			if prev != control.state.(f32) {
+				gm.sound_settings.music_volume = control.state.(f32)
+				for &voice in gm.sound_settings.music_voices {
+					if !voice.active do continue
+					voice.volume = control.state.(f32)
+				}
+				sound_settings_save()
 			}
-			sound_settings_save()
 		case .Use_House_Music:
-			use_house_music := event.value != 0
-			if !use_house_music && playlist_is_current(.Happy_Beats) {
-				music_fade_out(gm.sound_settings.fade_out_time)
+			prev := control.state.(bool)
+			rl.GuiCheckBox(control.rect, control.text, &control.state.(bool))
+			if prev != control.state.(bool) {
+				use_house_music := control.state.(bool)
+				if !use_house_music && playlist_is_current(.Happy_Beats) {
+					music_fade_out(gm.sound_settings.fade_out_time)
+				}
+				gm.sound_settings.use_house_music = use_house_music
+				sound_settings_save()
 			}
-			gm.sound_settings.use_house_music = use_house_music
-			sound_settings_save()
 		case .Pre_Show:
-			vol := f32(0.5)
-			playlist_play(
-				.Happy_Beats,
-				VolRampEffect {
-					target_volume = vol,
-					ramp_up_duration = gm.sound_settings.fade_in_time,
-					hold_duration = 0,
-					fade_out_duration = gm.sound_settings.fade_out_time,
-				},
-			)
+			if control_button_pressed(&control) {
+				vol := f32(0.5)
+				playlist_play(
+					.Happy_Beats,
+					VolRampEffect {
+						target_volume = vol,
+						ramp_up_duration = gm.sound_settings.fade_in_time,
+						hold_duration = 0,
+						fade_out_duration = gm.sound_settings.fade_out_time,
+					},
+				)
+			}
 		case .Post_Show:
-			vol := f32(0.8)
-			playlist_play(
-				.Happy_Beats,
-				VolRampEffect {
-					target_volume = vol,
-					ramp_up_duration = gm.sound_settings.fade_in_time,
-					hold_duration = 0,
-					fade_out_duration = gm.sound_settings.fade_out_time,
-				},
-			)
+			if control_button_pressed(&control) {
+				vol := f32(0.8)
+				playlist_play(
+					.Happy_Beats,
+					VolRampEffect {
+						target_volume = vol,
+						ramp_up_duration = gm.sound_settings.fade_in_time,
+						hold_duration = 0,
+						fade_out_duration = gm.sound_settings.fade_out_time,
+					},
+				)
+			}
 		case .To_House:
-			to_house_transition()
+			if control_button_pressed(&control) {
+				vol := f32(0.2)
+				if gm.sound_settings.use_house_music {
+					playlist_play(
+						.Happy_Beats,
+						VolRampEffect {
+							target_volume = vol,
+							ramp_up_duration = gm.sound_settings.fade_in_time,
+							hold_duration = 0,
+							fade_out_duration = gm.sound_settings.fade_out_time,
+						},
+					)
+				} else {
+					music_fade_out(gm.sound_settings.fade_out_time)
+				}
+			}
 		case .Scene_Ramp:
-			music_ramp_scene(
-				VolRampEffect {
-					target_volume = 1,
-					ramp_up_duration = 1,
-					hold_duration = 3,
-					fade_out_duration = 1.5,
-				},
-			)
+			if control_button_pressed(&control) {
+				music_ramp_scene(
+					VolRampEffect {
+						target_volume = 1,
+						ramp_up_duration = 1,
+						hold_duration = 3,
+						fade_out_duration = 1.5,
+					},
+				)
+			}
 		case .Scene_Fade:
-			music_fade_out(2)
+			if control_button_pressed(&control) do music_fade_out(2)
 		case .Drop_Needle:
-			vol := f32(1.0)
-			playlist_play(.Needle_Droppers, CutEffect{target_volume = vol})
+			if control_button_pressed(&control) {
+				vol := f32(1.0)
+				playlist_play(.Needle_Droppers, CutEffect{target_volume = vol})
+			}
 		case .Glass_Break:
-			sound_play(
-				.Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY,
-				0.8,
-			)
+			if control_button_pressed(&control) {
+				sound_play(
+					.Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY,
+					0.8,
+				)
+			}
 		case .Gunshot:
-			sound_play(.Single_Gunshot_54_40780, 0.8)
+			if control_button_pressed(&control) do sound_play(.Single_Gunshot_54_40780, 0.8)
 		case .Scream:
-			sound_play(.Woman_Screaming_Sfx_Screaming_Sound_Effect_320169, 0.8)
+			if control_button_pressed(&control) {
+				sound_play(.Woman_Screaming_Sfx_Screaming_Sound_Effect_320169, 0.8)
+			}
 		case .Lightning:
-			sound_play(.Lightning_237994, 0.8)
+			if control_button_pressed(&control) do sound_play(.Lightning_237994, 0.8)
 		case .Fireworks:
-			sound_play(.Fireworks_13_419033, 0.8)
+			if control_button_pressed(&control) do sound_play(.Fireworks_13_419033, 0.8)
 		case .Train_Horn:
-			sound_play(.Train_Horn_337875, 0.8)
+			if control_button_pressed(&control) do sound_play(.Train_Horn_337875, 0.8)
 		case .Tick_Tick_Ding:
-			sound_play(.Ticktickding, 0.8)
+			if control_button_pressed(&control) do sound_play(.Ticktickding, 0.8)
 		case .Ding:
-			sound_play(.Ding_126626, 0.8)
+			if control_button_pressed(&control) do sound_play(.Ding_126626, 0.8)
 		case .Calming_Rain:
-			sound_play(.Calming_Rain_257596, 0.8)
+			if control_button_pressed(&control) do sound_play(.Calming_Rain_257596, 0.8)
 		case .Cat_Meow:
-			// Sound effects carry their own volume, independent of music_volume.
-			sound_play(.Cat_Meow, 0.6)
+			if control_button_pressed(&control) {
+				// Sound effects carry their own volume, independent of music_volume.
+				sound_play(.Cat_Meow, 0.6)
+			}
 		case .Yeeeeaaaaaaaahh:
-			sound_play(.Yeeeeaaaaaaaahh, 0.8)
+			if control_button_pressed(&control) do sound_play(.Yeeeeaaaaaaaahh, 0.8)
 		case .Unknown:
-			log.warnf("No app behavior mapped for UI control %q", event.name)
+			control_draw_passive(&control)
 		}
 	}
 }
 
-to_house_transition :: proc() {
-	vol := f32(0.2)
-	if gm.sound_settings.use_house_music {
-		playlist_play(
-			.Happy_Beats,
-			VolRampEffect {
-				target_volume = vol,
-				ramp_up_duration = gm.sound_settings.fade_in_time,
-				hold_duration = 0,
-				fade_out_duration = gm.sound_settings.fade_out_time,
-			},
+control_button_pressed :: proc(control: ^Control) -> bool {
+	prev := rl.GuiGetStyle(rl.GuiControl.BUTTON, i32(rl.GuiControlProperty.BASE_COLOR_NORMAL))
+	if control.ui_type == .Destructive {
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+			i32(rl.ColorToInt(rl.Color{100, 0, 0, 255})),
 		)
-	} else {
-		music_fade_out(gm.sound_settings.fade_out_time)
+	}
+	pressed := rl.GuiButton(control.rect, control.text)
+	rl.GuiSetStyle(rl.GuiControl.BUTTON, i32(rl.GuiControlProperty.BASE_COLOR_NORMAL), prev)
+
+	if pressed {
+		log.debugf("Clicked button %s", control.name)
+	}
+	return pressed
+}
+
+control_draw_passive :: proc(control: ^Control) {
+	switch control.control_type {
+	case .WindowBox:
+		rl.GuiWindowBox(control.rect, control.text)
+	case .GroupBox:
+		rl.GuiGroupBox(control.rect, control.text)
+	case .Line:
+		rl.GuiLine(control.rect, control.text)
+	case .Panel:
+		rl.GuiPanel(control.rect, control.text)
+	case .Label:
+		rl.GuiLabel(control.rect, control.text)
+	case .LabelButton:
+		rl.GuiLabelButton(control.rect, control.text)
+	case .Button:
+		control_button_pressed(control)
+	case .CheckBox:
+		rl.GuiCheckBox(control.rect, control.text, &control.state.(bool))
+	case .Toggle:
+		rl.GuiToggle(control.rect, control.text, &control.state.(bool))
+	case .ToggleGroup:
+		rl.GuiToggleGroup(control.rect, control.text, &control.state.(i32))
+	case .ComboBox:
+		rl.GuiComboBox(control.rect, control.text, &control.state.(i32))
+	case .DropdownBox:
+		s := &control.state.(Choice_State)
+		if (rl.GuiDropdownBox(control.rect, control.text, &s.active, s.edit_mode)) {
+			s.edit_mode = !s.edit_mode
+		}
+	case .TextBox:
+		s := &control.state.(Text_State)
+		if (rl.GuiTextBox(control.rect, cstring(&s.buffer[0]), i32(len(s.buffer)), s.edit_mode)) {
+			s.edit_mode = !s.edit_mode
+		}
+	case .ValueBox:
+		s := &control.state.(Number_State)
+		if (rl.GuiValueBox(control.rect, control.text, &s.value, 0, 100, s.edit_mode)) > 0 {
+			s.edit_mode = !s.edit_mode
+		}
+	case .TextMultiBox:
+	case .Spinner:
+		s := &control.state.(Number_State)
+		if (rl.GuiSpinner(control.rect, control.text, &s.value, 0, 100, s.edit_mode)) > 0 {
+			s.edit_mode = !s.edit_mode
+		}
+	case .Slider:
+		rl.GuiSlider(control.rect, nil, nil, &control.state.(f32), 0, 1)
+	case .SliderBar:
+		rl.GuiSliderBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
+	case .ProgressBar:
+		rl.GuiProgressBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
+	case .StatusBar:
+		rl.GuiStatusBar(control.rect, control.text)
+	case .ScrollPanel:
+		s := &control.state.(Scroll_State)
+		rl.GuiScrollPanel(control.rect, control.text, control.rect, &s.scroll, &s.view)
+	case .ListView:
+		s := &control.state.(List_State)
+		rl.GuiListView(control.rect, control.text, &s.scroll_index, &s.active)
+	case .ColorPicker:
+		rl.GuiColorPicker(control.rect, control.text, &control.state.(rl.Color))
+	case .DummyRect:
+		rl.GuiDummyRec(control.rect, control.text)
 	}
 }
 
@@ -278,11 +393,26 @@ draw :: proc() {
 		text := fmt.ctprintf("Normalizing audio%s", dots[:dot_count])
 		rl.DrawText(text, x, y, font_size, rl.RAYWHITE)
 	case AppReady:
-		events := ui_draw(gm.ui_controls[:], gm.active_tab)
-		ui_dispatch_events(&events)
+		controls_draw()
 	}
 
 	rl.EndDrawing()
+}
+
+ui_volume_set_value :: proc(value: f32, controls: []Control) {
+	for &control in controls {
+		if control.name != "Music_Volume" do continue
+		control.state = value
+		return
+	}
+}
+
+ui_checkbox_set_value :: proc(name: string, value: bool, controls: []Control) {
+	for &control in controls {
+		if control.name != name do continue
+		control.state = value
+		return
+	}
 }
 
 @(export)
