@@ -232,22 +232,15 @@ controls_draw :: proc() {
 				playlist_play(.Needle_Droppers, CutEffect{target_volume = vol})
 			}
 		case .Glass_Break:
-			if control_button_pressed(&control) {
-				sound_play(
-					.Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY,
-					0.8,
-				)
-			}
+			if control_button_pressed(&control) do sound_play(.Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY, 0.8)
 		case .Gunshot:
 			if control_button_pressed(&control) do sound_play(.Single_Gunshot_54_40780, 0.8)
 		case .Scream:
-			if control_button_pressed(&control) {
-				sound_play(.Woman_Screaming_Sfx_Screaming_Sound_Effect_320169, 0.8)
-			}
+			if control_button_pressed(&control) do sound_play(.Woman_Screaming_Sfx_Screaming_Sound_Effect_320169, 0.8)
 		case .Lightning:
 			if control_button_pressed(&control) do sound_play(.Lightning_237994, 0.8)
 		case .Fireworks:
-			if control_button_pressed(&control) do sound_play(.Fireworks_13_419033, 0.8)
+			if control_button_pressed(&control) do sound_play(.Fireworks_13_419033, 0.4)
 		case .Train_Horn:
 			if control_button_pressed(&control) do sound_play(.Train_Horn_337875, 0.8)
 		case .Tick_Tick_Ding:
@@ -257,12 +250,9 @@ controls_draw :: proc() {
 		case .Calming_Rain:
 			if control_button_pressed(&control) do sound_play(.Calming_Rain_257596, 0.8)
 		case .Cat_Meow:
-			if control_button_pressed(&control) {
-				// Sound effects carry their own volume, independent of music_volume.
-				sound_play(.Cat_Meow, 0.6)
-			}
+			if control_button_pressed(&control) do sound_play(.Cat_Meow, 0.6)
 		case .Yeeeeaaaaaaaahh:
-			if control_button_pressed(&control) do sound_play(.Yeeeeaaaaaaaahh, 0.8)
+			if control_button_pressed(&control) do sound_play(.Yeeeeaaaaaaaahh, 1)
 		case .Unknown:
 			control_draw_passive(&control)
 		}
