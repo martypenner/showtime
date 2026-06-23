@@ -166,7 +166,34 @@ controls_draw :: proc() {
 			rl.GuiCheckBox(control.rect, control.text, &control.state.(bool))
 			if prev != control.state.(bool) {
 				use_house_music := control.state.(bool)
-				if !use_house_music && playlist_is_current(.Happy_Beats) {
+				if use_house_music {
+					if gm.sound_settings.current_playing_playlist == nil {
+						playlist := playlist_find(.Happy_Beats)
+						if playlist != nil {
+							track := playlist_pick_track(playlist)
+							if track != nil {
+								new_voice := music_start_playlist_track(
+									playlist,
+									track,
+									0.2,
+									gm.sound_settings.fade_in_time,
+									gm.sound_settings.fade_in_time,
+									0,
+									gm.sound_settings.fade_out_time,
+								)
+								if new_voice != nil {
+									for &voice in gm.sound_settings.music_voices {
+										if !voice.active || &voice == new_voice do continue
+										music_voice_fade_out(
+											&voice,
+											gm.sound_settings.fade_out_time,
+										)
+									}
+								}
+							}
+						}
+					}
+				} else if playlist_is_current(.Happy_Beats) {
 					for &voice in gm.sound_settings.music_voices {
 						if !voice.active do continue
 						music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)

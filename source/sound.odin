@@ -358,7 +358,6 @@ playlist_is_current :: proc(playlist_name: PlaylistName) -> bool {
 	return playlist != nil && playlist.name == playlist_name_string(playlist_name)
 }
 
-
 playlist_free :: proc(playlist: ^Playlist) {
 	delete(playlist.name)
 
