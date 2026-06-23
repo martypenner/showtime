@@ -28,8 +28,10 @@ created.
 
 package game
 
+import hm "core:container/handle_map"
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:thread"
 import rl "vendor:raylib"
 
@@ -165,7 +167,10 @@ controls_draw :: proc() {
 			if prev != control.state.(bool) {
 				use_house_music := control.state.(bool)
 				if !use_house_music && playlist_is_current(.Happy_Beats) {
-					music_fade_out(gm.sound_settings.fade_out_time)
+					for &voice in gm.sound_settings.music_voices {
+						if !voice.active do continue
+						music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
+					}
 				}
 				gm.sound_settings.use_house_music = use_house_music
 				sound_settings_save()
@@ -173,63 +178,152 @@ controls_draw :: proc() {
 		case .Pre_Show:
 			if control_button_pressed(&control) {
 				vol := f32(0.5)
-				playlist_play(
-					.Happy_Beats,
-					VolRampEffect {
-						target_volume = vol,
-						ramp_up_duration = gm.sound_settings.fade_in_time,
-						hold_duration = 0,
-						fade_out_duration = gm.sound_settings.fade_out_time,
-					},
-				)
+				playlist := playlist_find(.Happy_Beats)
+				if playlist != nil {
+					track := playlist_pick_track(playlist)
+					if track != nil {
+						new_voice := music_start_playlist_track(
+							playlist,
+							track,
+							vol,
+							gm.sound_settings.fade_in_time,
+							gm.sound_settings.fade_in_time,
+							0,
+							gm.sound_settings.fade_out_time,
+						)
+						if new_voice != nil {
+							for &voice in gm.sound_settings.music_voices {
+								if !voice.active || &voice == new_voice do continue
+								music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
+							}
+						}
+					}
+				}
 			}
 		case .Post_Show:
 			if control_button_pressed(&control) {
 				vol := f32(0.8)
-				playlist_play(
-					.Happy_Beats,
-					VolRampEffect {
-						target_volume = vol,
-						ramp_up_duration = gm.sound_settings.fade_in_time,
-						hold_duration = 0,
-						fade_out_duration = gm.sound_settings.fade_out_time,
-					},
-				)
+				playlist := playlist_find(.Happy_Beats)
+				if playlist != nil {
+					track := playlist_pick_track(playlist)
+					if track != nil {
+						new_voice := music_start_playlist_track(
+							playlist,
+							track,
+							vol,
+							gm.sound_settings.fade_in_time,
+							gm.sound_settings.fade_in_time,
+							0,
+							gm.sound_settings.fade_out_time,
+						)
+						if new_voice != nil {
+							for &voice in gm.sound_settings.music_voices {
+								if !voice.active || &voice == new_voice do continue
+								music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
+							}
+						}
+					}
+				}
 			}
 		case .To_House:
 			if control_button_pressed(&control) {
 				vol := f32(0.2)
 				if gm.sound_settings.use_house_music {
-					playlist_play(
-						.Happy_Beats,
-						VolRampEffect {
-							target_volume = vol,
-							ramp_up_duration = gm.sound_settings.fade_in_time,
-							hold_duration = 0,
-							fade_out_duration = gm.sound_settings.fade_out_time,
-						},
-					)
+					playlist := playlist_find(.Happy_Beats)
+					if playlist != nil {
+						track := playlist_pick_track(playlist)
+						if track != nil {
+							new_voice := music_start_playlist_track(
+								playlist,
+								track,
+								vol,
+								gm.sound_settings.fade_in_time,
+								gm.sound_settings.fade_in_time,
+								0,
+								gm.sound_settings.fade_out_time,
+							)
+							if new_voice != nil {
+								for &voice in gm.sound_settings.music_voices {
+									if !voice.active || &voice == new_voice do continue
+									music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
+								}
+							}
+						}
+					}
 				} else {
-					music_fade_out(gm.sound_settings.fade_out_time)
+					for &voice in gm.sound_settings.music_voices {
+						if !voice.active do continue
+						music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
+					}
 				}
 			}
 		case .Scene_Ramp:
 			if control_button_pressed(&control) {
-				music_ramp_scene(
-					VolRampEffect {
-						target_volume = 1,
-						ramp_up_duration = 1,
-						hold_duration = 3,
-						fade_out_duration = 1.5,
-					},
-				)
+				primary: ^MusicVoice
+				primary_volume: f32
+				for &voice in gm.sound_settings.music_voices {
+					if !voice.active do continue
+					voice_volume := music_voice_volume_current(voice)
+					if primary == nil || voice_volume > primary_volume {
+						primary = &voice
+						primary_volume = voice_volume
+					}
+				}
+				if primary != nil {
+					ramp_up_duration := f32(0.5)
+					hold_duration := f32(3)
+					fade_out_duration := f32(2)
+					gm.sound_settings.music_volume = 1
+					for &voice in gm.sound_settings.music_voices {
+						if !voice.active do continue
+						if &voice == primary {
+							current_audible_volume := music_voice_volume_current(voice)
+							voice.volume = 1
+							full_volume := music_voice_volume_current(voice)
+
+							progress := f32(0)
+							if full_volume > 0 {
+								progress = f32(
+									math.sqrt(
+										f64(
+											math.clamp(current_audible_volume / full_volume, 0, 1),
+										),
+									),
+								)
+							}
+							voice.fade_phase = .FadingIn
+							voice.fade_in_duration = ramp_up_duration
+							voice.fade_in_time_left = ramp_up_duration * (1 - progress)
+							voice.hold_time_left = hold_duration
+							voice.fade_out_duration = fade_out_duration
+							voice.fade_out_time_left = fade_out_duration
+							voice.started_next = false
+						} else {
+							music_voice_stop(&voice)
+						}
+					}
+				}
 			}
 		case .Scene_Fade:
-			if control_button_pressed(&control) do music_fade_out(2)
+			if control_button_pressed(&control) {
+				for &voice in gm.sound_settings.music_voices {
+					if !voice.active do continue
+					music_voice_fade_out(&voice, 2)
+				}
+			}
 		case .Drop_Needle:
 			if control_button_pressed(&control) {
 				vol := f32(1.0)
-				playlist_play(.Needle_Droppers, CutEffect{target_volume = vol})
+				playlist := playlist_find(.Needle_Droppers)
+				if playlist != nil {
+					track := playlist_pick_track(playlist)
+					if track != nil {
+						for &voice in gm.sound_settings.music_voices {
+							music_voice_stop(&voice)
+						}
+						music_start_playlist_track(playlist, track, vol, 0, 0, 0, 0)
+					}
+				}
 			}
 		case .Glass_Break:
 			if control_button_pressed(&control) do sound_play(.Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY, 0.8)
@@ -257,6 +351,62 @@ controls_draw :: proc() {
 			control_draw_passive(&control)
 		}
 	}
+}
+
+music_voice_fade_out :: proc(voice: ^MusicVoice, fade_out_duration: f32) {
+	amp := music_voice_amplitude_fraction(voice^)
+	voice.fade_phase = .FadingOut
+	voice.fade_out_duration = fade_out_duration
+	voice.fade_out_time_left = fade_out_duration * amp
+	voice.hold_time_left = 0
+}
+
+playlist_find :: proc(playlist_name: PlaylistName) -> ^Playlist {
+	name := playlist_name_string(playlist_name)
+	for &playlist in gm.sound_settings.playlists {
+		if playlist.name == name do return &playlist
+	}
+	log.warnf("Couldn't find playlist, skipping: %s", name)
+	return nil
+}
+
+playlist_pick_track :: proc(playlist: ^Playlist) -> ^Track {
+	track := track_pick_unplayed(playlist)
+	if track != nil || !gm.sound_settings.loop do return track
+
+	it := hm.iterator_make(&playlist.tracks)
+	for current_track, _ in hm.iterate(&it) {
+		current_track.played = false
+	}
+	return track_pick_unplayed(playlist)
+}
+
+music_start_playlist_track :: proc(
+	playlist: ^Playlist,
+	track: ^Track,
+	volume: f32,
+	fade_in_duration: f32,
+	fade_in_time_left: f32,
+	hold_time_left: f32,
+	fade_out_duration: f32,
+) -> ^MusicVoice {
+	voice := music_voice_start(
+		track,
+		volume,
+		fade_in_duration,
+		fade_in_time_left,
+		hold_time_left,
+		fade_out_duration,
+		fade_out_duration,
+	)
+	if voice == nil do return nil
+
+	gm.sound_settings.current_playing_playlist = playlist
+	gm.sound_settings.music_volume = volume
+	track.played = true
+	playlist.last_played_track = playlist.current_playing_track
+	playlist.current_playing_track = track
+	return voice
 }
 
 control_button_pressed :: proc(control: ^Control) -> bool {
@@ -423,7 +573,6 @@ game_init_window :: proc() {
 	// occur between networked devices.
 	rl.SetTargetFPS(500)
 	rl.SetExitKey(nil)
-	ui_load_style()
 }
 
 // GuiLoadStyle only accepts a file path, so write the embedded style next to
@@ -445,6 +594,7 @@ game_init :: proc() {
 		app_state  = AppInitializing{},
 	}
 
+	ui_load_style()
 	// build_layout assigns each control's tab (visibility group) from the file it
 	// was loaded out of. The remaining app metadata (destructive styling) is
 	// neutral after parsing, so it is applied here while the UI-owned data lives

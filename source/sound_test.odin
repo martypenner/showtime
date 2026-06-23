@@ -67,94 +67,23 @@ music_current_volume_reports_audible_voice_volume :: proc(t: ^testing.T) {
 	sound_settings = &settings
 
 	settings.music_voices[0] = MusicVoice {
-		active       = true,
-		volume       = 0.8,
-		current_fade = 0.5,
-		fade_target  = 1,
+		active            = true,
+		volume            = 0.8,
+		fade_phase        = .FadingIn,
+		fade_in_duration  = 1,
+		fade_in_time_left = 0.5,
 	}
 	settings.music_voices[1] = MusicVoice {
-		active       = true,
-		volume       = 0.3,
-		current_fade = 1,
-		fade_target  = 0,
+		active             = true,
+		volume             = 0.3,
+		fade_phase         = .FadingOut,
+		fade_out_duration  = 1,
+		fade_out_time_left = 1,
 	}
 
 	// Fading in uses the squared fade curve, so 0.8 * 0.5^2 = 0.2. The UI
 	// should reflect the loudest currently audible track, not the target 0.8.
 	testing.expect_value(t, sound_music_current_volume(), f32(0.3))
-}
-
-@(test)
-music_primary_voice_returns_loudest_active_voice :: proc(t: ^testing.T) {
-	settings := SoundSettings{}
-	sound_settings = &settings
-
-	settings.music_voices[0] = MusicVoice {
-		active       = true,
-		volume       = 1,
-		current_fade = 0.9,
-		fade_target  = 0,
-	}
-	settings.music_voices[1] = MusicVoice {
-		active       = true,
-		volume       = 1,
-		current_fade = 0.5,
-		fade_target  = 1,
-	}
-
-	primary := music_primary_voice()
-	testing.expect(
-		t,
-		primary == &settings.music_voices[0],
-		"primary voice should be the loudest audible voice",
-	)
-
-	settings.music_voices[0].current_fade = 0.2
-	primary = music_primary_voice()
-	testing.expect(
-		t,
-		primary == &settings.music_voices[1],
-		"primary voice should switch as the incoming voice becomes louder",
-	)
-}
-
-@(test)
-music_ramp_scene_cancels_non_primary_crossfade_voice :: proc(t: ^testing.T) {
-	settings := SoundSettings{}
-	sound_settings = &settings
-
-	settings.music_voices[0] = MusicVoice {
-		active       = true,
-		volume       = 0.5,
-		current_fade = 0.5,
-		fade_target  = 0,
-		started_next = true,
-	}
-	incoming := &settings.music_voices[1]
-	incoming^ = MusicVoice {
-		active       = true,
-		volume       = 0.5,
-		current_fade = 0.3,
-		fade_target  = 1,
-	}
-
-	music_ramp_scene(
-		VolRampEffect {
-			target_volume = 1,
-			ramp_up_duration = 1,
-			hold_duration = 3,
-			fade_out_duration = 1.5,
-		},
-	)
-
-	lead := &settings.music_voices[0]
-
-	testing.expect_value(t, settings.music_volume, f32(1))
-	testing.expect_value(t, lead.volume, f32(1))
-	testing.expect_value(t, lead.current_fade, f32(0.5))
-	testing.expect_value(t, lead.fade_target, f32(1))
-	testing.expect_value(t, lead.hold_time_remaining, f32(3))
-	testing.expect(t, !incoming.active, "scene ramp should stop the non-primary crossfade voice")
 }
 
 @(test)
@@ -169,11 +98,10 @@ music_volume_applies_track_gain_when_normalized :: proc(t: ^testing.T) {
 	expected_gain := track_volume_multiplier(TRACKS[track_path].active_rms)
 
 	voice := MusicVoice {
-		active       = true,
-		path         = track_path,
-		volume       = 0.8,
-		current_fade = 1,
-		fade_target  = 1,
+		active     = true,
+		path       = track_path,
+		volume     = 0.8,
+		fade_phase = .Holding,
 	}
 
 	testing.expect_value(t, music_voice_volume_current(voice), f32(0.8) * expected_gain)
@@ -187,11 +115,10 @@ music_volume_ignores_track_gain_when_normalization_off :: proc(t: ^testing.T) {
 	sound_settings = &settings
 
 	voice := MusicVoice {
-		active       = true,
-		path         = "missing.mp3",
-		volume       = 0.8,
-		current_fade = 1,
-		fade_target  = 1,
+		active     = true,
+		path       = "missing.mp3",
+		volume     = 0.8,
+		fade_phase = .Holding,
 	}
 
 	testing.expect_value(t, music_voice_volume_current(voice), f32(0.8))
@@ -204,40 +131,58 @@ music_amplitude_fade_eases_in_but_fades_out_linearly :: proc(t: ^testing.T) {
 }
 
 @(test)
-music_voice_holds_after_fade_in_then_targets_fade_out :: proc(t: ^testing.T) {
-	settings := SoundSettings {
-		current_effect = VolRampEffect {
-			ramp_up_duration = 1,
-			hold_duration = 3,
-			fade_out_duration = 1.5,
-		},
+music_voice_amplitude_comes_from_fade_time_left :: proc(t: ^testing.T) {
+	in_voice := MusicVoice {
+		fade_phase        = .FadingIn,
+		fade_in_duration  = 2,
+		fade_in_time_left = 1,
 	}
-	sound_settings = &settings
-
-	voice := MusicVoice {
-		active              = true,
-		current_fade        = 0,
-		fade_target         = 1,
-		hold_time_remaining = 3,
+	out_voice := MusicVoice {
+		fade_phase         = .FadingOut,
+		fade_out_duration  = 2,
+		fade_out_time_left = 1,
+	}
+	holding_voice := MusicVoice {
+		fade_phase = .Holding,
 	}
 
-	music_voice_fade_update(&voice, 1)
-	testing.expect_value(t, voice.current_fade, f32(1))
-	testing.expect_value(t, voice.fade_target, f32(1))
-	testing.expect_value(t, voice.hold_time_remaining, f32(2))
-
-	music_voice_fade_update(&voice, 2)
-	testing.expect_value(t, voice.hold_time_remaining, f32(0))
-	testing.expect_value(t, voice.fade_target, f32(0))
-
-	music_voice_fade_update(&voice, 0.75)
-	testing.expect_value(t, voice.current_fade, f32(0.5))
+	testing.expect_value(t, music_voice_amplitude_fraction(in_voice), f32(0.25))
+	testing.expect_value(t, music_voice_amplitude_fraction(out_voice), f32(0.5))
+	testing.expect_value(t, music_voice_amplitude_fraction(holding_voice), f32(1))
 }
 
 @(test)
-track_play_next_respects_loop_setting_when_exhausted :: proc(t: ^testing.T) {
+music_voice_holds_after_fade_in_then_targets_fade_out :: proc(t: ^testing.T) {
+	voice := MusicVoice {
+		active             = true,
+		fade_phase         = .FadingIn,
+		fade_in_duration   = 1,
+		fade_in_time_left  = 1,
+		fade_out_duration  = 1.5,
+		fade_out_time_left = 1.5,
+		hold_time_left     = 3,
+	}
+
+	music_voice_fade_update(&voice, 1)
+	testing.expect_value(t, voice.fade_phase, MusicFadePhase.Holding)
+	testing.expect_value(t, voice.fade_in_time_left, f32(0))
+
+	music_voice_fade_update(&voice, 2)
+	testing.expect_value(t, voice.hold_time_left, f32(1))
+	testing.expect_value(t, voice.fade_phase, MusicFadePhase.Holding)
+
+	music_voice_fade_update(&voice, 1)
+	testing.expect_value(t, voice.hold_time_left, f32(0))
+	testing.expect_value(t, voice.fade_phase, MusicFadePhase.FadingOut)
+
+	music_voice_fade_update(&voice, 0.75)
+	testing.expect_value(t, voice.fade_out_time_left, f32(0.75))
+}
+
+@(test)
+track_pick_unplayed_returns_nil_when_exhausted_and_reset_makes_pickable :: proc(t: ^testing.T) {
 	settings := SoundSettings {
-		loop = false,
+		shuffle = false,
 	}
 	sound_settings = &settings
 
@@ -250,16 +195,9 @@ track_play_next_respects_loop_setting_when_exhausted :: proc(t: ^testing.T) {
 	_, err := hm.add(&playlist.tracks, Track{title = "played", path = "played.mp3", played = true})
 	testing.expect(t, err == nil)
 
-	track_play_next(&playlist, VolRampEffect{target_volume = 1})
-	testing.expect(
-		t,
-		playlist.current_playing_track == nil,
-		"loop=false should not restart exhausted playlist",
-	)
-
-	settings.loop = true
+	testing.expect(t, track_pick_unplayed(&playlist) == nil)
 	track := track_pick_unplayed_after_reset_for_test(&playlist)
-	testing.expect(t, track != nil, "loop=true should make exhausted tracks pickable after reset")
+	testing.expect(t, track != nil, "reset should make exhausted tracks pickable")
 }
 
 @(test)
