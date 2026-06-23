@@ -8,7 +8,7 @@
 # Control info:   c <id> <type> <name> <rectangle> <anchor_id> <text>
 #
 r 0 40 -1 -1
-a 001 scenes 24 24 1
+a 001 scenes 24 48 1
 a 002 anchor02 496 184 1
 c 000 5 Pre_Show 0 24 96 48 1 Pre-show
 c 001 5 Post_Show 120 24 96 48 1 Post-show
