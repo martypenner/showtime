@@ -526,7 +526,7 @@ update :: proc() {
 			)
 		}
 		sound_update()
-		ui_volume_set_value(sound_music_current_volume(), gm.ui_controls[:])
+		ui_control_set_value("Music_Volume", sound_music_current_volume(), gm.ui_controls[:])
 	}
 }
 
@@ -551,15 +551,7 @@ draw :: proc() {
 	rl.EndDrawing()
 }
 
-ui_volume_set_value :: proc(value: f32, controls: []Control) {
-	for &control in controls {
-		if control.name != "Music_Volume" do continue
-		control.state = value
-		return
-	}
-}
-
-ui_checkbox_set_value :: proc(name: string, value: bool, controls: []Control) {
+ui_control_set_value :: proc(name: string, value: $Val, controls: []Control) {
 	for &control in controls {
 		if control.name != name do continue
 		control.state = value
@@ -617,7 +609,7 @@ game_init :: proc() {
 	}
 
 	gm.sound_settings = sound_settings_init()
-	ui_checkbox_set_value("Use_House_Music", gm.sound_settings.use_house_music, gm.ui_controls[:])
+	ui_control_set_value("Use_House_Music", gm.sound_settings.use_house_music, gm.ui_controls[:])
 	gm.loader = thread.create_and_start(playlists_load_async, context)
 
 	game_hot_reloaded(gm)
