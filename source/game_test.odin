@@ -8,9 +8,9 @@ import "core:testing"
 // ordinary controls stay default.
 @(test)
 resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
-	testing.expect_value(t, ui_resolve_type("Drop_Needle"), UI_Type.Destructive)
-	testing.expect_value(t, ui_resolve_type("Cat_Meow"), UI_Type.Default)
-	testing.expect_value(t, ui_resolve_type(""), UI_Type.Default)
+	testing.expect_value(t, ui_resolve_type(.Drop_Needle), UI_Type.Destructive)
+	testing.expect_value(t, ui_resolve_type(.Cat_Meow), UI_Type.Sound)
+	testing.expect_value(t, ui_resolve_type(.RainbowSting), UI_Type.Lighting)
 }
 
 // Tabs are split per layout file: build_layout tags every control with the group

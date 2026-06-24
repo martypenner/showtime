@@ -45,8 +45,10 @@ Control_Type :: enum u8 {
 }
 
 UI_Type :: enum u8 {
-	Default,
+	SoundAndLighting,
 	Destructive,
+	Sound,
+	Lighting,
 }
 
 VISIBLE_ON_ALL_GROUPS :: -1

@@ -79,7 +79,8 @@ Show_Action :: enum {
 	Calming_Rain,
 	Cat_Meow,
 	Yeeeeaaaaaaaahh,
-	// Later: lighting
+	// Lighting
+	RainbowSting,
 }
 
 Tab :: enum int {
@@ -114,12 +115,26 @@ layout_build :: proc() -> Controls {
 // is an app concern (which controls are dangerous to the show), so this mapping
 // lives here rather than in generic UI/layout code. Keeping it pure lets the
 // styling Seam be verified without Raylib drawing.
-ui_resolve_type :: proc(name: string) -> UI_Type {
-	switch name {
-	case "Drop_Needle":
+ui_resolve_type :: proc(action: Show_Action) -> UI_Type {
+	#partial switch action {
+	case .Drop_Needle:
 		return .Destructive
+	case .Glass_Break,
+	     .Gunshot,
+	     .Scream,
+	     .Lightning,
+	     .Yeeeeaaaaaaaahh,
+	     .Tick_Tick_Ding,
+	     .Ding,
+	     .Fireworks,
+	     .Train_Horn,
+	     .Calming_Rain,
+	     .Cat_Meow:
+		return .Sound
+	case .RainbowSting:
+		return .Lighting
 	case:
-		return .Default
+		return .SoundAndLighting
 	}
 }
 
@@ -346,6 +361,14 @@ controls_draw :: proc() {
 					}
 				}
 			}
+
+		// Lighting
+		case .RainbowSting:
+			if control_button_pressed(&control) {
+				log.debug("hi")
+			}
+
+		// Sounds
 		case .Glass_Break:
 			if control_button_pressed(&control) do sound_play(.Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY, 0.8)
 		case .Gunshot:
@@ -422,16 +445,92 @@ music_start_playlist_track :: proc(
 }
 
 control_button_pressed :: proc(control: ^Control) -> bool {
-	prev := rl.GuiGetStyle(rl.GuiControl.BUTTON, i32(rl.GuiControlProperty.BASE_COLOR_NORMAL))
-	if control.ui_type == .Destructive {
+	color_base_prev := rl.GuiGetStyle(
+		rl.GuiControl.BUTTON,
+		i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+	)
+	color_focused_prev := rl.GuiGetStyle(
+		rl.GuiControl.BUTTON,
+		i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+	)
+	text_base_prev := rl.GuiGetStyle(
+		rl.GuiControl.BUTTON,
+		i32(rl.GuiControlProperty.TEXT_COLOR_NORMAL),
+	)
+	text_focused_prev := rl.GuiGetStyle(
+		rl.GuiControl.BUTTON,
+		i32(rl.GuiControlProperty.TEXT_COLOR_FOCUSED),
+	)
+
+	switch control.ui_type {
+	case .Destructive:
 		rl.GuiSetStyle(
 			rl.GuiControl.BUTTON,
 			i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
 			i32(rl.ColorToInt(rl.Color{100, 0, 0, 255})),
 		)
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.BASE_COLOR_FOCUSED),
+			i32(rl.ColorToInt(rl.Color{120, 0, 0, 255})),
+		)
+	case .Sound:
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+			i32(rl.ColorToInt(rl.Color{0, 80, 0, 255})),
+		)
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.BASE_COLOR_FOCUSED),
+			i32(rl.ColorToInt(rl.Color{0, 100, 0, 255})),
+		)
+	case .Lighting:
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+			i32(rl.ColorToInt(rl.Color{160, 180, 0, 255})),
+		)
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.BASE_COLOR_FOCUSED),
+			i32(rl.ColorToInt(rl.Color{180, 200, 0, 255})),
+		)
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.TEXT_COLOR_NORMAL),
+			i32(rl.ColorToInt(rl.DARKGRAY)),
+		)
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.TEXT_COLOR_FOCUSED),
+			i32(rl.ColorToInt(rl.DARKGRAY)),
+		)
+	case .SoundAndLighting:
+	// default teal
 	}
+
 	pressed := rl.GuiButton(control.rect, control.text)
-	rl.GuiSetStyle(rl.GuiControl.BUTTON, i32(rl.GuiControlProperty.BASE_COLOR_NORMAL), prev)
+	rl.GuiSetStyle(
+		rl.GuiControl.BUTTON,
+		i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+		color_base_prev,
+	)
+	rl.GuiSetStyle(
+		rl.GuiControl.BUTTON,
+		i32(rl.GuiControlProperty.BASE_COLOR_FOCUSED),
+		color_focused_prev,
+	)
+	rl.GuiSetStyle(
+		rl.GuiControl.BUTTON,
+		i32(rl.GuiControlProperty.TEXT_COLOR_NORMAL),
+		text_base_prev,
+	)
+	rl.GuiSetStyle(
+		rl.GuiControl.BUTTON,
+		i32(rl.GuiControlProperty.TEXT_COLOR_FOCUSED),
+		text_focused_prev,
+	)
 
 	if pressed {
 		log.debugf("Clicked button %s", control.name)
@@ -605,7 +704,9 @@ game_init :: proc() {
 	// on the app allocator.
 	gm.ui_controls = layout_build()
 	for &control in gm.ui_controls {
-		control.ui_type = ui_resolve_type(control.name)
+		action, ok := fmt.string_to_enum_value(Show_Action, control.name)
+		if !ok do continue
+		control.ui_type = ui_resolve_type(action)
 	}
 
 	gm.sound_settings = sound_settings_init()

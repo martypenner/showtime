@@ -104,7 +104,7 @@ status_bars_appear_at_bottom :: proc(t: ^testing.T) {
 			name = "Status_Bar",
 			rect = rl.Rectangle{100, 100, 100, 100},
 			state = default_control_state(.StatusBar),
-			ui_type = .Default,
+			ui_type = .SoundAndLighting,
 			control_type = .StatusBar,
 			text = "",
 		},

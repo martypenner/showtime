@@ -1,7 +1,7 @@
 #
 # rgl layout text file (v4.0) - raygui layout file generated using rGuiLayout
 #
-# Number of controls:     22
+# Number of controls:     24
 #
 # Ref. window:    r <x> <y> <width> <height>
 # Anchor info:    a <id> <name> <posx> <posy> <enabled>
@@ -9,7 +9,6 @@
 #
 r 0 40 -1 -1
 a 001 scenes 24 48 1
-a 002 anchor02 496 184 1
 c 000 5 Pre_Show 0 24 96 48 1 Pre-show
 c 001 5 Post_Show 120 24 96 48 1 Post-show
 c 002 5 To_House 0 96 96 48 1 To house
@@ -17,18 +16,20 @@ c 003 5 Scene_Ramp 120 96 96 48 1 Scene - ramp
 c 004 5 Scene_Fade 240 96 96 48 1 Scene - fade
 c 005 5 Drop_Needle 360 96 96 48 1 Drop needle
 c 006 1 Scenes 0 8 456 136 1 Scenes
-c 007 5 Glass_Break 0 192 96 48 1 Glass break
-c 008 5 Gunshot 120 192 96 48 1 Gunshot
-c 009 5 Scream 240 192 96 48 1 Scream
-c 010 5 Lightning 360 192 96 48 1 Lightning
-c 011 5 Fireworks 480 192 96 48 1 Fireworks
-c 012 5 Train_Horn 0 264 96 48 1 Train horn
-c 013 5 Tick_Tick_Ding 120 264 96 48 1 Tick tick ding
-c 014 5 Ding 240 264 96 48 1 Ding
-c 015 5 Calming_Rain 360 264 96 48 1 Rain
-c 016 5 Cat_Meow 480 264 96 48 1 Cat meow
-c 017 5 Yeeeeaaaaaaaahh 0 336 96 48 1 Yeeeeaaaah
-c 018 1 Sounds 0 176 576 208 1 Sounds
+c 007 5 Glass_Break 0 432 96 48 1 Glass break
+c 008 5 Gunshot 120 432 96 48 1 Gunshot
+c 009 5 Scream 240 432 96 48 1 Scream
+c 010 5 Lightning 360 432 96 48 1 Lightning
+c 011 5 Fireworks 480 432 96 48 1 Fireworks
+c 012 5 Train_Horn 0 504 96 48 1 Train horn
+c 013 5 Tick_Tick_Ding 120 504 96 48 1 Tick tick ding
+c 014 5 Ding 240 504 96 48 1 Ding
+c 015 5 Calming_Rain 360 504 96 48 1 Rain
+c 016 5 Cat_Meow 480 504 96 48 1 Cat meow
+c 017 5 Yeeeeaaaaaaaahh 0 576 96 48 1 Yeeeeaaaah
+c 018 1 Sounds 0 416 576 208 1 Sounds
 c 019 4 Volume_Label 480 0 144 24 1 Volume
 c 020 7 Use_House_Music 240 24 24 24 1 Use house music
 c 021 17 Music_Volume 480 24 144 24 1 
+c 022 5 RainbowSting 0 192 96 48 1 Rainbow sting
+c 023 1 Lighting 0 176 576 208 1 Lighting
