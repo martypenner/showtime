@@ -152,6 +152,18 @@ music_voice_amplitude_comes_from_fade_time_left :: proc(t: ^testing.T) {
 }
 
 @(test)
+music_voice_amplitude_quick_fade_out_uses_squared_fade :: proc(t: ^testing.T) {
+	voice := MusicVoice {
+		fade_phase         = .FadingOut,
+		fade_out_duration  = 2,
+		fade_out_time_left = 1,
+		fade_out_quick     = true,
+	}
+
+	testing.expect_value(t, music_voice_amplitude_fraction(voice), f32(0.25))
+}
+
+@(test)
 music_voice_holds_after_fade_in_then_targets_fade_out :: proc(t: ^testing.T) {
 	voice := MusicVoice {
 		active             = true,

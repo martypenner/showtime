@@ -83,8 +83,8 @@ Show_Action :: enum {
 }
 
 Tab :: enum int {
-	Controls = 0,
-	Music    = 1,
+	Controls,
+	Music,
 }
 
 layout_build :: proc() -> Controls {
@@ -299,7 +299,7 @@ controls_draw :: proc() {
 				if primary != nil {
 					ramp_up_duration := f32(0.5)
 					hold_duration := f32(3)
-					fade_out_duration := f32(2)
+					fade_out_duration := f32(1)
 					gm.sound_settings.music_volume = 1
 					for &voice in gm.sound_settings.music_voices {
 						if !voice.active do continue
@@ -324,6 +324,7 @@ controls_draw :: proc() {
 							voice.hold_time_left = hold_duration
 							voice.fade_out_duration = fade_out_duration
 							voice.fade_out_time_left = fade_out_duration
+							voice.fade_out_quick = true
 							voice.started_next = false
 						} else {
 							music_voice_stop(&voice)

@@ -63,6 +63,7 @@ MusicVoice :: struct {
 	hold_time_left:     f32,
 	fade_out_duration:  f32,
 	fade_out_time_left: f32,
+	fade_out_quick:     bool,
 	// Set once this playlist voice has kicked off the next track, so auto-next is
 	// triggered exactly once per track.
 	started_next:       bool,
@@ -474,7 +475,9 @@ music_voice_amplitude_fraction :: proc(voice: MusicVoice) -> f32 {
 		return music_amplitude_fade(progress, true)
 	case .FadingOut:
 		if voice.fade_out_duration <= 0 do return 0
-		return math.clamp(voice.fade_out_time_left / voice.fade_out_duration, 0, 1)
+		progress := math.clamp(voice.fade_out_time_left / voice.fade_out_duration, 0, 1)
+		if voice.fade_out_quick do return music_amplitude_fade(progress, true)
+		return progress
 	case .Holding:
 		return 1
 	}
