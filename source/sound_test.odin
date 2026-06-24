@@ -23,41 +23,53 @@ hot_reloaded_restores_settings_pointer :: proc(t: ^testing.T) {
 }
 
 @(test)
-sound_retrigger_action_fades_only_same_playing_sound_longer_than_threshold :: proc(t: ^testing.T) {
+sound_retrigger_fade_needed_only_for_same_playing_sound_longer_than_threshold :: proc(
+	t: ^testing.T,
+) {
 	testing.expect_value(
 		t,
-		sound_retrigger_action(.Cat_Meow, .Cat_Meow, true, SOUND_REPLAY_FADE_THRESHOLD + 0.01),
-		SoundRetriggerAction.Fade_Out,
-	)
-	testing.expect_value(
-		t,
-		sound_retrigger_action(.Cat_Meow, .Cat_Meow, true, SOUND_REPLAY_FADE_THRESHOLD),
-		SoundRetriggerAction.Leave_Alone,
-	)
-	testing.expect_value(
-		t,
-		sound_retrigger_action(.Cat_Meow, .Cat_Meow, true, SOUND_REPLAY_FADE_THRESHOLD - 0.01),
-		SoundRetriggerAction.Leave_Alone,
-	)
-	testing.expect_value(
-		t,
-		sound_retrigger_action(.Cat_Meow, .Cat_Meow, false, SOUND_REPLAY_FADE_THRESHOLD + 0.01),
-		SoundRetriggerAction.Leave_Alone,
-	)
-	testing.expect_value(
-		t,
-		sound_retrigger_action(.Cat_Meow, .Ding_126626, true, SOUND_REPLAY_FADE_THRESHOLD + 0.01),
-		SoundRetriggerAction.Leave_Alone,
-	)
-}
-
-@(test)
-sound_retrigger_action_starts_new_sound_except_for_long_fade_out :: proc(t: ^testing.T) {
-	testing.expect_value(t, sound_retrigger_starts_new_sound(SoundRetriggerAction.Fade_Out), false)
-	testing.expect_value(
-		t,
-		sound_retrigger_starts_new_sound(SoundRetriggerAction.Leave_Alone),
+		sound_retrigger_fade_needed(
+			.Cat_Meow,
+			.Cat_Meow,
+			true,
+			SOUND_REPLAY_FADE_THRESHOLD + 0.01,
+		),
 		true,
+	)
+	testing.expect_value(
+		t,
+		sound_retrigger_fade_needed(.Cat_Meow, .Cat_Meow, true, SOUND_REPLAY_FADE_THRESHOLD),
+		false,
+	)
+	testing.expect_value(
+		t,
+		sound_retrigger_fade_needed(
+			.Cat_Meow,
+			.Cat_Meow,
+			true,
+			SOUND_REPLAY_FADE_THRESHOLD - 0.01,
+		),
+		false,
+	)
+	testing.expect_value(
+		t,
+		sound_retrigger_fade_needed(
+			.Cat_Meow,
+			.Cat_Meow,
+			false,
+			SOUND_REPLAY_FADE_THRESHOLD + 0.01,
+		),
+		false,
+	)
+	testing.expect_value(
+		t,
+		sound_retrigger_fade_needed(
+			.Cat_Meow,
+			.Ding_126626,
+			true,
+			SOUND_REPLAY_FADE_THRESHOLD + 0.01,
+		),
+		false,
 	)
 }
 

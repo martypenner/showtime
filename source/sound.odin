@@ -111,12 +111,6 @@ SoundVoice :: struct {
 
 SoundVoices :: [dynamic; 32]SoundVoice
 
-SoundRetriggerAction :: enum {
-	Leave_Alone,
-	// Fade the current long sound out instead of starting another copy.
-	Fade_Out,
-}
-
 TrackKeys :: [dynamic; 512]PathName
 
 MusicFadePhase :: enum {
@@ -290,19 +284,13 @@ playlists_load_async :: proc() {
 	sound_settings.playlists = playlists_load()
 }
 
-sound_retrigger_action :: proc(
+sound_retrigger_fade_needed :: proc(
 	voice_name: SoundEffectName,
 	trigger_name: SoundEffectName,
 	is_playing: bool,
 	duration: f32,
-) -> SoundRetriggerAction {
-	if voice_name != trigger_name || !is_playing do return .Leave_Alone
-	if duration > SOUND_REPLAY_FADE_THRESHOLD do return .Fade_Out
-	return .Leave_Alone
-}
-
-sound_retrigger_starts_new_sound :: proc(action: SoundRetriggerAction) -> bool {
-	return action != .Fade_Out
+) -> bool {
+	return voice_name == trigger_name && is_playing && duration > SOUND_REPLAY_FADE_THRESHOLD
 }
 
 sound_play :: proc(name: SoundEffectName, volume: f32) -> rl.Sound {
@@ -311,25 +299,20 @@ sound_play :: proc(name: SoundEffectName, volume: f32) -> rl.Sound {
 	sound_index := 0
 	for sound_index < len(sound_settings.current_sounds) {
 		voice := &sound_settings.current_sounds[sound_index]
-		action := sound_retrigger_action(
+		fade_needed := sound_retrigger_fade_needed(
 			voice.name,
 			name,
 			rl.IsSoundPlaying(voice.sound),
 			voice.duration,
 		)
-		if !sound_retrigger_starts_new_sound(action) {
-			start_new_sound = false
-			if faded_sound.frameCount == 0 do faded_sound = voice.sound
+		if !fade_needed {
+			sound_index += 1
+			continue
 		}
 
-		switch action {
-		case .Leave_Alone:
-			sound_index += 1
-		case .Fade_Out:
-			if voice.fading {
-				sound_index += 1
-				continue
-			}
+		start_new_sound = false
+		if faded_sound.frameCount == 0 do faded_sound = voice.sound
+		if !voice.fading {
 			voice.fading = true
 			voice.fade_elapsed = 0
 			sound_index += 1
