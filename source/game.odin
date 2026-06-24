@@ -180,13 +180,10 @@ controls_draw :: proc() {
 									gm.sound_settings.fade_out_time,
 								)
 								if new_voice != nil {
-									for &voice in gm.sound_settings.music_voices {
-										if !voice.active || &voice == new_voice do continue
-										music_voice_fade_out(
-											&voice,
-											gm.sound_settings.fade_out_time,
-										)
-									}
+									music_voices_fade_out_except(
+										new_voice,
+										gm.sound_settings.fade_out_time,
+									)
 								}
 							}
 						}
@@ -219,10 +216,10 @@ controls_draw :: proc() {
 							gm.sound_settings.fade_out_time,
 						)
 						if new_voice != nil {
-							for &voice in gm.sound_settings.music_voices {
-								if !voice.active || &voice == new_voice do continue
-								music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
-							}
+							music_voices_fade_out_except(
+								new_voice,
+								gm.sound_settings.fade_out_time,
+							)
 						}
 					}
 				}
@@ -244,10 +241,10 @@ controls_draw :: proc() {
 							gm.sound_settings.fade_out_time,
 						)
 						if new_voice != nil {
-							for &voice in gm.sound_settings.music_voices {
-								if !voice.active || &voice == new_voice do continue
-								music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
-							}
+							music_voices_fade_out_except(
+								new_voice,
+								gm.sound_settings.fade_out_time,
+							)
 						}
 					}
 				}
@@ -270,10 +267,10 @@ controls_draw :: proc() {
 								gm.sound_settings.fade_out_time,
 							)
 							if new_voice != nil {
-								for &voice in gm.sound_settings.music_voices {
-									if !voice.active || &voice == new_voice do continue
-									music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
-								}
+								music_voices_fade_out_except(
+									new_voice,
+									gm.sound_settings.fade_out_time,
+								)
 							}
 						}
 					}
@@ -379,14 +376,6 @@ controls_draw :: proc() {
 			control_draw_passive(&control)
 		}
 	}
-}
-
-music_voice_fade_out :: proc(voice: ^MusicVoice, fade_out_duration: f32) {
-	amp := music_voice_amplitude_fraction(voice^)
-	voice.fade_phase = .FadingOut
-	voice.fade_out_duration = fade_out_duration
-	voice.fade_out_time_left = fade_out_duration * amp
-	voice.hold_time_left = 0
 }
 
 playlist_find :: proc(playlist_name: PlaylistName) -> ^Playlist {

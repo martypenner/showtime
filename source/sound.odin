@@ -370,6 +370,20 @@ sound_settings_load :: proc() -> SoundSettings {
 	return settings
 }
 
+music_voice_fade_out :: proc(voice: ^MusicVoice, fade_out_duration: f32) {
+	amp := music_voice_amplitude_fraction(voice^)
+	voice.fade_phase = .FadingOut
+	voice.fade_out_duration = fade_out_duration
+	voice.fade_out_time_left = fade_out_duration * amp
+	voice.hold_time_left = 0
+}
+
+music_voices_fade_out_except :: proc(voice_keep: ^MusicVoice, fade_out_duration: f32) {
+	for &voice in sound_settings.music_voices {
+		if !voice.active || &voice == voice_keep do continue
+		music_voice_fade_out(&voice, fade_out_duration)
+	}
+}
 
 music_voice_start :: proc(
 	track: ^Track,
@@ -653,10 +667,7 @@ sound_update :: proc() {
 			)
 			if new_voice == nil do continue
 
-			for &old_voice in sound_settings.music_voices {
-				if !old_voice.active || &old_voice == new_voice do continue
-				music_voice_fade_out(&old_voice, sound_settings.fade_out_time)
-			}
+			music_voices_fade_out_except(new_voice, sound_settings.fade_out_time)
 		}
 	}
 
