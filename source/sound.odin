@@ -661,7 +661,6 @@ sound_update :: proc() {
 				track,
 				sound_settings.music_volume,
 				sound_settings.fade_in_time,
-				sound_settings.fade_in_time,
 				0,
 				sound_settings.fade_out_time,
 			)

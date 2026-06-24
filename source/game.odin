@@ -175,7 +175,6 @@ controls_draw :: proc() {
 									track,
 									0.2,
 									gm.sound_settings.fade_in_time,
-									gm.sound_settings.fade_in_time,
 									0,
 									gm.sound_settings.fade_out_time,
 								)
@@ -211,7 +210,6 @@ controls_draw :: proc() {
 							track,
 							vol,
 							gm.sound_settings.fade_in_time,
-							gm.sound_settings.fade_in_time,
 							0,
 							gm.sound_settings.fade_out_time,
 						)
@@ -235,7 +233,6 @@ controls_draw :: proc() {
 							playlist,
 							track,
 							vol,
-							gm.sound_settings.fade_in_time,
 							gm.sound_settings.fade_in_time,
 							0,
 							gm.sound_settings.fade_out_time,
@@ -261,7 +258,6 @@ controls_draw :: proc() {
 								playlist,
 								track,
 								vol,
-								gm.sound_settings.fade_in_time,
 								gm.sound_settings.fade_in_time,
 								0,
 								gm.sound_settings.fade_out_time,
@@ -346,7 +342,7 @@ controls_draw :: proc() {
 						for &voice in gm.sound_settings.music_voices {
 							music_voice_stop(&voice)
 						}
-						music_start_playlist_track(playlist, track, vol, 0, 0, 0, 0)
+						music_start_playlist_track(playlist, track, vol, 0, 0, 0)
 					}
 				}
 			}
@@ -403,7 +399,6 @@ music_start_playlist_track :: proc(
 	track: ^Track,
 	volume: f32,
 	fade_in_duration: f32,
-	fade_in_time_left: f32,
 	hold_time_left: f32,
 	fade_out_duration: f32,
 ) -> ^MusicVoice {
@@ -411,7 +406,7 @@ music_start_playlist_track :: proc(
 		track,
 		volume,
 		fade_in_duration,
-		fade_in_time_left,
+		fade_in_duration,
 		hold_time_left,
 		fade_out_duration,
 		fade_out_duration,
