@@ -626,9 +626,9 @@ sound_update :: proc() {
 		music_voice_update(&voice, dt)
 	}
 
-	playlist := gm.sound_settings.current_playing_playlist
+	playlist := sound_settings.current_playing_playlist
 	if playlist != nil && playlist.current_playing_track != nil {
-		for &voice in gm.sound_settings.music_voices {
+		for &voice in sound_settings.music_voices {
 			if !voice.active do continue
 			if voice.started_next do continue
 			if voice.fade_phase == .FadingOut do continue
@@ -636,7 +636,7 @@ sound_update :: proc() {
 
 			played := rl.GetMusicTimePlayed(voice.music)
 			length := rl.GetMusicTimeLength(voice.music)
-			if length <= 0 || length - played > gm.sound_settings.start_next_time do continue
+			if length <= 0 || length - played > sound_settings.start_next_time do continue
 
 			voice.started_next = true
 			track := playlist_pick_track(playlist)
@@ -645,28 +645,28 @@ sound_update :: proc() {
 			new_voice := music_start_playlist_track(
 				playlist,
 				track,
-				gm.sound_settings.music_volume,
-				gm.sound_settings.fade_in_time,
-				gm.sound_settings.fade_in_time,
+				sound_settings.music_volume,
+				sound_settings.fade_in_time,
+				sound_settings.fade_in_time,
 				0,
-				gm.sound_settings.fade_out_time,
+				sound_settings.fade_out_time,
 			)
 			if new_voice == nil do continue
 
-			for &old_voice in gm.sound_settings.music_voices {
+			for &old_voice in sound_settings.music_voices {
 				if !old_voice.active || &old_voice == new_voice do continue
-				music_voice_fade_out(&old_voice, gm.sound_settings.fade_out_time)
+				music_voice_fade_out(&old_voice, sound_settings.fade_out_time)
 			}
 		}
 	}
 
 	active_music_count := 0
-	for voice in gm.sound_settings.music_voices {
+	for voice in sound_settings.music_voices {
 		if voice.active do active_music_count += 1
 	}
-	if active_music_count == 0 && gm.sound_settings.current_playing_playlist != nil {
-		gm.sound_settings.current_playing_playlist.current_playing_track = nil
-		gm.sound_settings.current_playing_playlist = nil
+	if active_music_count == 0 && sound_settings.current_playing_playlist != nil {
+		sound_settings.current_playing_playlist.current_playing_track = nil
+		sound_settings.current_playing_playlist = nil
 	}
 
 }
