@@ -124,10 +124,8 @@ ui_resolve_type :: proc(name: string) -> UI_Type {
 }
 
 controls_draw :: proc() {
-	active_group := gm.active_tab
-
 	for &control in gm.ui_controls {
-		if !control_is_visible(control, active_group) {
+		if !control_is_visible(control, gm.active_tab) {
 			continue
 		}
 
@@ -193,6 +191,8 @@ controls_draw :: proc() {
 							}
 						}
 					}
+					// TODO: this is buggy: happy beats might be triggered from other buttons.
+					// maybe we want the indirection of a state machine here?
 				} else if playlist_is_current(.Happy_Beats) {
 					for &voice in gm.sound_settings.music_voices {
 						if !voice.active do continue
