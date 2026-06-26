@@ -519,6 +519,32 @@ sound_music_current_volume :: proc() -> f32 {
 	return current_volume
 }
 
+music_current_label :: proc() -> string {
+	playlist := sound_settings.current_playing_playlist
+	if playlist == nil || playlist.current_playing_track == nil do return "No music playing"
+	return fmt.tprintf("%s - %s", playlist.name, playlist.current_playing_track.title)
+}
+
+music_current_progress :: proc() -> f32 {
+	played, length := music_current_time()
+	if length <= 0 do return 0
+	return math.clamp(played / length, 0, 1)
+}
+
+music_current_time :: proc() -> (played, length: f32) {
+	playlist := sound_settings.current_playing_playlist
+	if playlist == nil || playlist.current_playing_track == nil do return 0, 0
+
+	for voice in sound_settings.music_voices {
+		if !voice.active do continue
+		if voice.path != playlist.current_playing_track.path do continue
+
+		return rl.GetMusicTimePlayed(voice.music), rl.GetMusicTimeLength(voice.music)
+	}
+
+	return 0, 0
+}
+
 
 music_voice_update :: proc(voice: ^MusicVoice, dt: f32) {
 	if !voice.active do return

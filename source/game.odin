@@ -32,6 +32,7 @@ import hm "core:container/handle_map"
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:strings"
 import "core:thread"
 import rl "vendor:raylib"
 
@@ -679,7 +680,35 @@ control_draw_passive :: proc(control: ^Control) {
 	case .ProgressBar:
 		rl.GuiProgressBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
 	case .StatusBar:
-		rl.GuiStatusBar(control.rect, control.text)
+		if control.name == "Status_Bar" {
+			music_progress := music_current_progress()
+			music_played, music_length := music_current_time()
+			music_time_text := music_time_pair_label(music_played, music_length)
+			progress_rect := rl.Rectangle {
+				x      = control.rect.x + control.rect.width - 160,
+				y      = control.rect.y + 4,
+				width  = 150,
+				height = control.rect.height - 8,
+			}
+			TIME_LABEL_WIDTH :: f32(90)
+			time_rect := rl.Rectangle {
+				x      = progress_rect.x - TIME_LABEL_WIDTH - 8,
+				y      = control.rect.y,
+				width  = TIME_LABEL_WIDTH,
+				height = control.rect.height,
+			}
+			rl.GuiStatusBar(
+				control.rect,
+				strings.clone_to_cstring(music_current_label(), context.temp_allocator),
+			)
+			rl.GuiProgressBar(progress_rect, nil, nil, &music_progress, 0, 1)
+			rl.GuiLabel(
+				time_rect,
+				strings.clone_to_cstring(music_time_text, context.temp_allocator),
+			)
+		} else {
+			rl.GuiStatusBar(control.rect, control.text)
+		}
 	case .ScrollPanel:
 		s := &control.state.(Scroll_State)
 		rl.GuiScrollPanel(control.rect, control.text, control.rect, &s.scroll, &s.view)
@@ -737,6 +766,31 @@ draw :: proc() {
 	}
 
 	rl.EndDrawing()
+}
+
+music_time_pair_label :: proc(played, length: f32) -> string {
+	played_total := max(int(played), 0)
+	played_minutes := played_total / 60
+	played_seconds := played_total % 60
+
+	length_total := max(int(length), 0)
+	length_minutes := length_total / 60
+	length_seconds := length_total % 60
+
+	played_zero := ""
+	if played_seconds < 10 do played_zero = "0"
+	length_zero := ""
+	if length_seconds < 10 do length_zero = "0"
+
+	return fmt.tprintf(
+		"%d:%s%d / %d:%s%d",
+		played_minutes,
+		played_zero,
+		played_seconds,
+		length_minutes,
+		length_zero,
+		length_seconds,
+	)
 }
 
 ui_control_set_value :: proc(name: string, value: $Val, controls: []Control) {
