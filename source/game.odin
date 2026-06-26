@@ -67,6 +67,9 @@ Show_Action :: enum {
 	Scene_Ramp,
 	Scene_Fade,
 	Drop_Needle,
+	// Games
+	Innuendo,
+	Oscar_Moment,
 	// Sounds
 	Glass_Break,
 	Gunshot,
@@ -119,6 +122,10 @@ ui_resolve_type :: proc(action: Show_Action) -> UI_Type {
 	#partial switch action {
 	case .Drop_Needle:
 		return .Destructive
+	case .Innuendo:
+		return .Innuendo
+	case .Oscar_Moment:
+		return .Game
 	case .Glass_Break,
 	     .Gunshot,
 	     .Scream,
@@ -182,24 +189,24 @@ controls_draw :: proc() {
 				if use_house_music {
 					if gm.sound_settings.current_playing_playlist == nil {
 						playlist := playlist_find(.Happy_Beats)
-						if playlist != nil {
-							track := playlist_pick_track(playlist)
-							if track != nil {
-								new_voice := music_start_playlist_track(
-									playlist,
-									track,
-									0.2,
-									gm.sound_settings.fade_in_time,
-									0,
-									gm.sound_settings.fade_out_time,
-								)
-								if new_voice != nil {
-									music_voices_fade_out_except(
-										new_voice,
-										gm.sound_settings.fade_out_time,
-									)
-								}
-							}
+						ensure(playlist != nil, "Couldn't find playlist for Use_House_Music")
+
+						track := playlist_pick_track(playlist)
+						ensure(track != nil, "Couldn't pick track for Use_House_Music")
+
+						new_voice := music_start_playlist_track(
+							playlist,
+							track,
+							0.2,
+							gm.sound_settings.fade_in_time,
+							0,
+							gm.sound_settings.fade_out_time,
+						)
+						if new_voice != nil {
+							music_voices_fade_out_except(
+								new_voice,
+								gm.sound_settings.fade_out_time,
+							)
 						}
 					}
 					// TODO: this is buggy: happy beats might be triggered from other buttons.
@@ -217,48 +224,42 @@ controls_draw :: proc() {
 			if control_button_pressed(&control) {
 				vol := f32(0.5)
 				playlist := playlist_find(.Happy_Beats)
-				if playlist != nil {
-					track := playlist_pick_track(playlist)
-					if track != nil {
-						new_voice := music_start_playlist_track(
-							playlist,
-							track,
-							vol,
-							gm.sound_settings.fade_in_time,
-							0,
-							gm.sound_settings.fade_out_time,
-						)
-						if new_voice != nil {
-							music_voices_fade_out_except(
-								new_voice,
-								gm.sound_settings.fade_out_time,
-							)
-						}
-					}
+				ensure(playlist != nil, "Couldn't find playlist for Pre_Show")
+
+				track := playlist_pick_track(playlist)
+				ensure(track != nil, "Couldn't pick track for Pre_Show")
+
+				new_voice := music_start_playlist_track(
+					playlist,
+					track,
+					vol,
+					gm.sound_settings.fade_in_time,
+					0,
+					gm.sound_settings.fade_out_time,
+				)
+				if new_voice != nil {
+					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				}
 			}
 		case .Post_Show:
 			if control_button_pressed(&control) {
 				vol := f32(0.8)
 				playlist := playlist_find(.Happy_Beats)
-				if playlist != nil {
-					track := playlist_pick_track(playlist)
-					if track != nil {
-						new_voice := music_start_playlist_track(
-							playlist,
-							track,
-							vol,
-							gm.sound_settings.fade_in_time,
-							0,
-							gm.sound_settings.fade_out_time,
-						)
-						if new_voice != nil {
-							music_voices_fade_out_except(
-								new_voice,
-								gm.sound_settings.fade_out_time,
-							)
-						}
-					}
+				ensure(playlist != nil, "Couldn't find playlist for Post_Show")
+
+				track := playlist_pick_track(playlist)
+				ensure(track != nil, "Couldn't pick track for Post_Show")
+
+				new_voice := music_start_playlist_track(
+					playlist,
+					track,
+					vol,
+					gm.sound_settings.fade_in_time,
+					0,
+					gm.sound_settings.fade_out_time,
+				)
+				if new_voice != nil {
+					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				}
 			}
 		case .To_House:
@@ -266,24 +267,21 @@ controls_draw :: proc() {
 				vol := f32(0.2)
 				if gm.sound_settings.use_house_music {
 					playlist := playlist_find(.Happy_Beats)
-					if playlist != nil {
-						track := playlist_pick_track(playlist)
-						if track != nil {
-							new_voice := music_start_playlist_track(
-								playlist,
-								track,
-								vol,
-								gm.sound_settings.fade_in_time,
-								0,
-								gm.sound_settings.fade_out_time,
-							)
-							if new_voice != nil {
-								music_voices_fade_out_except(
-									new_voice,
-									gm.sound_settings.fade_out_time,
-								)
-							}
-						}
+					ensure(playlist != nil, "Couldn't find playlist for To_House")
+
+					track := playlist_pick_track(playlist)
+					ensure(track != nil, "Couldn't pick track for To_House")
+
+					new_voice := music_start_playlist_track(
+						playlist,
+						track,
+						vol,
+						gm.sound_settings.fade_in_time,
+						0,
+						gm.sound_settings.fade_out_time,
+					)
+					if new_voice != nil {
+						music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 					}
 				} else {
 					for &voice in gm.sound_settings.music_voices {
@@ -351,14 +349,83 @@ controls_draw :: proc() {
 			if control_button_pressed(&control) {
 				vol := f32(1.0)
 				playlist := playlist_find(.Needle_Droppers)
-				if playlist != nil {
-					track := playlist_pick_track(playlist)
-					if track != nil {
-						for &voice in gm.sound_settings.music_voices {
-							music_voice_stop(&voice)
-						}
-						music_start_playlist_track(playlist, track, vol, 0, 0, 0)
+				ensure(playlist != nil, "Couldn't find playlist for Needle_Droppers")
+
+				track := playlist_pick_track(playlist)
+				ensure(track != nil, "Couldn't pick track for Needle_Droppers")
+
+				for &voice in gm.sound_settings.music_voices {
+					music_voice_stop(&voice)
+				}
+				music_start_playlist_track(playlist, track, vol, 0, 0, 0)
+			}
+
+		// Games
+		case .Innuendo:
+			if control_button_pressed(&control) {
+				playlist := playlist_find(.Sex_With_Me)
+				ensure(playlist != nil, "Couldn't find playlist for Innuendo")
+
+				if playlist_is_current(.Sex_With_Me) {
+					for &voice in gm.sound_settings.music_voices {
+						music_voice_fade_out(&voice, 2)
 					}
+				} else {
+					track := playlist_pick_track(playlist)
+					ensure(track != nil, "Couldn't pick track for Innuendo")
+
+					vol := f32(0.6)
+					new_voice := music_start_playlist_track(
+						playlist,
+						track,
+						vol,
+						gm.sound_settings.fade_in_time,
+						0,
+						gm.sound_settings.fade_out_time,
+					)
+					if new_voice != nil {
+						music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
+					}
+				}
+			}
+		case .Oscar_Moment:
+			if control_button_pressed(&control) {
+				playlist := playlist_find(.Oscar_Moment)
+				ensure(playlist != nil, "Couldn't find playlist for Oscar_Moment")
+
+				oscar_moment_playing := false
+				if playlist_is_current(.Oscar_Moment) && playlist.current_playing_track != nil {
+					for voice in gm.sound_settings.music_voices {
+						if !voice.active do continue
+						if voice.fade_phase == .FadingOut do continue
+						if voice.path != playlist.current_playing_track.path do continue
+						oscar_moment_playing = true
+					}
+				}
+
+				for &voice in gm.sound_settings.music_voices {
+					music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
+				}
+
+				if !oscar_moment_playing {
+					track := playlist_pick_track(playlist)
+					ensure(track != nil, "Couldn't pick track for Oscar_Moment")
+
+					volume := f32(0.4)
+					volume_swell := f32(0.6)
+					swell_duration := f32(20)
+					new_voice := music_start_playlist_track(
+						playlist,
+						track,
+						volume,
+						gm.sound_settings.fade_in_time,
+						0,
+						gm.sound_settings.fade_out_time,
+					)
+					ensure(new_voice != nil, "Couldn't start Oscar_Moment voice")
+
+					music_voice_swell_after_fade_in(new_voice, volume_swell, swell_duration)
+					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				}
 			}
 
@@ -508,6 +575,28 @@ control_button_pressed :: proc(control: ^Control) -> bool {
 		)
 	case .SoundAndLighting:
 	// default teal
+	case .Game:
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+			i32(rl.ColorToInt(rl.Color{0, 69, 129, 255})),
+		)
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.BASE_COLOR_FOCUSED),
+			i32(rl.ColorToInt(rl.Color{0, 111, 208, 255})),
+		)
+	case .Innuendo:
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),
+			i32(rl.ColorToInt(rl.Color{136, 51, 101, 255})),
+		)
+		rl.GuiSetStyle(
+			rl.GuiControl.BUTTON,
+			i32(rl.GuiControlProperty.BASE_COLOR_FOCUSED),
+			i32(rl.ColorToInt(rl.Color{207, 80, 154, 255})),
+		)
 	}
 
 	pressed := rl.GuiButton(control.rect, control.text)

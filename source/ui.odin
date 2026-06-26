@@ -49,6 +49,8 @@ UI_Type :: enum u8 {
 	Destructive,
 	Sound,
 	Lighting,
+	Game,
+	Innuendo,
 }
 
 VISIBLE_ON_ALL_GROUPS :: -1

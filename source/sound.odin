@@ -46,27 +46,30 @@ MUSIC_VOICE_COUNT :: 2
 // changed: start a voice at the volume it should have now, then move it toward
 // its final volume each update.
 MusicVoice :: struct {
-	music:              rl.Music,
+	music:                  rl.Music,
 	// Whether this slot holds a live stream. Empty slots are skipped.
-	active:             bool,
+	active:                 bool,
 	// The track being played, used to look up its normalization gain. Borrowed
 	// from the playlist, which outlives every voice.
-	path:               string,
+	path:                   string,
 	// The master music volume this voice plays at, snapshotted when it started.
 	// Held per-voice (rather than read from the live setting) so a volume change
 	// cross-fades: the outgoing track keeps its old volume while the incoming
 	// one rises to the new one, instead of every voice jumping at once.
-	volume:             f32,
-	fade_phase:         MusicFadePhase,
-	fade_in_duration:   f32,
-	fade_in_time_left:  f32,
-	hold_time_left:     f32,
-	fade_out_duration:  f32,
-	fade_out_time_left: f32,
-	fade_out_quick:     bool,
+	volume:                 f32,
+	volume_swell_target:    f32,
+	volume_swell_duration:  f32,
+	volume_swell_time_left: f32,
+	fade_phase:             MusicFadePhase,
+	fade_in_duration:       f32,
+	fade_in_time_left:      f32,
+	hold_time_left:         f32,
+	fade_out_duration:      f32,
+	fade_out_time_left:     f32,
+	fade_out_quick:         bool,
 	// Set once this playlist voice has kicked off the next track, so auto-next is
 	// triggered exactly once per track.
-	started_next:       bool,
+	started_next:           bool,
 }
 
 Playlist :: struct {
@@ -115,6 +118,7 @@ TrackKeys :: [dynamic; 512]PathName
 
 MusicFadePhase :: enum {
 	FadingIn,
+	Swelling,
 	Holding,
 	FadingOut,
 }
@@ -385,6 +389,19 @@ music_voices_fade_out_except :: proc(voice_keep: ^MusicVoice, fade_out_duration:
 	}
 }
 
+music_voice_swell_after_fade_in :: proc(voice: ^MusicVoice, volume_target: f32, duration: f32) {
+	ensure(voice != nil, "Tried to swell nil music voice")
+	ensure(voice.active, "Tried to swell inactive music voice")
+
+	voice.volume_swell_target = volume_target
+	voice.volume_swell_duration = duration
+	voice.volume_swell_time_left = duration
+
+	if voice.fade_phase != .FadingIn {
+		voice.fade_phase = .Swelling
+	}
+}
+
 music_voice_start :: proc(
 	track: ^Track,
 	volume: f32,
@@ -475,7 +492,7 @@ music_voice_amplitude_fraction :: proc(voice: MusicVoice) -> f32 {
 		progress := math.clamp(voice.fade_out_time_left / voice.fade_out_duration, 0, 1)
 		if voice.fade_out_quick do return music_amplitude_fade(progress, true)
 		return progress
-	case .Holding:
+	case .Swelling, .Holding:
 		return 1
 	}
 	return 1
@@ -525,7 +542,35 @@ music_voice_fade_update :: proc(voice: ^MusicVoice, dt: f32) {
 	switch voice.fade_phase {
 	case .FadingIn:
 		voice.fade_in_time_left = max(voice.fade_in_time_left - dt, 0)
-		if voice.fade_in_time_left <= 0 do voice.fade_phase = .Holding
+		if voice.fade_in_time_left <= 0 {
+			if voice.volume_swell_time_left > 0 {
+				voice.fade_phase = .Swelling
+			} else {
+				voice.fade_phase = .Holding
+			}
+		}
+	case .Swelling:
+		if voice.volume_swell_duration <= 0 {
+			voice.volume = voice.volume_swell_target
+			voice.fade_phase = .Holding
+			return
+		}
+
+		progress_before :=
+			1 - math.clamp(voice.volume_swell_time_left / voice.volume_swell_duration, 0, 1)
+		voice.volume_swell_time_left = max(voice.volume_swell_time_left - dt, 0)
+		progress_after :=
+			1 - math.clamp(voice.volume_swell_time_left / voice.volume_swell_duration, 0, 1)
+
+		if progress_after > progress_before {
+			amount := (progress_after - progress_before) / (1 - progress_before)
+			voice.volume += (voice.volume_swell_target - voice.volume) * amount
+		}
+
+		if voice.volume_swell_time_left <= 0 {
+			voice.volume = voice.volume_swell_target
+			voice.fade_phase = .Holding
+		}
 	case .Holding:
 		if voice.hold_time_left > 0 {
 			voice.hold_time_left = max(voice.hold_time_left - dt, 0)
@@ -550,15 +595,18 @@ track_pick_unplayed :: proc(playlist: ^Playlist) -> ^Track {
 	}
 
 	track: ^Track
+	fallback: ^Track
 	unplayed_seen := 0
 	it := hm.iterator_make(&playlist.tracks)
 	for current_track, _ in hm.iterate(&it) {
+		fallback = current_track
 		if current_track.played do continue
 		unplayed_seen += 1
 		if rand.int_max(unplayed_seen) == 0 && playlist.last_played_track != current_track {
 			track = current_track
 		}
 	}
+	if track == nil do track = fallback
 	return track
 }
 
