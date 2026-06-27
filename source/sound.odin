@@ -545,6 +545,57 @@ music_current_time :: proc() -> (played, length: f32) {
 	return 0, 0
 }
 
+music_time_pair_label :: proc(played, length: f32) -> string {
+	played_total := max(int(played), 0)
+	played_minutes := played_total / 60
+	played_seconds := played_total % 60
+
+	length_total := max(int(length), 0)
+	length_minutes := length_total / 60
+	length_seconds := length_total % 60
+
+	played_zero := ""
+	if played_seconds < 10 do played_zero = "0"
+	length_zero := ""
+	if length_seconds < 10 do length_zero = "0"
+
+	return fmt.tprintf(
+		"%d:%s%d / %d:%s%d",
+		played_minutes,
+		played_zero,
+		played_seconds,
+		length_minutes,
+		length_zero,
+		length_seconds,
+	)
+}
+
+music_start_playlist_track :: proc(
+	playlist: ^Playlist,
+	track: ^Track,
+	volume: f32,
+	fade_in_duration: f32,
+	hold_time_left: f32,
+	fade_out_duration: f32,
+) -> ^MusicVoice {
+	voice := music_voice_start(
+		track,
+		volume,
+		fade_in_duration,
+		fade_in_duration,
+		hold_time_left,
+		fade_out_duration,
+		fade_out_duration,
+	)
+	if voice == nil do return nil
+
+	gm.sound_settings.current_playing_playlist = playlist
+	gm.sound_settings.music_volume = volume
+	track.played = true
+	playlist.last_played_track = playlist.current_playing_track
+	playlist.current_playing_track = track
+	return voice
+}
 
 music_voice_update :: proc(voice: ^MusicVoice, dt: f32) {
 	if !voice.active do return
@@ -605,6 +656,26 @@ music_voice_fade_update :: proc(voice: ^MusicVoice, dt: f32) {
 	case .FadingOut:
 		voice.fade_out_time_left = max(voice.fade_out_time_left - dt, 0)
 	}
+}
+
+playlist_find :: proc(playlist_name: PlaylistName) -> ^Playlist {
+	name := playlist_name_string(playlist_name)
+	for &playlist in gm.sound_settings.playlists {
+		if playlist.name == name do return &playlist
+	}
+	log.warnf("Couldn't find playlist, skipping: %s", name)
+	return nil
+}
+
+playlist_pick_track :: proc(playlist: ^Playlist) -> ^Track {
+	track := track_pick_unplayed(playlist)
+	if track != nil || !gm.sound_settings.loop do return track
+
+	it := hm.iterator_make(&playlist.tracks)
+	for current_track, _ in hm.iterate(&it) {
+		current_track.played = false
+	}
+	return track_pick_unplayed(playlist)
 }
 
 track_pick_unplayed :: proc(playlist: ^Playlist) -> ^Track {
