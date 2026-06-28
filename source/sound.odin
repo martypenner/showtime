@@ -346,18 +346,6 @@ playlist_is_current :: proc(playlist_name: PlaylistName) -> bool {
 	return playlist != nil && playlist.name == playlist_name_string(playlist_name)
 }
 
-playlist_free :: proc(playlist: ^Playlist) {
-	delete(playlist.name)
-
-	it := hm.iterator_make(&playlist.tracks)
-	for track, _ in hm.iterate(&it) {
-		delete(track.title)
-		delete(track.path)
-	}
-	hm.dynamic_destroy(&playlist.tracks)
-	playlist^ = {}
-}
-
 sound_settings_load :: proc() -> SoundSettings {
 	filename := sound_settings_filename()
 	if !os.exists(filename) {
@@ -842,7 +830,15 @@ sound_shutdown :: proc() {
 		}
 
 		for &playlist in sound_settings.playlists {
-			playlist_free(&playlist)
+			delete(playlist.name)
+
+			it := hm.iterator_make(&playlist.tracks)
+			for track, _ in hm.iterate(&it) {
+				delete(track.title)
+				delete(track.path)
+			}
+			hm.dynamic_destroy(&playlist.tracks)
+			playlist = {}
 		}
 
 		free(sound_settings)
