@@ -628,7 +628,7 @@ controls_draw :: proc() {
 				use_house_music := control.state.(bool)
 				if use_house_music {
 					if gm.sound_settings.current_playing_playlist == nil {
-						playlist := playlist_find_by_name(.Happy_Beats)
+						playlist := playlist_find_by_name(.Easy_Listening)
 						ensure(playlist != nil, "Couldn't find playlist for Use_House_Music")
 
 						track := playlist_pick_track(playlist)
@@ -649,9 +649,9 @@ controls_draw :: proc() {
 							)
 						}
 					}
-					// TODO: this is buggy: happy beats might be triggered from other buttons.
+					// TODO: this is buggy: same playlist might be triggered from other buttons.
 					// maybe we want the indirection of a state machine here?
-				} else if playlist_is_current(.Happy_Beats) {
+				} else if playlist_is_current(.Easy_Listening) {
 					for &voice in gm.sound_settings.music_voices {
 						if !voice.active do continue
 						music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
@@ -706,7 +706,7 @@ controls_draw :: proc() {
 			if control_button_pressed(&control) {
 				vol := f32(0.2)
 				if gm.sound_settings.use_house_music {
-					playlist := playlist_find_by_name(.Happy_Beats)
+					playlist := playlist_find_by_name(.Easy_Listening)
 					ensure(playlist != nil, "Couldn't find playlist for To_House")
 
 					track := playlist_pick_track(playlist)
