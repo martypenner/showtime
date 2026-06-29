@@ -20,8 +20,11 @@ resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
 // just a new file + load call.
 @(test)
 build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
+	memory := game_memory_make()
+	context.allocator = game_memory_allocator(memory)
+	defer game_memory_destroy(memory)
+
 	ui := ui_controls_make(layout_build())
-	defer ui_shutdown(&ui)
 
 	chrome_seen, controls_seen, music_seen: int
 	for control in ui.items {

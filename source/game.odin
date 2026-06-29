@@ -28,20 +28,26 @@ created.
 
 package game
 
+import "base:runtime"
 import "core:fmt"
 import "core:log"
+import "core:mem"
 import "core:thread"
 import rl "vendor:raylib"
+
+_ :: log
+_ :: fmt
 
 gm: ^GameMemory
 
 GameMemory :: struct {
-	should_run:     bool,
-	app_state:      AppState,
-	active_tab:     int,
-	ui:             UIControls,
-	sound_settings: ^SoundSettings,
-	loader:         ^thread.Thread,
+	permanent_arena: mem.Dynamic_Arena,
+	should_run:      bool,
+	app_state:       AppState,
+	active_tab:      int,
+	ui:              UIControls,
+	sound_settings:  ^SoundSettings,
+	loader:          ^thread.Thread,
 }
 
 AppState :: union #no_nil {
@@ -125,31 +131,43 @@ ui_load_style :: proc() {
 	rl.GuiLoadStyle(style_path)
 }
 
-@(export)
-game_init :: proc() {
-	gm = new(GameMemory)
-	gm^ = GameMemory {
+game_memory_make :: proc() -> ^GameMemory {
+	memory := new(GameMemory, runtime.default_allocator())
+	memory^ = GameMemory {
 		should_run = true,
 		app_state  = AppInitializing{},
 	}
+
+	mem.dynamic_arena_init(&memory.permanent_arena)
+	return memory
+}
+
+game_memory_allocator :: proc(memory: ^GameMemory) -> mem.Allocator {
+	return mem.dynamic_arena_allocator(&memory.permanent_arena)
+}
+
+game_memory_destroy :: proc(memory: ^GameMemory) {
+	mem.dynamic_arena_destroy(&memory.permanent_arena)
+	free(memory, runtime.default_allocator())
+}
+
+@(export)
+game_init :: proc() {
+	gm = game_memory_make()
+	context.allocator = game_memory_allocator(gm)
 
 	gm.sound_settings = sound_settings_init()
 	gm.loader = thread.create_and_start(playlists_load_async, context)
 
 	ui_load_style()
-	// build_layout assigns each control's tab (visibility group) from the file it
-	// was loaded out of. The remaining app metadata (destructive styling) is
-	// neutral after parsing, so it is applied here while the UI-owned data lives
-	// on the app allocator.
 	gm.ui = ui_controls_make(layout_build())
-
 	ui_control_set_value(&gm.ui, .Use_House_Music, gm.sound_settings.use_house_music)
-
-	thread.join(gm.loader)
 
 	for &control in gm.ui.items {
 		control.ui_type = ui_resolve_type(control.name_id)
 	}
+
+	thread.join(gm.loader)
 	music_browser_playlists_refresh()
 	music_browser_tracks_refresh()
 
@@ -170,15 +188,13 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
-	// If the window closed while still loading, wait for the loader to finish
-	// before sound_shutdown frees the settings/playlists it is writing into.
+	// If the window closed while still loading, wait for the loader to finish.
 	if gm.loader != nil {
 		thread.destroy(gm.loader)
 		gm.loader = nil
 	}
 	sound_shutdown()
-	ui_shutdown(&gm.ui)
-	free(gm)
+	game_memory_destroy(gm)
 }
 
 @(export)

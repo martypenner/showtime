@@ -170,21 +170,6 @@ default_control_state :: proc(type: Control_Type) -> Control_State {
 	return nil
 }
 
-ui_shutdown :: proc(ui: ^UIControls) {
-	for &control in ui.items {
-		delete(control.name)
-		delete(control.text)
-		if text_state, ok := control.state.(Text_State); ok {
-			delete(text_state.buffer)
-		}
-		if list_state, ok := control.state.(List_State); ok {
-			for item in list_state.items do delete(item)
-			clear(&list_state.items)
-		}
-	}
-	delete(ui.items)
-}
-
 control_is_visible :: proc(control: Control, active_group: int) -> bool {
 	return(
 		control.visibility_group == VISIBLE_ON_ALL_GROUPS ||

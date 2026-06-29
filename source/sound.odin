@@ -353,11 +353,11 @@ playlist_is_current :: proc(playlist_name: PlaylistName) -> bool {
 
 sound_settings_load :: proc() -> SoundSettings {
 	filename := sound_settings_filename()
+	settings := DefaultSoundSettings
 	if !os.exists(filename) {
-		return DefaultSoundSettings
+		return settings
 	}
 
-	settings := DefaultSoundSettings
 	settings_data, err := os.read_entire_file(filename, context.temp_allocator)
 	log.ensuref(err == nil, "Error reading settings file: %v", err)
 
@@ -824,30 +824,5 @@ sound_hot_reloaded :: proc(settings: ^SoundSettings) {
 }
 
 sound_shutdown :: proc() {
-	if sound_settings != nil {
-		for voice in sound_settings.music_voices {
-			if !voice.active do continue
-			rl.StopMusicStream(voice.music)
-			rl.UnloadMusicStream(voice.music)
-		}
-		for voice in sound_settings.current_sounds {
-			rl.UnloadSound(voice.sound)
-		}
-
-		for &playlist in sound_settings.playlists {
-			delete(playlist.name)
-
-			it := hm.iterator_make(&playlist.tracks)
-			for track, _ in hm.iterate(&it) {
-				delete(track.title)
-				delete(track.path)
-			}
-			hm.dynamic_destroy(&playlist.tracks)
-			playlist = {}
-		}
-
-		free(sound_settings)
-		sound_settings = nil
-	}
 	rl.CloseAudioDevice()
 }
