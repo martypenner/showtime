@@ -1,8 +1,9 @@
 package game
 
-import "core:fmt"
+import hm "core:container/handle_map"
 import "core:log"
 import "core:math"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
@@ -62,12 +63,37 @@ Control :: struct {
 	ui_type:          UI_Type,
 	visibility_group: int,
 	name:             string,
+	name_id:          ControlName,
 	text:             cstring,
 	rect:             rl.Rectangle,
 	state:            Control_State,
 }
 
 Controls :: [dynamic; 512]Control
+
+CONTROL_INDEX_MISSING :: -1
+
+UIControls :: struct {
+	items:  Controls,
+	lookup: [ControlName]int,
+}
+
+ui_controls_make :: proc(items: Controls) -> UIControls {
+	ui := UIControls {
+		items = items,
+	}
+	for &index in ui.lookup do index = CONTROL_INDEX_MISSING
+	for control, index in ui.items {
+		ui.lookup[control.name_id] = index
+	}
+	return ui
+}
+
+ui_control_get :: proc(ui: ^UIControls, name: ControlName) -> ^Control {
+	index := ui.lookup[name]
+	if index == CONTROL_INDEX_MISSING do return nil
+	return &ui.items[index]
+}
 
 // Mutable per-control state. Each control kind stores only the variant it
 // needs; stateless controls (Button, Label, ...) leave this nil.
@@ -141,8 +167,8 @@ default_control_state :: proc(type: Control_Type) -> Control_State {
 	return nil
 }
 
-ui_shutdown :: proc(controls: ^Controls) {
-	for &control in controls {
+ui_shutdown :: proc(ui: ^UIControls) {
+	for &control in ui.items {
 		delete(control.name)
 		delete(control.text)
 		if text_state, ok := control.state.(Text_State); ok {
@@ -259,11 +285,13 @@ layout_parse :: proc(text: string) -> (controls: [dynamic]Control, err: Maybe(La
 			}
 			control_type := Control_Type(type)
 
+			name := parts[Component_Field.Name]
 			append(
 				&controls,
 				Control {
 					control_type = control_type,
-					name = strings.clone(parts[Component_Field.Name]),
+					name = strings.clone(name),
+					name_id = control_name_from_string(name),
 					text = strings.clone_to_cstring(parts[Component_Field.Text]),
 					rect = rect,
 					state = default_control_state(control_type),
@@ -443,7 +471,7 @@ control_draw_passive :: proc(control: ^Control) {
 	case .ProgressBar:
 		rl.GuiProgressBar(control.rect, nil, nil, &control.state.(f32), 0, 1)
 	case .StatusBar:
-		if control.name == "Status_Bar" {
+		if control.name_id == .Status_Bar {
 			music_progress := music_current_progress()
 			music_played, music_length := music_current_time()
 			music_time_text := music_time_pair_label(music_played, music_length)
@@ -485,38 +513,6 @@ control_draw_passive :: proc(control: ^Control) {
 	}
 }
 
-Show_Action :: enum {
-	Unknown,
-	// Main controls
-	Tab_Bar,
-	Music_Volume,
-	Use_House_Music,
-	// Scene changes
-	Pre_Show,
-	Post_Show,
-	To_House,
-	Scene_Ramp,
-	Scene_Fade,
-	Drop_Needle,
-	// Games
-	Innuendo,
-	Oscar_Moment,
-	// Sounds
-	Glass_Break,
-	Gunshot,
-	Scream,
-	Lightning,
-	Fireworks,
-	Train_Horn,
-	Tick_Tick_Ding,
-	Ding,
-	Calming_Rain,
-	Cat_Meow,
-	Yeeeeaaaaaaaahh,
-	// Lighting
-	RainbowSting,
-}
-
 Tab :: enum int {
 	Controls,
 	Music,
@@ -532,8 +528,7 @@ layout_build :: proc() -> Controls {
 		string(#load("../resources/controls.rgl")),
 		int(Tab.Controls),
 	)
-	// ui.load_layout(&controls, "music.rgl", string(#load("../resources/music.rgl")), int(Tab.Music), allocator)
-
+	layout_load(&controls, "music.rgl", string(#load("../resources/music.rgl")), int(Tab.Music))
 	layout_load(
 		&controls,
 		"chrome.rgl",
@@ -549,7 +544,7 @@ layout_build :: proc() -> Controls {
 // is an app concern (which controls are dangerous to the show), so this mapping
 // lives here rather than in generic UI/layout code. Keeping it pure lets the
 // styling Seam be verified without Raylib drawing.
-ui_resolve_type :: proc(action: Show_Action) -> UI_Type {
+ui_resolve_type :: proc(action: ControlName) -> UI_Type {
 	#partial switch action {
 	case .Drop_Needle:
 		return .Destructive
@@ -577,18 +572,17 @@ ui_resolve_type :: proc(action: Show_Action) -> UI_Type {
 }
 
 controls_draw :: proc() {
-	for &control in gm.ui_controls {
+	for &control in gm.ui.items {
 		if !control_is_visible(control, gm.active_tab) {
 			continue
 		}
 
-		action, ok := fmt.string_to_enum_value(Show_Action, control.name)
-		if !ok do action = .Unknown
+		action := control.name_id
 
 		// Controls draw themselves here and immediately handle their app behavior.
 		// Only controls that mutate persisted settings save them; tab switches and
 		// one-shot sounds remain transient.
-		switch action {
+		#partial switch action {
 		case .Tab_Bar:
 			prev := control.state.(i32)
 			rl.GuiToggleGroup(control.rect, control.text, &control.state.(i32))
@@ -619,7 +613,7 @@ controls_draw :: proc() {
 				use_house_music := control.state.(bool)
 				if use_house_music {
 					if gm.sound_settings.current_playing_playlist == nil {
-						playlist := playlist_find(.Happy_Beats)
+						playlist := playlist_find_by_name(.Happy_Beats)
 						ensure(playlist != nil, "Couldn't find playlist for Use_House_Music")
 
 						track := playlist_pick_track(playlist)
@@ -654,7 +648,7 @@ controls_draw :: proc() {
 		case .Pre_Show:
 			if control_button_pressed(&control) {
 				vol := f32(0.5)
-				playlist := playlist_find(.Happy_Beats)
+				playlist := playlist_find_by_name(.Happy_Beats)
 				ensure(playlist != nil, "Couldn't find playlist for Pre_Show")
 
 				track := playlist_pick_track(playlist)
@@ -675,7 +669,7 @@ controls_draw :: proc() {
 		case .Post_Show:
 			if control_button_pressed(&control) {
 				vol := f32(0.8)
-				playlist := playlist_find(.Happy_Beats)
+				playlist := playlist_find_by_name(.Happy_Beats)
 				ensure(playlist != nil, "Couldn't find playlist for Post_Show")
 
 				track := playlist_pick_track(playlist)
@@ -697,7 +691,7 @@ controls_draw :: proc() {
 			if control_button_pressed(&control) {
 				vol := f32(0.2)
 				if gm.sound_settings.use_house_music {
-					playlist := playlist_find(.Happy_Beats)
+					playlist := playlist_find_by_name(.Happy_Beats)
 					ensure(playlist != nil, "Couldn't find playlist for To_House")
 
 					track := playlist_pick_track(playlist)
@@ -779,7 +773,7 @@ controls_draw :: proc() {
 		case .Drop_Needle:
 			if control_button_pressed(&control) {
 				vol := f32(1.0)
-				playlist := playlist_find(.Needle_Droppers)
+				playlist := playlist_find_by_name(.Needle_Droppers)
 				ensure(playlist != nil, "Couldn't find playlist for Needle_Droppers")
 
 				track := playlist_pick_track(playlist)
@@ -794,7 +788,7 @@ controls_draw :: proc() {
 		// Games
 		case .Innuendo:
 			if control_button_pressed(&control) {
-				playlist := playlist_find(.Sex_With_Me)
+				playlist := playlist_find_by_name(.Sex_With_Me)
 				ensure(playlist != nil, "Couldn't find playlist for Innuendo")
 
 				if playlist_is_current(.Sex_With_Me) {
@@ -821,7 +815,7 @@ controls_draw :: proc() {
 			}
 		case .Oscar_Moment:
 			if control_button_pressed(&control) {
-				playlist := playlist_find(.Oscar_Moment)
+				playlist := playlist_find_by_name(.Oscar_Moment)
 				ensure(playlist != nil, "Couldn't find playlist for Oscar_Moment")
 
 				oscar_moment_playing := false
@@ -889,19 +883,86 @@ controls_draw :: proc() {
 			if control_button_pressed(&control) do sound_play(.Cat_Meow, 0.6)
 		case .Yeeeeaaaaaaaahh:
 			if control_button_pressed(&control) do sound_play(.Yeeeeaaaaaaaahh, 1)
-		case .Unknown:
+
+		// Music tab
+		case .ChangePlaylist:
+			s := &control.state.(List_State)
+			prev := s.active
+			rl.GuiListView(control.rect, control.text, &s.scroll_index, &s.active)
+			if prev != s.active do music_browser_tracks_refresh()
+		case .ChangeTrack:
+			control_draw_passive(&control)
+
+		case:
 			control_draw_passive(&control)
 		}
 	}
 }
 
+control_text_replace :: proc(control: ^Control, text: string) {
+	delete(control.text)
+	control.text = strings.clone_to_cstring(text)
+}
 
-ui_control_set_value :: proc(name: string, value: $Val, controls: []Control) {
-	for &control in controls {
-		if control.name != name do continue
-		control.state = value
+ui_control_set_value :: proc(ui: ^UIControls, name: ControlName, value: $Val) {
+	control := ui_control_get(ui, name)
+	if control == nil do return
+	control.state = value
+}
+
+music_browser_playlists_refresh :: proc() {
+	control := ui_control_get(&gm.ui, .ChangePlaylist)
+	if control == nil do return
+
+	names := make([]string, len(gm.sound_settings.playlists), context.temp_allocator)
+	for playlist, i in gm.sound_settings.playlists do names[i] = playlist.name
+	text, err := strings.join(names, ";", context.temp_allocator)
+	log.ensuref(err == nil, "Error joining playlist names: %v", err)
+
+	control_text_replace(control, text)
+	s := &control.state.(List_State)
+	s.active = 0
+	s.scroll_index = 0
+}
+
+music_browser_playlist_selected :: proc() -> ^Playlist {
+	control := ui_control_get(&gm.ui, .ChangePlaylist)
+	if control == nil do return nil
+
+	s := control.state.(List_State)
+	index := int(s.active)
+	if index < 0 || index >= len(gm.sound_settings.playlists) do return nil
+	return &gm.sound_settings.playlists[index]
+}
+
+music_browser_tracks_refresh :: proc() {
+	control := ui_control_get(&gm.ui, .ChangeTrack)
+	if control == nil do return
+
+	playlist := music_browser_playlist_selected()
+	if playlist == nil {
+		control_text_replace(control, "")
 		return
 	}
+
+	names: [dynamic]string
+	defer delete(names)
+
+	it := hm.iterator_make(&playlist.tracks)
+	for track, _ in hm.iterate(&it) {
+		append(&names, track.title)
+	}
+	slice.sort_by(names[:], proc(a, b: string) -> bool {
+		return strings.compare(a, b) < 0
+	})
+
+	text, err := strings.join(names[:], ";", context.temp_allocator)
+	log.ensuref(err == nil, "Error joining track names: %v", err)
+
+	control_text_replace(control, text)
+	s := &control.state.(List_State)
+	s.active = 0
+	s.scroll_index = 0
 }
 
 @(private)

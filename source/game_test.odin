@@ -20,20 +20,24 @@ resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
 // just a new file + load call.
 @(test)
 build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
-	controls := layout_build()
-	defer ui_shutdown(&controls)
+	ui := ui_controls_make(layout_build())
+	defer ui_shutdown(&ui)
 
-	chrome_seen, controls_seen: int
-	for control in controls {
-		switch control.name {
-		case "Tab_Bar", "Status_Bar":
+	chrome_seen, controls_seen, music_seen: int
+	for control in ui.items {
+		#partial switch control.name_id {
+		case .Tab_Bar, .Status_Bar:
 			testing.expect_value(t, control.visibility_group, VISIBLE_ON_ALL_GROUPS)
 			chrome_seen += 1
+		case .ChangePlaylist, .ChangeTrack:
+			testing.expect_value(t, control.visibility_group, int(Tab.Music))
+			music_seen += 1
 		case:
 			testing.expect_value(t, control.visibility_group, int(Tab.Controls))
 			controls_seen += 1
 		}
 	}
 	testing.expect_value(t, chrome_seen, 2)
+	testing.expect_value(t, music_seen, 2)
 	testing.expect(t, controls_seen > 0, "expected controls.rgl controls on the Controls tab")
 }

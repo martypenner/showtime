@@ -98,10 +98,18 @@ control_visible_filters_by_active_group :: proc(t: ^testing.T) {
 }
 
 @(test)
+control_names_resolve_from_layout_names :: proc(t: ^testing.T) {
+	testing.expect_value(t, control_name_from_string("ChangePlaylist"), ControlName.ChangePlaylist)
+	testing.expect_value(t, control_name_from_string("ChangeTrack"), ControlName.ChangeTrack)
+	testing.expect_value(t, control_name_from_string("not_real"), ControlName.Unknown)
+}
+
+@(test)
 status_bars_appear_at_bottom :: proc(t: ^testing.T) {
 	controls := [1]Control {
 		{
 			name = "Status_Bar",
+			name_id = .Status_Bar,
 			rect = rl.Rectangle{100, 100, 100, 100},
 			state = default_control_state(.StatusBar),
 			ui_type = .SoundAndLighting,

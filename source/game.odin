@@ -29,6 +29,7 @@ created.
 package game
 
 import "core:fmt"
+import "core:log"
 import "core:thread"
 import rl "vendor:raylib"
 
@@ -38,7 +39,7 @@ GameMemory :: struct {
 	should_run:     bool,
 	app_state:      AppState,
 	active_tab:     int,
-	ui_controls:    Controls,
+	ui:             UIControls,
 	sound_settings: ^SoundSettings,
 	loader:         ^thread.Thread,
 }
@@ -65,14 +66,10 @@ update :: proc() {
 		}
 	case AppReady:
 		if rl.IsWindowResized() {
-			controls_prepare_for_render(
-				gm.ui_controls[:],
-				rl.GetRenderWidth(),
-				rl.GetRenderHeight(),
-			)
+			controls_prepare_for_render(gm.ui.items[:], rl.GetRenderWidth(), rl.GetRenderHeight())
 		}
 		sound_update()
-		ui_control_set_value("Music_Volume", sound_music_current_volume(), gm.ui_controls[:])
+		ui_control_set_value(&gm.ui, .Music_Volume, sound_music_current_volume())
 	}
 }
 
@@ -136,21 +133,25 @@ game_init :: proc() {
 		app_state  = AppInitializing{},
 	}
 
+	gm.sound_settings = sound_settings_init()
+	gm.loader = thread.create_and_start(playlists_load_async, context)
+
 	ui_load_style()
 	// build_layout assigns each control's tab (visibility group) from the file it
 	// was loaded out of. The remaining app metadata (destructive styling) is
 	// neutral after parsing, so it is applied here while the UI-owned data lives
 	// on the app allocator.
-	gm.ui_controls = layout_build()
-	for &control in gm.ui_controls {
-		action, ok := fmt.string_to_enum_value(Show_Action, control.name)
-		if !ok do continue
-		control.ui_type = ui_resolve_type(action)
-	}
+	gm.ui = ui_controls_make(layout_build())
 
-	gm.sound_settings = sound_settings_init()
-	ui_control_set_value("Use_House_Music", gm.sound_settings.use_house_music, gm.ui_controls[:])
-	gm.loader = thread.create_and_start(playlists_load_async, context)
+	ui_control_set_value(&gm.ui, .Use_House_Music, gm.sound_settings.use_house_music)
+
+	thread.join(gm.loader)
+
+	for &control in gm.ui.items {
+		control.ui_type = ui_resolve_type(control.name_id)
+	}
+	music_browser_playlists_refresh()
+	music_browser_tracks_refresh()
 
 	game_hot_reloaded(gm)
 }
@@ -176,7 +177,7 @@ game_shutdown :: proc() {
 		gm.loader = nil
 	}
 	sound_shutdown()
-	ui_shutdown(&gm.ui_controls)
+	ui_shutdown(&gm.ui)
 	free(gm)
 }
 

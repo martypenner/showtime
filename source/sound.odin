@@ -9,6 +9,7 @@ import "core:math/rand"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -252,6 +253,10 @@ playlists_load :: proc() -> Playlists {
 
 	thread.pool_start(&pool)
 	thread.pool_finish(&pool)
+
+	slice.sort_by(playlists[:], proc(a, b: Playlist) -> bool {
+		return strings.compare(a.name, b.name) < 0
+	})
 
 	for track_key in track_keys {
 		_, generated_track_ok := TRACKS[string(track_key)]
@@ -646,7 +651,7 @@ music_voice_fade_update :: proc(voice: ^MusicVoice, dt: f32) {
 	}
 }
 
-playlist_find :: proc(playlist_name: PlaylistName) -> ^Playlist {
+playlist_find_by_name :: proc(playlist_name: PlaylistName) -> ^Playlist {
 	name := playlist_name_string(playlist_name)
 	for &playlist in gm.sound_settings.playlists {
 		if playlist.name == name do return &playlist
