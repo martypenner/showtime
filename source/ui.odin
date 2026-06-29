@@ -69,7 +69,7 @@ Control :: struct {
 	state:            Control_State,
 }
 
-Controls :: [dynamic; 512]Control
+Controls :: [dynamic]Control
 
 CONTROL_INDEX_MISSING :: -1
 
@@ -110,9 +110,12 @@ Text_State :: struct {
 	buffer:    [dynamic]u8,
 	edit_mode: bool,
 }
+ListStateItems :: [dynamic; 512]cstring
+
 List_State :: struct {
 	scroll_index: i32,
 	active:       i32,
+	items:        ListStateItems,
 }
 Scroll_State :: struct {
 	scroll: rl.Vector2,
@@ -174,7 +177,12 @@ ui_shutdown :: proc(ui: ^UIControls) {
 		if text_state, ok := control.state.(Text_State); ok {
 			delete(text_state.buffer)
 		}
+		if list_state, ok := control.state.(List_State); ok {
+			for item in list_state.items do delete(item)
+			clear(&list_state.items)
+		}
 	}
+	delete(ui.items)
 }
 
 control_is_visible :: proc(control: Control, active_group: int) -> bool {
@@ -505,7 +513,14 @@ control_draw_passive :: proc(control: ^Control) {
 		rl.GuiScrollPanel(control.rect, control.text, control.rect, &s.scroll, &s.view)
 	case .ListView:
 		s := &control.state.(List_State)
-		rl.GuiListView(control.rect, control.text, &s.scroll_index, &s.active)
+		rl.GuiListViewEx(
+			control.rect,
+			raw_data(s.items[:]),
+			i32(len(s.items)),
+			&s.scroll_index,
+			&s.active,
+			nil,
+		)
 	case .ColorPicker:
 		rl.GuiColorPicker(control.rect, control.text, &control.state.(rl.Color))
 	case .DummyRect:
@@ -888,7 +903,14 @@ controls_draw :: proc() {
 		case .ChangePlaylist:
 			s := &control.state.(List_State)
 			prev := s.active
-			rl.GuiListView(control.rect, control.text, &s.scroll_index, &s.active)
+			rl.GuiListViewEx(
+				control.rect,
+				raw_data(s.items[:]),
+				i32(len(s.items)),
+				&s.scroll_index,
+				&s.active,
+				nil,
+			)
 			if prev != s.active do music_browser_tracks_refresh()
 		case .ChangeTrack:
 			control_draw_passive(&control)
@@ -904,6 +926,19 @@ control_text_replace :: proc(control: ^Control, text: string) {
 	control.text = strings.clone_to_cstring(text)
 }
 
+list_control_items_replace :: proc(control: ^Control, names: []string) {
+	if list_state, ok := control.state.(List_State); ok {
+		for item in list_state.items do delete(item)
+		clear(&list_state.items)
+		for name in names do append(&list_state.items, strings.clone_to_cstring(name))
+		control.state = list_state
+	}
+
+	text, err := strings.join(names, ";", context.temp_allocator)
+	log.ensuref(err == nil, "Error joining list names: %v", err)
+	control_text_replace(control, text)
+}
+
 ui_control_set_value :: proc(ui: ^UIControls, name: ControlName, value: $Val) {
 	control := ui_control_get(ui, name)
 	if control == nil do return
@@ -916,10 +951,7 @@ music_browser_playlists_refresh :: proc() {
 
 	names := make([]string, len(gm.sound_settings.playlists), context.temp_allocator)
 	for playlist, i in gm.sound_settings.playlists do names[i] = playlist.name
-	text, err := strings.join(names, ";", context.temp_allocator)
-	log.ensuref(err == nil, "Error joining playlist names: %v", err)
-
-	control_text_replace(control, text)
+	list_control_items_replace(control, names)
 	s := &control.state.(List_State)
 	s.active = 0
 	s.scroll_index = 0
@@ -956,10 +988,7 @@ music_browser_tracks_refresh :: proc() {
 		return strings.compare(a, b) < 0
 	})
 
-	text, err := strings.join(names[:], ";", context.temp_allocator)
-	log.ensuref(err == nil, "Error joining track names: %v", err)
-
-	control_text_replace(control, text)
+	list_control_items_replace(control, names[:])
 	s := &control.state.(List_State)
 	s.active = 0
 	s.scroll_index = 0
