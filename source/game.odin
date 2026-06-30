@@ -114,9 +114,9 @@ game_init_window :: proc() {
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
 	rl.InitWindow(1280, 720, "Showtime")
 	when ODIN_OS != .JS do rl.SetWindowPosition(200, 200)
-	// This is an app, not a game. Needs constant updates since some latency will
-	// occur between networked devices.
-	rl.SetTargetFPS(500)
+	// I'd like this to be higher - e.g. 500 for latency purposes - but it eats
+	// more CPU (obviously) on older machines.
+	rl.SetTargetFPS(60)
 	rl.SetExitKey(nil)
 }
 
