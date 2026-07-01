@@ -1047,17 +1047,10 @@ lighting_look_activate :: proc(look: LightingLook) {
 
 lighting_effect_activate :: proc(effect: LightingFx) {
 	gm.lighting.active_fx[effect.kind] = effect
-	gm.lighting.active_fx[effect.kind].enabled = true
-}
-
-lighting_effect_active :: proc(kind: LightingFxKind) -> bool {
-	return gm.lighting.active_fx[kind].enabled
 }
 
 lighting_update :: proc() {
 	for &effect in gm.lighting.active_fx {
-		if !effect.enabled do continue
-
 		weight: f32 = effect.fade_target
 		if effect.fade_elapsed < effect.fade_duration {
 			effect.fade_elapsed += rl.GetFrameTime()
@@ -1072,10 +1065,6 @@ lighting_update :: proc() {
 			)
 		}
 		effect.fade_current = weight
-
-		if effect.fade_elapsed >= effect.fade_duration {
-			effect.enabled = effect.fade_target > 0
-		}
 
 		effect_str, enum_ok := fmt.enum_value_to_string(effect.kind)
 		log.ensuref(enum_ok, "Failed to convert LightingFx enum to string: %v", enum_ok)

@@ -77,7 +77,6 @@ LightingFx :: struct {
 	fade_duration: f32,
 	fade_elapsed:  f32,
 	fade_current:  f32,
-	enabled:       bool,
 }
 LightingFxKind :: enum {
 	Blackout,
