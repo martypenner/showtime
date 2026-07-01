@@ -1,8 +1,10 @@
 package game
 
 import hm "core:container/handle_map"
+import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:net"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
@@ -857,7 +859,15 @@ controls_draw :: proc() {
 		// Lighting
 		case .RainbowSting:
 			if control_button_pressed(&control) {
-				log.debug("hi")
+				lighting_effect_activate(
+					LightingFx {
+						kind = .RainbowSting,
+						fade_duration = 2,
+						fade_start = gm.lighting.active_fx[.RainbowSting].fade_current,
+						fade_target = 1 - gm.lighting.active_fx[.RainbowSting].fade_target,
+						fade_current = gm.lighting.active_fx[.RainbowSting].fade_current,
+					},
+				)
 			}
 
 		// Sounds
@@ -977,6 +987,112 @@ music_browser_tracks_refresh :: proc() {
 	s := &control.state.(List_State)
 	s.active = 0
 	s.scroll_index = 0
+}
+
+lighting_osc_string_append :: proc(packet: ^[dynamic]byte, s: string) {
+	append(packet, ..transmute([]byte)s)
+	append(packet, 0)
+
+	for len(packet^) % 4 != 0 {
+		append(packet, 0)
+	}
+}
+
+lighting_osc_f32_append :: proc(packet: ^[dynamic]byte, value: f32) {
+	bits := transmute(u32)value
+
+	// OSC uses big-endian numbers.
+	append(packet, byte(bits >> 24))
+	append(packet, byte(bits >> 16))
+	append(packet, byte(bits >> 8))
+	append(packet, byte(bits))
+}
+
+lighting_osc_float_send :: proc(
+	socket: net.UDP_Socket,
+	endpoint: net.Endpoint,
+	address: string,
+	value: f32,
+) {
+	packet := make([dynamic]byte, context.temp_allocator)
+	defer delete(packet)
+
+	lighting_osc_string_append(&packet, address)
+	lighting_osc_string_append(&packet, ",f")
+	lighting_osc_f32_append(&packet, value)
+
+	bytes_written, err := net.send_udp(socket, packet[:], endpoint)
+	if err != nil {
+		log.errorf("lighting send failed after %d bytes: %v", bytes_written, err)
+	}
+}
+
+lighting_look_activate :: proc(look: LightingLook) {
+	socket, ok := gm.lighting.socket.?
+	if !ok do return
+
+	look_str, enum_ok := fmt.enum_value_to_string(look)
+	log.ensuref(enum_ok, "Failed to convert LightingLook enum to string: %v", enum_ok)
+	look_name := strings.to_camel_case(look_str, context.temp_allocator)
+	log.debugf("Activating lighting look: %s", look_name)
+
+	gm.lighting.active_look = look
+	lighting_osc_float_send(
+		socket,
+		gm.lighting.endpoint,
+		fmt.tprint("/scenes/", look_name, "/load", sep = ""),
+		1.0,
+	)
+}
+
+lighting_effect_activate :: proc(effect: LightingFx) {
+	gm.lighting.active_fx[effect.kind] = effect
+	gm.lighting.active_fx[effect.kind].enabled = true
+}
+
+lighting_effect_active :: proc(kind: LightingFxKind) -> bool {
+	return gm.lighting.active_fx[kind].enabled
+}
+
+lighting_update :: proc() {
+	for &effect in gm.lighting.active_fx {
+		if !effect.enabled do continue
+
+		weight: f32 = effect.fade_target
+		if effect.fade_elapsed < effect.fade_duration {
+			effect.fade_elapsed += rl.GetFrameTime()
+			weight = math.clamp(
+				math.lerp(
+					effect.fade_start,
+					effect.fade_target,
+					effect.fade_elapsed / effect.fade_duration,
+				),
+				effect.fade_start < effect.fade_target ? effect.fade_start : effect.fade_target,
+				effect.fade_start < effect.fade_target ? effect.fade_target : effect.fade_start,
+			)
+		}
+		effect.fade_current = weight
+
+		if effect.fade_elapsed >= effect.fade_duration {
+			effect.enabled = effect.fade_target > 0
+		}
+
+		effect_str, enum_ok := fmt.enum_value_to_string(effect.kind)
+		log.ensuref(enum_ok, "Failed to convert LightingFx enum to string: %v", enum_ok)
+		effect_name := strings.to_camel_case(effect_str, context.temp_allocator)
+
+		lighting_osc_float_send(
+			gm.lighting.socket.(net.UDP_Socket),
+			gm.lighting.endpoint,
+			fmt.tprint(
+				"/globalEffects/",
+				strings.to_camel_case(effect_name, context.temp_allocator),
+				"/effects/weight",
+				sep = "",
+			),
+			weight,
+		)
+	}
 }
 
 @(private)

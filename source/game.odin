@@ -32,6 +32,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem"
+import "core:net"
 import "core:thread"
 import rl "vendor:raylib"
 
@@ -48,6 +49,12 @@ GameMemory :: struct {
 	ui:              UIControls,
 	sound_settings:  ^SoundSettings,
 	loader:          ^thread.Thread,
+	lighting:        struct {
+		socket:      Maybe(net.UDP_Socket),
+		endpoint:    net.Endpoint,
+		active_look: LightingLook,
+		active_fx:   [LightingFxKind]LightingFx,
+	},
 }
 
 AppState :: union #no_nil {
@@ -57,6 +64,27 @@ AppState :: union #no_nil {
 
 AppInitializing :: distinct u8
 AppReady :: distinct u8
+
+LightingLook :: enum {
+	House,
+	Scene,
+	CenterFocus,
+}
+LightingFx :: struct {
+	kind:          LightingFxKind,
+	fade_start:    f32,
+	fade_target:   f32,
+	fade_duration: f32,
+	fade_elapsed:  f32,
+	fade_current:  f32,
+	enabled:       bool,
+}
+LightingFxKind :: enum {
+	Blackout,
+	RainbowSting,
+	Rain,
+	Innuendo,
+}
 
 update :: proc() {
 	if rl.IsKeyPressed(.ESCAPE) {
@@ -76,6 +104,7 @@ update :: proc() {
 		}
 		sound_update()
 		ui_control_set_value(&gm.ui, .Music_Volume, sound_music_current_volume())
+		lighting_update()
 	}
 }
 
@@ -171,6 +200,13 @@ game_init :: proc() {
 	music_browser_playlists_refresh()
 	music_browser_tracks_refresh()
 
+	endpoint, endpoint_ok := net.parse_endpoint("127.0.0.1:42000")
+	log.ensuref(endpoint_ok, "Error parsing endpoint", endpoint)
+	socket, socket_err := net.make_unbound_udp_socket(.IP4)
+	log.ensuref(socket_err == nil, "Error making udp socket: %v", socket_err)
+	gm.lighting.socket = socket
+	gm.lighting.endpoint = endpoint
+
 	game_hot_reloaded(gm)
 }
 
@@ -194,6 +230,12 @@ game_shutdown :: proc() {
 		gm.loader = nil
 	}
 	sound_shutdown()
+
+	if socket, ok := gm.lighting.socket.?; ok {
+		net.close(socket)
+		gm.lighting.socket = nil
+	}
+
 	game_memory_destroy(gm)
 }
 
