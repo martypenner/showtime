@@ -33,6 +33,7 @@ import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:net"
+import "core:os"
 import "core:thread"
 import rl "vendor:raylib"
 
@@ -155,8 +156,9 @@ game_init_window :: proc() {
 ui_load_style :: proc() {
 	style_raw := #load("../resources/cyber.rgs")
 	style_path := fmt.ctprint(rl.GetApplicationDirectory(), "cyber.rgs", sep = "")
-	rl.SaveFileData(style_path, raw_data(style_raw), i32(len(style_raw)))
+	ensure(rl.SaveFileData(style_path, raw_data(style_raw), i32(len(style_raw))))
 	rl.GuiLoadStyle(style_path)
+	os.remove(string(style_path))
 }
 
 game_memory_make :: proc() -> ^GameMemory {
