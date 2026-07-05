@@ -27,9 +27,10 @@ main :: proc() {
 		os.stderr = logh
 	}
 
+	log_level := log.Level.Info
 	logger_alloc := context.allocator
 	logger :=
-		logh_err == os.ERROR_NONE ? log.create_file_logger(logh, allocator = logger_alloc) : log.create_console_logger(allocator = logger_alloc)
+		logh_err == os.ERROR_NONE ? log.create_file_logger(logh, log_level, allocator = logger_alloc) : log.create_console_logger(log_level, allocator = logger_alloc)
 	context.logger = logger
 
 	when USE_TRACKING_ALLOCATOR {
