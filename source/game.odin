@@ -189,7 +189,6 @@ game_init :: proc() {
 	gm.sound_settings = sound_settings_init()
 	gm.loader = thread.create_and_start(playlists_load_async, context)
 
-	ui_load_style()
 	gm.ui = ui_controls_make(layout_build())
 	ui_control_set_value(&gm.ui, .Use_House_Music, gm.sound_settings.use_house_music)
 
