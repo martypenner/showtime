@@ -567,7 +567,7 @@ ui_resolve_type :: proc(action: ControlName) -> UI_Type {
 	     .Calming_Rain,
 	     .Cat_Meow:
 		return .Sound
-	case .RainbowSting:
+	case .RainbowSting, .LightingHouse, .LightingScene, .LightingSceneWithFullFade:
 		return .Lighting
 	case:
 		return .SoundAndLighting
@@ -887,6 +887,21 @@ controls_draw :: proc() {
 			}
 
 		// Lighting
+		case .LightingHouse:
+			if control_button_pressed(&control) {
+				lighting_effects_deactivate_all()
+				lighting_look_activate(.House)
+			}
+		case .LightingScene:
+			if control_button_pressed(&control) {
+				lighting_effects_deactivate_all()
+				lighting_look_activate(.Scene)
+			}
+		case .LightingSceneWithFullFade:
+			if control_button_pressed(&control) {
+				lighting_effects_deactivate_all()
+				lighting_look_activate(.SceneWithFullFade)
+			}
 		case .RainbowSting:
 			if control_button_pressed(&control) {
 				lighting_effect_run(
