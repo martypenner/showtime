@@ -54,7 +54,7 @@ GameMemory :: struct {
 		socket:      Maybe(net.UDP_Socket),
 		endpoint:    net.Endpoint,
 		active_look: LightingLook,
-		active_fx:   [LightingFxKind]LightingFx,
+		active_fx:   map[LightingFxKind]LightingFx,
 	},
 }
 
@@ -69,6 +69,7 @@ AppReady :: distinct u8
 LightingLook :: enum {
 	House,
 	Scene,
+	SceneWithFullFade,
 	CenterFocus,
 }
 LightingFx :: struct {
@@ -235,6 +236,7 @@ game_shutdown :: proc() {
 		net.close(socket)
 		gm.lighting.socket = nil
 	}
+	delete(gm.lighting.active_fx)
 
 	game_memory_destroy(gm)
 }

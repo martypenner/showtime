@@ -669,7 +669,8 @@ controls_draw :: proc() {
 					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				}
 
-
+				lighting_effects_deactivate_all()
+				lighting_look_activate(.House)
 			}
 		case .Post_Show:
 			if control_button_pressed(&control) {
@@ -691,6 +692,9 @@ controls_draw :: proc() {
 				if new_voice != nil {
 					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				}
+
+				lighting_effects_deactivate_all()
+				lighting_look_activate(.House)
 			}
 		case .To_House:
 			if control_button_pressed(&control) {
@@ -719,6 +723,9 @@ controls_draw :: proc() {
 						music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
 					}
 				}
+
+				lighting_effects_deactivate_all()
+				lighting_look_activate(.House)
 			}
 		case .Scene_Ramp:
 			if control_button_pressed(&control) {
@@ -767,6 +774,8 @@ controls_draw :: proc() {
 						}
 					}
 				}
+
+				lighting_look_activate(.SceneWithFullFade)
 			}
 		case .Scene_Fade:
 			if control_button_pressed(&control) {
@@ -774,6 +783,8 @@ controls_draw :: proc() {
 					if !voice.active do continue
 					music_voice_fade_out(&voice, 2)
 				}
+
+				lighting_look_activate(.SceneWithFullFade)
 			}
 		case .Drop_Needle:
 			if control_button_pressed(&control) {
@@ -788,6 +799,10 @@ controls_draw :: proc() {
 					music_voice_stop(&voice)
 				}
 				music_start_playlist_track(playlist, track, vol, 0, 0, 0)
+
+				lighting_effect_run(
+					LightingFx{kind = .Blackout, fade_target = 1, fade_duration = 0},
+				)
 			}
 
 		// Games
@@ -817,6 +832,16 @@ controls_draw :: proc() {
 						music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 					}
 				}
+
+				lighting_effect_run(
+					LightingFx {
+						kind = .Innuendo,
+						fade_duration = 2,
+						fade_start = gm.lighting.active_fx[.Innuendo].fade_current,
+						fade_target = 1 - gm.lighting.active_fx[.Innuendo].fade_target,
+						fade_current = gm.lighting.active_fx[.Innuendo].fade_current,
+					},
+				)
 			}
 		case .Oscar_Moment:
 			if control_button_pressed(&control) {
@@ -857,12 +882,14 @@ controls_draw :: proc() {
 					music_voice_swell_after_fade_in(new_voice, volume_swell, swell_duration)
 					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				}
+
+				lighting_look_activate(.CenterFocus)
 			}
 
 		// Lighting
 		case .RainbowSting:
 			if control_button_pressed(&control) {
-				lighting_effect_activate(
+				lighting_effect_run(
 					LightingFx {
 						kind = .RainbowSting,
 						fade_duration = 2,
@@ -1010,12 +1037,21 @@ lighting_look_activate :: proc(look: LightingLook) {
 	)
 }
 
-lighting_effect_activate :: proc(effect: LightingFx) {
+lighting_effect_run :: proc(effect: LightingFx) {
 	gm.lighting.active_fx[effect.kind] = effect
 }
 
+lighting_effects_deactivate_all :: proc() {
+	for _, &effect in gm.lighting.active_fx {
+		effect.fade_start = effect.fade_current
+		effect.fade_target = 0
+		effect.fade_duration = 2
+		effect.fade_elapsed = 0
+	}
+}
+
 lighting_update :: proc() {
-	for &effect in gm.lighting.active_fx {
+	for kind, &effect in gm.lighting.active_fx {
 		weight: f32 = effect.fade_target
 		if effect.fade_elapsed < effect.fade_duration {
 			effect.fade_elapsed += rl.GetFrameTime()
@@ -1046,6 +1082,11 @@ lighting_update :: proc() {
 			),
 			weight,
 		)
+
+		// When an effect reaches 0 weight as it's final destination, prune it so it's no longer active.
+		if effect.fade_target == 0 && weight == 0 {
+			defer delete_key(&gm.lighting.active_fx, kind)
+		}
 	}
 }
 
