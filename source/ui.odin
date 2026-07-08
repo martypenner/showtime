@@ -8,6 +8,7 @@ import "core:net"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
+import "osc"
 import rl "vendor:raylib"
 
 // UI-owned data lives here, next to the behavior that reads and mutates it. The
@@ -667,6 +668,8 @@ controls_draw :: proc() {
 				if new_voice != nil {
 					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				}
+
+
 			}
 		case .Post_Show:
 			if control_button_pressed(&control) {
@@ -989,44 +992,6 @@ music_browser_tracks_refresh :: proc() {
 	s.scroll_index = 0
 }
 
-lighting_osc_string_append :: proc(packet: ^[dynamic]byte, s: string) {
-	append(packet, ..transmute([]byte)s)
-	append(packet, 0)
-
-	for len(packet^) % 4 != 0 {
-		append(packet, 0)
-	}
-}
-
-lighting_osc_f32_append :: proc(packet: ^[dynamic]byte, value: f32) {
-	bits := transmute(u32)value
-
-	// OSC uses big-endian numbers.
-	append(packet, byte(bits >> 24))
-	append(packet, byte(bits >> 16))
-	append(packet, byte(bits >> 8))
-	append(packet, byte(bits))
-}
-
-lighting_osc_float_send :: proc(
-	socket: net.UDP_Socket,
-	endpoint: net.Endpoint,
-	address: string,
-	value: f32,
-) {
-	packet := make([dynamic]byte, context.temp_allocator)
-	defer delete(packet)
-
-	lighting_osc_string_append(&packet, address)
-	lighting_osc_string_append(&packet, ",f")
-	lighting_osc_f32_append(&packet, value)
-
-	bytes_written, err := net.send_udp(socket, packet[:], endpoint)
-	if err != nil {
-		log.errorf("lighting send failed after %d bytes: %v", bytes_written, err)
-	}
-}
-
 lighting_look_activate :: proc(look: LightingLook) {
 	socket, ok := gm.lighting.socket.?
 	if !ok do return
@@ -1037,7 +1002,7 @@ lighting_look_activate :: proc(look: LightingLook) {
 	log.debugf("Activating lighting look: %s", look_name)
 
 	gm.lighting.active_look = look
-	lighting_osc_float_send(
+	osc.float_send(
 		socket,
 		gm.lighting.endpoint,
 		fmt.tprint("/scenes/", look_name, "/load", sep = ""),
@@ -1070,7 +1035,7 @@ lighting_update :: proc() {
 		log.ensuref(enum_ok, "Failed to convert LightingFx enum to string: %v", enum_ok)
 		effect_name := strings.to_camel_case(effect_str, context.temp_allocator)
 
-		lighting_osc_float_send(
+		osc.float_send(
 			gm.lighting.socket.(net.UDP_Socket),
 			gm.lighting.endpoint,
 			fmt.tprint(
