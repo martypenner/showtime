@@ -1034,6 +1034,27 @@ music_browser_tracks_refresh :: proc() {
 	s.scroll_index = 0
 }
 
+LightingLook :: enum {
+	House,
+	Scene,
+	SceneWithFullFade,
+	CenterFocus,
+}
+LightingFx :: struct {
+	kind:          LightingFxKind,
+	fade_start:    f32,
+	fade_target:   f32,
+	fade_duration: f32,
+	fade_elapsed:  f32,
+	fade_current:  f32,
+}
+LightingFxKind :: enum {
+	Blackout,
+	RainbowSting,
+	Rain,
+	Innuendo,
+}
+
 lighting_look_activate :: proc(look: LightingLook) {
 	socket, ok := gm.lighting.socket.?
 	if !ok do return

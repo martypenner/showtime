@@ -66,27 +66,6 @@ AppState :: union #no_nil {
 AppInitializing :: distinct u8
 AppReady :: distinct u8
 
-LightingLook :: enum {
-	House,
-	Scene,
-	SceneWithFullFade,
-	CenterFocus,
-}
-LightingFx :: struct {
-	kind:          LightingFxKind,
-	fade_start:    f32,
-	fade_target:   f32,
-	fade_duration: f32,
-	fade_elapsed:  f32,
-	fade_current:  f32,
-}
-LightingFxKind :: enum {
-	Blackout,
-	RainbowSting,
-	Rain,
-	Innuendo,
-}
-
 update :: proc() {
 	if rl.IsKeyPressed(.ESCAPE) {
 		gm.should_run = false
