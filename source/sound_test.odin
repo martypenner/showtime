@@ -219,7 +219,7 @@ track_pick_unplayed_returns_nil_when_exhausted_and_reset_makes_pickable :: proc(
 	_, err := hm.add(&playlist.tracks, Track{title = "played", path = "played.mp3", played = true})
 	testing.expect(t, err == nil)
 
-	testing.expect(t, track_pick_unplayed(&playlist) == nil)
+	testing.expect(t, playlist_pick_track_unplayed(&playlist) == nil)
 	track := track_pick_unplayed_after_reset_for_test(&playlist)
 	testing.expect(t, track != nil, "reset should make exhausted tracks pickable")
 }
@@ -234,13 +234,13 @@ track_pick_unplayed_uses_insertion_order_when_shuffle_off :: proc(t: ^testing.T)
 	playlist := sound_test_playlist_make({"first", "second", "third"})
 	defer hm.dynamic_destroy(&playlist.tracks)
 
-	track := track_pick_unplayed(&playlist)
+	track := playlist_pick_track_unplayed(&playlist)
 	testing.expect(t, track != nil)
 	testing.expect_value(t, track.title, "first")
 
 	track.played = true
 	playlist.last_played_track = track
-	track = track_pick_unplayed(&playlist)
+	track = playlist_pick_track_unplayed(&playlist)
 	testing.expect(t, track != nil)
 	testing.expect_value(t, track.title, "second")
 }
@@ -255,11 +255,11 @@ track_pick_unplayed_avoids_last_track_when_shuffle_off_if_possible :: proc(t: ^t
 	playlist := sound_test_playlist_make({"first", "second"})
 	defer hm.dynamic_destroy(&playlist.tracks)
 
-	first := track_pick_unplayed(&playlist)
+	first := playlist_pick_track_unplayed(&playlist)
 	testing.expect(t, first != nil)
 	playlist.last_played_track = first
 
-	track := track_pick_unplayed(&playlist)
+	track := playlist_pick_track_unplayed(&playlist)
 	testing.expect(t, track != nil)
 	testing.expect_value(t, track.title, "second")
 }
@@ -269,7 +269,7 @@ track_pick_unplayed_after_reset_for_test :: proc(playlist: ^Playlist) -> ^Track 
 	for track, _ in hm.iterate(&it) {
 		track.played = false
 	}
-	return track_pick_unplayed(playlist)
+	return playlist_pick_track_unplayed(playlist)
 }
 
 sound_test_playlist_make :: proc(titles: []string) -> Playlist {

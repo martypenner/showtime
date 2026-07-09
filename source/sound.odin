@@ -351,6 +351,15 @@ playlist_is_current :: proc(playlist_name: PlaylistName) -> bool {
 	return playlist != nil && playlist.name == playlist_name_string(playlist_name)
 }
 
+track_is_current :: proc(track_name: ControlName) -> bool {
+	name, _ := fmt.enum_value_to_string(track_name)
+	return(
+		sound_settings.current_playing_playlist != nil &&
+		sound_settings.current_playing_playlist.current_playing_track != nil &&
+		sound_settings.current_playing_playlist.current_playing_track.title == name \
+	)
+}
+
 sound_settings_load :: proc() -> SoundSettings {
 	filename := sound_settings_filename()
 	settings := DefaultSoundSettings
@@ -405,8 +414,6 @@ music_voice_start :: proc(
 	fade_out_time_left: f32,
 ) -> ^MusicVoice {
 	voice := music_voice_find_available()
-	if voice == nil do return nil
-
 	music := rl.LoadMusicStream(strings.clone_to_cstring(track.path, context.temp_allocator))
 	if !rl.IsMusicValid(music) do return nil
 
@@ -456,7 +463,7 @@ music_voice_find_available :: proc() -> ^MusicVoice {
 		return quietest_fading_out
 	}
 
-	return nil
+	panic("Must find available music voice")
 }
 
 music_voice_stop :: proc(voice: ^MusicVoice) {
@@ -580,7 +587,6 @@ music_start_playlist_track :: proc(
 		fade_out_duration,
 		fade_out_duration,
 	)
-	if voice == nil do return nil
 
 	gm.sound_settings.current_playing_playlist = playlist
 	gm.sound_settings.music_volume = volume
@@ -660,18 +666,31 @@ playlist_find_by_name :: proc(playlist_name: PlaylistName) -> ^Playlist {
 	return nil
 }
 
-playlist_pick_track :: proc(playlist: ^Playlist) -> ^Track {
-	track := track_pick_unplayed(playlist)
+playlist_pick_random_track :: proc(playlist: ^Playlist) -> ^Track {
+	track := playlist_pick_track_unplayed(playlist)
 	if track != nil || !gm.sound_settings.loop do return track
 
 	it := hm.iterator_make(&playlist.tracks)
 	for current_track, _ in hm.iterate(&it) {
 		current_track.played = false
 	}
-	return track_pick_unplayed(playlist)
+	return playlist_pick_track_unplayed(playlist)
 }
 
-track_pick_unplayed :: proc(playlist: ^Playlist) -> ^Track {
+playlist_pick_specific_track :: proc(playlist: ^Playlist, control_name: ControlName) -> ^Track {
+	it := hm.iterator_make(&playlist.tracks)
+	for current_track, _ in hm.iterate(&it) {
+		track_name, ok := fmt.enum_value_to_string(control_name)
+		ensure(ok)
+		if current_track.title == track_name {
+			return current_track
+		}
+	}
+
+	panic(fmt.tprintf("Couldn't find track by name: %v", control_name))
+}
+
+playlist_pick_track_unplayed :: proc(playlist: ^Playlist) -> ^Track {
 	if !sound_settings.shuffle {
 		fallback: ^Track
 		it := hm.iterator_make(&playlist.tracks)
@@ -791,7 +810,7 @@ sound_update :: proc() {
 			if length <= 0 || length - played > sound_settings.start_next_time do continue
 
 			voice.started_next = true
-			track := playlist_pick_track(playlist)
+			track := playlist_pick_random_track(playlist)
 			if track == nil do continue
 
 			new_voice := music_start_playlist_track(

@@ -553,7 +553,7 @@ ui_resolve_type :: proc(action: ControlName) -> UI_Type {
 		return .Destructive
 	case .Innuendo:
 		return .Innuendo
-	case .Oscar_Moment:
+	case .Oscar_Moment, .SlasClub, .Slas50sPop, .SlasUpbeat, .SlasSlowJam:
 		return .Game
 	case .Glass_Break,
 	     .Gunshot,
@@ -619,7 +619,7 @@ controls_draw :: proc() {
 						playlist := playlist_find_by_name(.Easy_Listening)
 						ensure(playlist != nil, "Couldn't find playlist for Use_House_Music")
 
-						track := playlist_pick_track(playlist)
+						track := playlist_pick_random_track(playlist)
 						ensure(track != nil, "Couldn't pick track for Use_House_Music")
 
 						new_voice := music_start_playlist_track(
@@ -630,12 +630,7 @@ controls_draw :: proc() {
 							0,
 							gm.sound_settings.fade_out_time,
 						)
-						if new_voice != nil {
-							music_voices_fade_out_except(
-								new_voice,
-								gm.sound_settings.fade_out_time,
-							)
-						}
+						music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 					}
 					// TODO: this is buggy: same playlist might be triggered from other buttons.
 					// maybe we want the indirection of a state machine here?
@@ -654,7 +649,7 @@ controls_draw :: proc() {
 				playlist := playlist_find_by_name(.Happy_Beats)
 				ensure(playlist != nil, "Couldn't find playlist for Pre_Show")
 
-				track := playlist_pick_track(playlist)
+				track := playlist_pick_random_track(playlist)
 				ensure(track != nil, "Couldn't pick track for Pre_Show")
 
 				new_voice := music_start_playlist_track(
@@ -665,9 +660,7 @@ controls_draw :: proc() {
 					0,
 					gm.sound_settings.fade_out_time,
 				)
-				if new_voice != nil {
-					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
-				}
+				music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 
 				lighting_effects_deactivate_all()
 				lighting_look_activate(.House)
@@ -678,7 +671,7 @@ controls_draw :: proc() {
 				playlist := playlist_find_by_name(.Happy_Beats)
 				ensure(playlist != nil, "Couldn't find playlist for Post_Show")
 
-				track := playlist_pick_track(playlist)
+				track := playlist_pick_random_track(playlist)
 				ensure(track != nil, "Couldn't pick track for Post_Show")
 
 				new_voice := music_start_playlist_track(
@@ -689,9 +682,7 @@ controls_draw :: proc() {
 					0,
 					gm.sound_settings.fade_out_time,
 				)
-				if new_voice != nil {
-					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
-				}
+				music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 
 				lighting_effects_deactivate_all()
 				lighting_look_activate(.House)
@@ -703,7 +694,7 @@ controls_draw :: proc() {
 					playlist := playlist_find_by_name(.Easy_Listening)
 					ensure(playlist != nil, "Couldn't find playlist for To_House")
 
-					track := playlist_pick_track(playlist)
+					track := playlist_pick_random_track(playlist)
 					ensure(track != nil, "Couldn't pick track for To_House")
 
 					new_voice := music_start_playlist_track(
@@ -714,9 +705,7 @@ controls_draw :: proc() {
 						0,
 						gm.sound_settings.fade_out_time,
 					)
-					if new_voice != nil {
-						music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
-					}
+					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				} else {
 					for &voice in gm.sound_settings.music_voices {
 						if !voice.active do continue
@@ -792,7 +781,7 @@ controls_draw :: proc() {
 				playlist := playlist_find_by_name(.Needle_Droppers)
 				ensure(playlist != nil, "Couldn't find playlist for Needle_Droppers")
 
-				track := playlist_pick_track(playlist)
+				track := playlist_pick_random_track(playlist)
 				ensure(track != nil, "Couldn't pick track for Needle_Droppers")
 
 				for &voice in gm.sound_settings.music_voices {
@@ -816,7 +805,7 @@ controls_draw :: proc() {
 						music_voice_fade_out(&voice, 2)
 					}
 				} else {
-					track := playlist_pick_track(playlist)
+					track := playlist_pick_random_track(playlist)
 					ensure(track != nil, "Couldn't pick track for Innuendo")
 
 					vol := f32(0.6)
@@ -828,9 +817,7 @@ controls_draw :: proc() {
 						0,
 						gm.sound_settings.fade_out_time,
 					)
-					if new_voice != nil {
-						music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
-					}
+					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				}
 
 				lighting_effect_run(
@@ -862,8 +849,10 @@ controls_draw :: proc() {
 					music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
 				}
 
-				if !oscar_moment_playing {
-					track := playlist_pick_track(playlist)
+				if oscar_moment_playing {
+					lighting_look_activate(.Scene)
+				} else {
+					track := playlist_pick_random_track(playlist)
 					ensure(track != nil, "Couldn't pick track for Oscar_Moment")
 
 					volume := f32(0.4)
@@ -881,9 +870,43 @@ controls_draw :: proc() {
 
 					music_voice_swell_after_fade_in(new_voice, volume_swell, swell_duration)
 					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
-				}
 
-				lighting_look_activate(.CenterFocus)
+					lighting_look_activate(.CenterFocus)
+				}
+			}
+
+		case .SlasSlowJam, .SlasClub, .SlasUpbeat, .Slas50sPop:
+			if control_button_pressed(&control) {
+				playlist := playlist_find_by_name(.Sounds_Like_a_Song)
+				ensure(playlist != nil, "Couldn't find playlist for Sounds_Like_a_Song")
+
+				if track_is_current(action) {
+					for &voice in gm.sound_settings.music_voices {
+						music_voice_fade_out(&voice, 2)
+					}
+
+					lighting_look_activate(.Scene)
+				} else {
+					track := playlist_pick_specific_track(playlist, action)
+					log.ensuref(
+						track != nil,
+						"Couldn't pick track for Sounds_Like_a_Song: %v",
+						action,
+					)
+
+					vol := f32(0.6)
+					new_voice := music_start_playlist_track(
+						playlist,
+						track,
+						vol,
+						gm.sound_settings.fade_in_time,
+						0,
+						gm.sound_settings.fade_out_time,
+					)
+					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
+
+					lighting_look_activate(.CenterFocus)
+				}
 			}
 
 		// Lighting
