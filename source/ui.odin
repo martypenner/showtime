@@ -645,7 +645,7 @@ controls_draw :: proc() {
 			}
 		case .Pre_Show:
 			if control_button_pressed(&control) {
-				vol := f32(0.5)
+				vol := f32(0.3)
 				playlist := playlist_find_by_name(.Happy_Beats)
 				ensure(playlist != nil, "Couldn't find playlist for Pre_Show")
 
@@ -667,7 +667,7 @@ controls_draw :: proc() {
 			}
 		case .Post_Show:
 			if control_button_pressed(&control) {
-				vol := f32(0.8)
+				vol := f32(0.7)
 				playlist := playlist_find_by_name(.Happy_Beats)
 				ensure(playlist != nil, "Couldn't find playlist for Post_Show")
 
