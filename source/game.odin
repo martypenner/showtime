@@ -1,4 +1,3 @@
-#+vet !unused-imports
 /*
 This file is the starting point of your game.
 
@@ -6,7 +5,6 @@ Some important procedures are:
 - game_init_window: Opens the window
 - game_init: Sets up the game state
 - game_update: Run once per frame
-- game_should_close: For stopping your game when close button is pressed
 - game_shutdown: Shuts down game and frees memory
 - game_shutdown_window: Closes window
 
@@ -43,14 +41,15 @@ _ :: fmt
 gm: ^GameMemory
 
 GameMemory :: struct {
-	permanent_arena: mem.Dynamic_Arena,
-	should_run:      bool,
-	app_state:       AppState,
-	active_tab:      int,
-	ui:              UIControls,
-	sound_settings:  ^SoundSettings,
-	loader:          ^thread.Thread,
-	lighting:        struct {
+	permanent_arena:       mem.Dynamic_Arena,
+	permanent_arena_mutex: mem.Mutex_Allocator,
+	should_run:            bool,
+	app_state:             AppState,
+	active_tab:            int,
+	ui:                    UIControls,
+	sound_settings:        ^SoundSettings,
+	loader:                ^thread.Thread,
+	lighting:              struct {
 		socket:      Maybe(net.UDP_Socket),
 		endpoint:    net.Endpoint,
 		active_look: LightingLook,
@@ -149,11 +148,15 @@ game_memory_make :: proc() -> ^GameMemory {
 	}
 
 	mem.dynamic_arena_init(&memory.permanent_arena)
+	mem.mutex_allocator_init(
+		&memory.permanent_arena_mutex,
+		mem.dynamic_arena_allocator(&memory.permanent_arena),
+	)
 	return memory
 }
 
 game_memory_allocator :: proc(memory: ^GameMemory) -> mem.Allocator {
-	return mem.dynamic_arena_allocator(&memory.permanent_arena)
+	return mem.mutex_allocator(&memory.permanent_arena_mutex)
 }
 
 game_memory_destroy :: proc(memory: ^GameMemory) {
@@ -165,6 +168,7 @@ game_memory_destroy :: proc(memory: ^GameMemory) {
 game_init :: proc() {
 	gm = game_memory_make()
 	context.allocator = game_memory_allocator(gm)
+	gm.lighting.active_fx = make(map[LightingFxKind]LightingFx)
 
 	gm.sound_settings = sound_settings_init()
 	gm.loader = thread.create_and_start(playlists_load_async, context)
@@ -215,7 +219,6 @@ game_shutdown :: proc() {
 		net.close(socket)
 		gm.lighting.socket = nil
 	}
-	delete(gm.lighting.active_fx)
 
 	game_memory_destroy(gm)
 }
