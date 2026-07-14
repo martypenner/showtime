@@ -46,10 +46,11 @@ GameMemory :: struct {
 	sound_settings: ^SoundSettings,
 	loader:         ^thread.Thread,
 	lighting:       struct {
-		socket:      Maybe(net.UDP_Socket),
-		endpoint:    net.Endpoint,
-		active_look: LightingLook,
-		active_fx:   map[LightingFxKind]LightingFx,
+		socket:         Maybe(net.UDP_Socket),
+		endpoint:       net.Endpoint,
+		active_look:    LightingLook,
+		fx:             [LightingFxKind]LightingFx,
+		fx_osc_address: [LightingFxKind]string,
 	},
 }
 
@@ -148,7 +149,7 @@ game_memory_make :: proc() -> ^GameMemory {
 @(export)
 game_init :: proc() {
 	gm = game_memory_make()
-	gm.lighting.active_fx = make(map[LightingFxKind]LightingFx)
+	lighting_init()
 
 	gm.sound_settings = sound_settings_init()
 	gm.loader = thread.create_and_start(playlists_load_async, context)

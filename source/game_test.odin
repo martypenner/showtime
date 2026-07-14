@@ -53,11 +53,11 @@ game_memory_arena_owns_memory_and_returns_backing_allocations :: proc(t: ^testin
 		"GameMemory should be allocated inside the app arena",
 	)
 
-	memory.lighting.active_fx = make(map[LightingFxKind]LightingFx)
-	memory.lighting.active_fx[.Blackout] = LightingFx {
-		kind = .Blackout,
+	scratch := make(map[LightingFxKind]LightingFx)
+	scratch[.Blackout] = LightingFx {
+		key_count = 1,
 	}
-	testing.expect_value(t, memory.lighting.active_fx[.Blackout].kind, LightingFxKind.Blackout)
+	testing.expect_value(t, scratch[.Blackout].key_count, u8(1))
 	testing.expect(t, len(tracking_allocator.allocation_map) > 0)
 }
 

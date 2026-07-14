@@ -1,14 +1,11 @@
 package game
 
 import hm "core:container/handle_map"
-import "core:fmt"
 import "core:log"
 import "core:math"
-import "core:net"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
-import "osc"
 import rl "vendor:raylib"
 
 // UI-owned data lives here, next to the behavior that reads and mutates it. The
@@ -662,7 +659,7 @@ controls_draw :: proc() {
 				)
 				music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 
-				lighting_effects_deactivate_all()
+				lighting_fx_deactivate_all()
 				lighting_look_activate(.House)
 			}
 		case .Post_Show:
@@ -684,7 +681,7 @@ controls_draw :: proc() {
 				)
 				music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 
-				lighting_effects_deactivate_all()
+				lighting_fx_deactivate_all()
 				lighting_look_activate(.House)
 			}
 		case .To_House:
@@ -713,7 +710,7 @@ controls_draw :: proc() {
 					}
 				}
 
-				lighting_effects_deactivate_all()
+				lighting_fx_deactivate_all()
 				lighting_look_activate(.House)
 			}
 		case .Scene_Ramp:
@@ -789,9 +786,7 @@ controls_draw :: proc() {
 				}
 				music_start_playlist_track(playlist, track, vol, 0, 0, 0)
 
-				lighting_effect_run(
-					LightingFx{kind = .Blackout, fade_target = 1, fade_duration = 0},
-				)
+				lighting_fx_run(.Blackout, {{0, 1}})
 			}
 
 		// Games
@@ -820,15 +815,11 @@ controls_draw :: proc() {
 					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				}
 
-				lighting_effect_run(
-					LightingFx {
-						kind = .Innuendo,
-						fade_duration = 2,
-						fade_start = gm.lighting.active_fx[.Innuendo].fade_current,
-						fade_target = 1 - gm.lighting.active_fx[.Innuendo].fade_target,
-						fade_current = gm.lighting.active_fx[.Innuendo].fade_current,
-					},
-				)
+				// Toggle: head for the opposite of wherever the last envelope
+				// was going, starting from the current weight.
+				fx := gm.lighting.fx[.Innuendo]
+				target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].weight : 0
+				lighting_fx_run(.Innuendo, {{0, fx.weight_current}, {2, 1 - target_prev}})
 			}
 		case .Oscar_Moment:
 			if control_button_pressed(&control) {
@@ -933,64 +924,45 @@ controls_draw :: proc() {
 					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
 				}
 
-				blackout_prev, blackout_active := gm.lighting.active_fx[.Blackout]
-				target: f32 = 0.7
-				fade_start: f32
-				fade_target: f32
-				fade_delay: f32
-				fade_duration: f32
-				should_cleanup: bool
-				if blackout_active {
-					fade_start = blackout_prev.fade_current
-					fade_target = 0
-					fade_duration = 2
-					should_cleanup = true
+				fx := gm.lighting.fx[.Blackout]
+				if fx.weight_current > 0 {
+					// Blackout is dark: fade it down.
+					lighting_fx_run(.Blackout, {{0, fx.weight_current}, {2, 0}})
+					lighting_look_activate(.Scene)
 				} else {
-					fade_start = 1
-					fade_target = target
-					fade_delay = 21
-					fade_duration = 4
+					// Full blackout right away, hold while the intro plays,
+					// then come partway back up over 4s.
+					lighting_fx_run(
+						.Blackout,
+						{{0, fx.weight_current}, {2, 1}, {21, 1}, {25, 0.7}},
+					)
+					lighting_look_activate(.Scene)
 				}
-				lighting_effect_run(
-					LightingFx {
-						kind = .Blackout,
-						fade_delay = fade_delay,
-						fade_duration = fade_duration,
-						fade_start = fade_start,
-						fade_current = fade_start,
-						fade_target = fade_target,
-						should_cleanup = should_cleanup,
-					},
-				)
 			}
 
 		// Lighting
 		case .LightingHouse:
 			if control_button_pressed(&control) {
-				lighting_effects_deactivate_all()
+				lighting_fx_deactivate_all()
 				lighting_look_activate(.House)
 			}
 		case .LightingScene:
 			if control_button_pressed(&control) {
-				lighting_effects_deactivate_all()
+				lighting_fx_deactivate_all()
 				lighting_look_activate(.Scene)
 			}
 		case .LightingSceneWithFullFade:
 			if control_button_pressed(&control) {
-				lighting_effects_deactivate_all()
+				lighting_fx_deactivate_all()
 				lighting_look_activate(.SceneWithFullFade)
 			}
 		case .RainbowSting:
 			if control_button_pressed(&control) {
-				lighting_effect_run(
-					LightingFx {
-						kind = .RainbowSting,
-						fade_duration = 2,
-						fade_start = gm.lighting.active_fx[.RainbowSting].fade_current,
-						fade_target = 1 - gm.lighting.active_fx[.RainbowSting].fade_target,
-						fade_current = gm.lighting.active_fx[.RainbowSting].fade_current,
-					},
-				)
+				// Toggle: head for the opposite of wherever the last envelope
+				// was going, starting from the current weight.
+				fx := gm.lighting.fx[.RainbowSting]
+				target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].weight : 0
+				lighting_fx_run(.RainbowSting, {{0, fx.weight_current}, {2, 1 - target_prev}})
 			}
 
 		// Sounds
@@ -1110,110 +1082,6 @@ music_browser_tracks_refresh :: proc() {
 	s := &control.state.(List_State)
 	s.active = 0
 	s.scroll_index = 0
-}
-
-LightingLook :: enum {
-	House,
-	Scene,
-	SceneWithFullFade,
-	CenterFocus,
-}
-LightingFx :: struct {
-	kind:           LightingFxKind,
-	fade_delay:     f32,
-	fade_start:     f32,
-	fade_target:    f32,
-	fade_duration:  f32,
-	fade_elapsed:   f32,
-	fade_current:   f32,
-	should_cleanup: bool,
-}
-LightingFxKind :: enum {
-	Blackout,
-	RainbowSting,
-	Rain,
-	Innuendo,
-	AveMaria,
-}
-
-lighting_look_activate :: proc(look: LightingLook) {
-	socket, ok := gm.lighting.socket.?
-	if !ok do return
-
-	look_str, enum_ok := fmt.enum_value_to_string(look)
-	log.ensuref(enum_ok, "Failed to convert LightingLook enum to string: %v", enum_ok)
-	look_name := strings.to_camel_case(look_str, context.temp_allocator)
-	log.debugf("Activating lighting look: %s", look_name)
-
-	gm.lighting.active_look = look
-	osc.float_send(
-		socket,
-		gm.lighting.endpoint,
-		fmt.tprint("/scenes/", look_name, "/load", sep = ""),
-		1.0,
-	)
-}
-
-lighting_effect_run :: proc(effect: LightingFx) {
-	gm.lighting.active_fx[effect.kind] = effect
-}
-
-lighting_effects_deactivate_all :: proc() {
-	for _, &effect in gm.lighting.active_fx {
-		effect.fade_start = effect.fade_current
-		effect.fade_target = 0
-		effect.fade_duration = 2
-		effect.fade_elapsed = 0
-	}
-}
-
-lighting_update :: proc() {
-	for kind, &effect in gm.lighting.active_fx {
-		frame_time := rl.GetFrameTime()
-		weight := effect.fade_current
-		if effect.fade_delay > 0 {
-			effect.fade_delay = math.max(0, effect.fade_delay - frame_time)
-		} else {
-			weight = effect.fade_target
-			if effect.fade_elapsed < effect.fade_duration {
-				effect.fade_elapsed += frame_time
-				weight = math.clamp(
-					math.lerp(
-						effect.fade_start,
-						effect.fade_target,
-						effect.fade_elapsed / effect.fade_duration,
-					),
-					effect.fade_start < effect.fade_target ? effect.fade_start : effect.fade_target,
-					effect.fade_start < effect.fade_target ? effect.fade_target : effect.fade_start,
-				)
-			}
-		}
-		effect.fade_current = weight
-
-		effect_str, enum_ok := fmt.enum_value_to_string(effect.kind)
-		log.ensuref(enum_ok, "Failed to convert LightingFx enum to string: %v", enum_ok)
-		effect_name := strings.to_camel_case(effect_str, context.temp_allocator)
-
-		osc.float_send(
-			gm.lighting.socket.(net.UDP_Socket),
-			gm.lighting.endpoint,
-			fmt.tprint(
-				"/globalEffects/",
-				strings.to_camel_case(effect_name, context.temp_allocator),
-				"/effects/weight",
-				sep = "",
-			),
-			weight,
-		)
-
-		// When an effect has no more delay and has reached its target, remove it if requested.
-		if effect.fade_delay == 0 &&
-		   effect.fade_current == effect.fade_target &&
-		   effect.should_cleanup {
-			log.debugf("Removing effect %v", kind)
-			defer delete_key(&gm.lighting.active_fx, kind)
-		}
-	}
 }
 
 @(private)
