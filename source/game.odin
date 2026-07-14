@@ -26,10 +26,8 @@ created.
 
 package game
 
-import "base:runtime"
 import "core:fmt"
 import "core:log"
-import "core:mem"
 import "core:net"
 import "core:os"
 import "core:thread"
@@ -41,15 +39,13 @@ _ :: fmt
 gm: ^GameMemory
 
 GameMemory :: struct {
-	permanent_arena:       mem.Dynamic_Arena,
-	permanent_arena_mutex: mem.Mutex_Allocator,
-	should_run:            bool,
-	app_state:             AppState,
-	active_tab:            int,
-	ui:                    UIControls,
-	sound_settings:        ^SoundSettings,
-	loader:                ^thread.Thread,
-	lighting:              struct {
+	should_run:     bool,
+	app_state:      AppState,
+	active_tab:     int,
+	ui:             UIControls,
+	sound_settings: ^SoundSettings,
+	loader:         ^thread.Thread,
+	lighting:       struct {
 		socket:      Maybe(net.UDP_Socket),
 		endpoint:    net.Endpoint,
 		active_look: LightingLook,
@@ -141,33 +137,17 @@ ui_load_style :: proc() {
 }
 
 game_memory_make :: proc() -> ^GameMemory {
-	memory := new(GameMemory, runtime.default_allocator())
+	memory := new(GameMemory)
 	memory^ = GameMemory {
 		should_run = true,
 		app_state  = AppInitializing{},
 	}
-
-	mem.dynamic_arena_init(&memory.permanent_arena)
-	mem.mutex_allocator_init(
-		&memory.permanent_arena_mutex,
-		mem.dynamic_arena_allocator(&memory.permanent_arena),
-	)
 	return memory
-}
-
-game_memory_allocator :: proc(memory: ^GameMemory) -> mem.Allocator {
-	return mem.mutex_allocator(&memory.permanent_arena_mutex)
-}
-
-game_memory_destroy :: proc(memory: ^GameMemory) {
-	mem.dynamic_arena_destroy(&memory.permanent_arena)
-	free(memory, runtime.default_allocator())
 }
 
 @(export)
 game_init :: proc() {
 	gm = game_memory_make()
-	context.allocator = game_memory_allocator(gm)
 	gm.lighting.active_fx = make(map[LightingFxKind]LightingFx)
 
 	gm.sound_settings = sound_settings_init()
@@ -220,7 +200,7 @@ game_shutdown :: proc() {
 		gm.lighting.socket = nil
 	}
 
-	game_memory_destroy(gm)
+	gm = nil
 }
 
 @(export)

@@ -1,7 +1,6 @@
 .PHONY: all build build-web generate-enums run test format clean
 
 PIDFILE=build/hot_reload/game.pid
-CONTAINER := odin-build
 
 all: build
 
@@ -16,7 +15,7 @@ generate-enums:
 	@odin run source/tools/generate_enums >/dev/null
 	@$(MAKE) format
 
-run: generate-enums
+run: clean generate-enums
 	@./scripts/build_hot_reload.sh run
 	@echo "Watching for changes (Ctrl-C or exit the game window to stop)..."
 	@trap 'kill $$(cat $(PIDFILE) 2>/dev/null) 2>/dev/null; rm -f $(PIDFILE); echo; echo "Stopped game and watch."; exit 0' INT TERM; \

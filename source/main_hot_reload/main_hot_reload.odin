@@ -111,7 +111,8 @@ main :: proc() {
 	default_allocator := context.allocator
 	tracking_allocator: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&tracking_allocator, default_allocator)
-	context.allocator = mem.tracking_allocator(&tracking_allocator)
+	tracking := mem.tracking_allocator(&tracking_allocator)
+	context.allocator = tracking
 
 	reset_tracking_allocator :: proc(a: ^mem.Tracking_Allocator) -> bool {
 		err := false
@@ -130,8 +131,27 @@ main :: proc() {
 
 	if !game_api_ok {
 		fmt.println("Failed to load Game API")
+		context.allocator = default_allocator
+		mem.tracking_allocator_destroy(&tracking_allocator)
 		return
 	}
+
+	// The host owns the allocator state so its address and allocator procedure
+	// remain valid across game DLL reloads. Tracking sits underneath the arena:
+	// after the arena is destroyed, any remaining tracked allocation escaped the
+	// game's bulk-memory lifetime.
+	game_memory_arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(
+		&game_memory_arena,
+		block_allocator = tracking,
+		array_allocator = tracking,
+	)
+	game_memory_arena_mutex: mem.Mutex_Allocator
+	mem.mutex_allocator_init(
+		&game_memory_arena_mutex,
+		mem.dynamic_arena_allocator(&game_memory_arena),
+	)
+	context.allocator = mem.mutex_allocator(&game_memory_arena_mutex)
 
 	game_api_version += 1
 	game_api.init_window()
@@ -177,6 +197,8 @@ main :: proc() {
 					// probably lead to a crash anyways.
 
 					game_api.shutdown()
+					context.allocator = tracking
+					mem.dynamic_arena_destroy(&game_memory_arena)
 					reset_tracking_allocator(&tracking_allocator)
 
 					for &g in old_game_apis {
@@ -186,6 +208,16 @@ main :: proc() {
 					clear(&old_game_apis)
 					unload_game_api(&game_api)
 					game_api = new_game_api
+					mem.dynamic_arena_init(
+						&game_memory_arena,
+						block_allocator = tracking,
+						array_allocator = tracking,
+					)
+					mem.mutex_allocator_init(
+						&game_memory_arena_mutex,
+						mem.dynamic_arena_allocator(&game_memory_arena),
+					)
+					context.allocator = mem.mutex_allocator(&game_memory_arena_mutex)
 					game_api.init()
 				}
 
@@ -208,6 +240,9 @@ main :: proc() {
 
 	free_all(context.temp_allocator)
 	game_api.shutdown()
+	game_api.shutdown_window()
+	context.allocator = tracking
+	mem.dynamic_arena_destroy(&game_memory_arena)
 	if reset_tracking_allocator(&tracking_allocator) {
 		// This prevents the game from closing without you seeing the memory
 		// leaks. This is mostly needed because I use Sublime Text and my game's
@@ -221,8 +256,8 @@ main :: proc() {
 
 	delete(old_game_apis)
 
-	game_api.shutdown_window()
 	unload_game_api(&game_api)
+	context.allocator = default_allocator
 	mem.tracking_allocator_destroy(&tracking_allocator)
 }
 

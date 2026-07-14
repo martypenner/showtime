@@ -11,6 +11,8 @@ import "core:mem"
 
 @(private = "file")
 web_context: runtime.Context
+game_memory_arena: mem.Dynamic_Arena
+game_memory_arena_mutex: mem.Mutex_Allocator
 
 @(export)
 main_start :: proc "c" () {
@@ -27,6 +29,12 @@ main_start :: proc "c" () {
 	// extra newlines on web. So it's a bug in that core lib.
 	context.logger = create_emscripten_logger()
 
+	mem.dynamic_arena_init(&game_memory_arena)
+	mem.mutex_allocator_init(
+		&game_memory_arena_mutex,
+		mem.dynamic_arena_allocator(&game_memory_arena),
+	)
+	context.allocator = mem.mutex_allocator(&game_memory_arena_mutex)
 	web_context = context
 
 	game.game_init_window()
@@ -45,6 +53,9 @@ main_end :: proc "c" () {
 	context = web_context
 	game.game_shutdown()
 	game.game_shutdown_window()
+	context.allocator = emscripten_allocator()
+	mem.dynamic_arena_destroy(&game_memory_arena)
+	web_context = context
 }
 
 @(export)

@@ -1,5 +1,6 @@
 package game
 
+import "core:mem"
 import "core:testing"
 
 // Destructive presentation is an app-owned decision, not something the generic
@@ -13,6 +14,53 @@ resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
 	testing.expect_value(t, ui_resolve_type(.RainbowSting), UI_Type.Lighting)
 }
 
+// The process host puts tracking beneath the app arena. GameMemory and maps must
+// use that arena, and destroying it must return every tracked backing allocation.
+@(test)
+game_memory_arena_owns_memory_and_returns_backing_allocations :: proc(t: ^testing.T) {
+	backing_allocator := context.allocator
+	tracking_allocator: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&tracking_allocator, backing_allocator)
+	tracking := mem.tracking_allocator(&tracking_allocator)
+
+	game_memory_arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(
+		&game_memory_arena,
+		block_allocator = tracking,
+		array_allocator = tracking,
+	)
+	game_memory_arena_mutex: mem.Mutex_Allocator
+	mem.mutex_allocator_init(
+		&game_memory_arena_mutex,
+		mem.dynamic_arena_allocator(&game_memory_arena),
+	)
+	context.allocator = mem.mutex_allocator(&game_memory_arena_mutex)
+	defer {
+		context.allocator = backing_allocator
+		mem.dynamic_arena_destroy(&game_memory_arena)
+		testing.expect_value(t, len(tracking_allocator.allocation_map), 0)
+		testing.expect_value(t, len(tracking_allocator.bad_free_array), 0)
+		mem.tracking_allocator_destroy(&tracking_allocator)
+	}
+
+	memory := game_memory_make()
+	arena_start := uintptr(game_memory_arena.current_block)
+	memory_address := uintptr(memory)
+	testing.expect(
+		t,
+		arena_start <= memory_address &&
+		memory_address < arena_start + uintptr(game_memory_arena.block_size),
+		"GameMemory should be allocated inside the app arena",
+	)
+
+	memory.lighting.active_fx = make(map[LightingFxKind]LightingFx)
+	memory.lighting.active_fx[.Blackout] = LightingFx {
+		kind = .Blackout,
+	}
+	testing.expect_value(t, memory.lighting.active_fx[.Blackout].kind, LightingFxKind.Blackout)
+	testing.expect(t, len(tracking_allocator.allocation_map) > 0)
+}
+
 // Tabs are split per layout file: build_layout tags every control with the group
 // of the file it loaded from. chrome.rgl loads into VISIBLE_ON_ALL_GROUPS so its
 // controls (the tab bar and status bar) show on every tab, and controls.rgl
@@ -20,9 +68,14 @@ resolve_ui_type_marks_destructive_controls :: proc(t: ^testing.T) {
 // just a new file + load call.
 @(test)
 build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
-	memory := game_memory_make()
-	context.allocator = game_memory_allocator(memory)
-	defer game_memory_destroy(memory)
+	backing_allocator := context.allocator
+	game_memory_arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&game_memory_arena)
+	context.allocator = mem.dynamic_arena_allocator(&game_memory_arena)
+	defer {
+		context.allocator = backing_allocator
+		mem.dynamic_arena_destroy(&game_memory_arena)
+	}
 
 	ui := ui_controls_make(layout_build())
 
