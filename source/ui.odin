@@ -553,7 +553,7 @@ ui_resolve_type :: proc(action: ControlName) -> UI_Type {
 		return .Destructive
 	case .Innuendo:
 		return .Innuendo
-	case .Oscar_Moment, .SlasClub, .Slas50sPop, .SlasUpbeat, .SlasSlowJam:
+	case .Oscar_Moment, .SlasClub, .Slas50sPop, .SlasUpbeat, .SlasSlowJam, .AveMaria:
 		return .Game
 	case .Glass_Break,
 	     .Gunshot,
@@ -908,6 +908,61 @@ controls_draw :: proc() {
 					lighting_look_activate(.CenterFocus)
 				}
 			}
+		case .AveMaria:
+			if control_button_pressed(&control) {
+				playlist := playlist_find_by_name(.Ave_Maria)
+				ensure(playlist != nil)
+
+				if playlist_is_current(.Ave_Maria) {
+					for &voice in gm.sound_settings.music_voices {
+						music_voice_fade_out(&voice, 2)
+					}
+				} else {
+					track := playlist_pick_random_track(playlist)
+					ensure(track != nil, "Couldn't pick track for Innuendo")
+
+					vol := f32(1)
+					new_voice := music_start_playlist_track(
+						playlist,
+						track,
+						vol,
+						gm.sound_settings.fade_in_time,
+						0,
+						gm.sound_settings.fade_out_time,
+					)
+					music_voices_fade_out_except(new_voice, gm.sound_settings.fade_out_time)
+				}
+
+				blackout_prev, blackout_active := gm.lighting.active_fx[.Blackout]
+				target: f32 = 0.7
+				fade_start: f32
+				fade_target: f32
+				fade_delay: f32
+				fade_duration: f32
+				should_cleanup: bool
+				if blackout_active {
+					fade_start = blackout_prev.fade_current
+					fade_target = 0
+					fade_duration = 2
+					should_cleanup = true
+				} else {
+					fade_start = 1
+					fade_target = target
+					fade_delay = 21
+					fade_duration = 4
+				}
+				lighting_effect_run(
+					LightingFx {
+						kind = .Blackout,
+						fade_delay = fade_delay,
+						fade_duration = fade_duration,
+						fade_start = fade_start,
+						fade_current = fade_start,
+						fade_target = fade_target,
+						should_cleanup = should_cleanup,
+					},
+				)
+			}
 
 		// Lighting
 		case .LightingHouse:
@@ -1064,18 +1119,21 @@ LightingLook :: enum {
 	CenterFocus,
 }
 LightingFx :: struct {
-	kind:          LightingFxKind,
-	fade_start:    f32,
-	fade_target:   f32,
-	fade_duration: f32,
-	fade_elapsed:  f32,
-	fade_current:  f32,
+	kind:           LightingFxKind,
+	fade_delay:     f32,
+	fade_start:     f32,
+	fade_target:    f32,
+	fade_duration:  f32,
+	fade_elapsed:   f32,
+	fade_current:   f32,
+	should_cleanup: bool,
 }
 LightingFxKind :: enum {
 	Blackout,
 	RainbowSting,
 	Rain,
 	Innuendo,
+	AveMaria,
 }
 
 lighting_look_activate :: proc(look: LightingLook) {
@@ -1111,18 +1169,24 @@ lighting_effects_deactivate_all :: proc() {
 
 lighting_update :: proc() {
 	for kind, &effect in gm.lighting.active_fx {
-		weight: f32 = effect.fade_target
-		if effect.fade_elapsed < effect.fade_duration {
-			effect.fade_elapsed += rl.GetFrameTime()
-			weight = math.clamp(
-				math.lerp(
-					effect.fade_start,
-					effect.fade_target,
-					effect.fade_elapsed / effect.fade_duration,
-				),
-				effect.fade_start < effect.fade_target ? effect.fade_start : effect.fade_target,
-				effect.fade_start < effect.fade_target ? effect.fade_target : effect.fade_start,
-			)
+		frame_time := rl.GetFrameTime()
+		weight := effect.fade_current
+		if effect.fade_delay > 0 {
+			effect.fade_delay = math.max(0, effect.fade_delay - frame_time)
+		} else {
+			weight = effect.fade_target
+			if effect.fade_elapsed < effect.fade_duration {
+				effect.fade_elapsed += frame_time
+				weight = math.clamp(
+					math.lerp(
+						effect.fade_start,
+						effect.fade_target,
+						effect.fade_elapsed / effect.fade_duration,
+					),
+					effect.fade_start < effect.fade_target ? effect.fade_start : effect.fade_target,
+					effect.fade_start < effect.fade_target ? effect.fade_target : effect.fade_start,
+				)
+			}
 		}
 		effect.fade_current = weight
 
@@ -1142,8 +1206,11 @@ lighting_update :: proc() {
 			weight,
 		)
 
-		// When an effect reaches 0 weight as it's final destination, prune it so it's no longer active.
-		if effect.fade_target == 0 && weight == 0 {
+		// When an effect has no more delay and has reached its target, remove it if requested.
+		if effect.fade_delay == 0 &&
+		   effect.fade_current == effect.fade_target &&
+		   effect.should_cleanup {
+			log.debugf("Removing effect %v", kind)
 			defer delete_key(&gm.lighting.active_fx, kind)
 		}
 	}

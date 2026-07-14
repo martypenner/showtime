@@ -1,7 +1,7 @@
 #
 # rgl layout text file (v4.0) - raygui layout file generated using rGuiLayout
 #
-# Number of controls:     34
+# Number of controls:     35
 #
 # Ref. window:    r <x> <y> <width> <height>
 # Anchor info:    a <id> <name> <posx> <posy> <enabled>
@@ -33,7 +33,7 @@ c 020 7 Use_House_Music 240 24 24 24 1 Use house music
 c 021 17 Music_Volume 480 24 96 24 1 
 c 022 5 RainbowSting 360 288 96 48 1 Rainbow sting
 c 023 1 Lighting 0 272 576 64 1 Lighting
-c 024 1 Games 0 176 696 64 1 Games
+c 024 1 Games 0 176 816 64 1 Games
 c 025 5 Innuendo 0 192 96 48 1 Innuendo
 c 026 5 Oscar_Moment 120 192 96 48 1 Oscar Moment
 c 027 5 LightingScene 120 288 96 48 1 Scene
@@ -43,3 +43,4 @@ c 030 5 SlasClub 240 192 96 48 1 Club
 c 031 5 SlasSlowJam 360 192 96 48 1 Slow Jam
 c 032 5 Slas50sPop 480 192 96 48 1 50s Pop
 c 033 5 SlasUpbeat 600 192 96 48 1 Upbeat
+c 034 5 AveMaria 720 192 96 48 1 Ave Maria
