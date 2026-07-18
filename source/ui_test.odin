@@ -78,23 +78,27 @@ default_control_state_matches_each_control_type :: proc(t: ^testing.T) {
 // control_visible here locks that contract without Raylib drawing.
 @(test)
 control_visible_filters_by_active_group :: proc(t: ^testing.T) {
-	on_group :: proc(group: int) -> Control {
+	on_group :: proc(group: Tab) -> Control {
 		return Control{visibility_group = group}
 	}
 
-	testing.expect(t, control_is_visible(on_group(0), 0), "group 0 visible on group 0")
-	testing.expect(t, !control_is_visible(on_group(0), 1), "group 0 hidden on group 1")
-	testing.expect(t, control_is_visible(on_group(1), 1), "group 1 visible on group 1")
 	testing.expect(
 		t,
-		control_is_visible(on_group(VISIBLE_ON_ALL_GROUPS), 0),
-		"chrome visible on group 0",
+		control_is_visible(on_group(.Controls), Tab.Controls),
+		"group 0 visible on group 0",
 	)
 	testing.expect(
 		t,
-		control_is_visible(on_group(VISIBLE_ON_ALL_GROUPS), 1),
-		"chrome visible on group 1",
+		!control_is_visible(on_group(.Controls), Tab.Music),
+		"group 0 hidden on group 1",
 	)
+	testing.expect(
+		t,
+		control_is_visible(on_group(.Music), Tab.Music),
+		"group 1 visible on group 1",
+	)
+	testing.expect(t, control_is_visible(on_group(.All), Tab.All), "chrome visible on group 0")
+	testing.expect(t, control_is_visible(on_group(.All), Tab.Music), "chrome visible on group 1")
 }
 
 @(test)

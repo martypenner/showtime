@@ -41,7 +41,7 @@ gm: ^GameMemory
 GameMemory :: struct {
 	should_run:     bool,
 	app_state:      AppState,
-	active_tab:     int,
+	active_tab:     Tab,
 	ui:             UIControls,
 	sound_settings: ^SoundSettings,
 	loader:         ^thread.Thread,
@@ -149,14 +149,12 @@ game_memory_make :: proc() -> ^GameMemory {
 @(export)
 game_init :: proc() {
 	gm = game_memory_make()
-	lighting_init()
 
 	gm.sound_settings = sound_settings_init()
 	gm.loader = thread.create_and_start(playlists_load_async, context)
 
 	gm.ui = ui_controls_make(layout_build())
 	ui_control_set_value(&gm.ui, .Use_House_Music, gm.sound_settings.use_house_music)
-
 	for &control in gm.ui.items {
 		control.ui_type = ui_resolve_type(control.name_id)
 	}
@@ -171,6 +169,8 @@ game_init :: proc() {
 	log.ensuref(socket_err == nil, "Error making udp socket: %v", socket_err)
 	gm.lighting.socket = socket
 	gm.lighting.endpoint = endpoint
+
+	lighting_init()
 
 	game_hot_reloaded(gm)
 }

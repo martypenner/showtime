@@ -588,8 +588,8 @@ music_start_playlist_track :: proc(
 		fade_out_duration,
 	)
 
-	gm.sound_settings.current_playing_playlist = playlist
-	gm.sound_settings.music_volume = volume
+	sound_settings.current_playing_playlist = playlist
+	sound_settings.music_volume = volume
 	track.played = true
 	playlist.last_played_track = playlist.current_playing_track
 	playlist.current_playing_track = track
@@ -659,7 +659,7 @@ music_voice_fade_update :: proc(voice: ^MusicVoice, dt: f32) {
 
 playlist_find_by_name :: proc(playlist_name: PlaylistName) -> ^Playlist {
 	name := playlist_name_string(playlist_name)
-	for &playlist in gm.sound_settings.playlists {
+	for &playlist in sound_settings.playlists {
 		if playlist.name == name do return &playlist
 	}
 	log.warnf("Couldn't find playlist, skipping: %s", name)
@@ -668,7 +668,7 @@ playlist_find_by_name :: proc(playlist_name: PlaylistName) -> ^Playlist {
 
 playlist_pick_random_track :: proc(playlist: ^Playlist) -> ^Track {
 	track := playlist_pick_track_unplayed(playlist)
-	if track != nil || !gm.sound_settings.loop do return track
+	if track != nil || !sound_settings.loop do return track
 
 	it := hm.iterator_make(&playlist.tracks)
 	for current_track, _ in hm.iterate(&it) {

@@ -83,13 +83,13 @@ build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
 	for control in ui.items {
 		#partial switch control.name_id {
 		case .Tab_Bar, .Status_Bar:
-			testing.expect_value(t, control.visibility_group, VISIBLE_ON_ALL_GROUPS)
+			testing.expect_value(t, control.visibility_group, Tab.All)
 			chrome_seen += 1
 		case .ChangePlaylist, .ChangeTrack:
-			testing.expect_value(t, control.visibility_group, int(Tab.Music))
+			testing.expect_value(t, control.visibility_group, Tab.Music)
 			music_seen += 1
 		case:
-			testing.expect_value(t, control.visibility_group, int(Tab.Controls))
+			testing.expect_value(t, control.visibility_group, Tab.Controls)
 			controls_seen += 1
 		}
 	}

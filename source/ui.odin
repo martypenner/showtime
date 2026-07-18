@@ -56,12 +56,10 @@ UI_Type :: enum u8 {
 	Innuendo,
 }
 
-VISIBLE_ON_ALL_GROUPS :: -1
-
 Control :: struct {
 	control_type:     Control_Type,
 	ui_type:          UI_Type,
-	visibility_group: int,
+	visibility_group: Tab,
 	name:             string,
 	name_id:          ControlName,
 	text:             cstring,
@@ -170,11 +168,8 @@ default_control_state :: proc(type: Control_Type) -> Control_State {
 	return nil
 }
 
-control_is_visible :: proc(control: Control, active_group: int) -> bool {
-	return(
-		control.visibility_group == VISIBLE_ON_ALL_GROUPS ||
-		control.visibility_group == active_group \
-	)
+control_is_visible :: proc(control: Control, active_group: Tab) -> bool {
+	return control.visibility_group == Tab.All || control.visibility_group == active_group
 }
 
 controls_prepare_for_render :: proc(controls: []Control, render_width: i32, render_height: i32) {
@@ -188,7 +183,7 @@ controls_prepare_for_render :: proc(controls: []Control, render_width: i32, rend
 	}
 }
 
-layout_load :: proc(controls: ^Controls, name: string, source: string, group: int) {
+layout_load :: proc(controls: ^Controls, name: string, source: string, group: Tab) {
 	parsed, err := layout_parse(source)
 	defer delete(parsed)
 	if e, bad := err.?; bad {
@@ -513,9 +508,10 @@ control_draw_passive :: proc(control: ^Control) {
 	}
 }
 
-Tab :: enum int {
+Tab :: enum u8 {
 	Controls,
 	Music,
+	All,
 }
 
 layout_build :: proc() -> Controls {
@@ -526,15 +522,10 @@ layout_build :: proc() -> Controls {
 		&controls,
 		"controls.rgl",
 		string(#load("../resources/controls.rgl")),
-		int(Tab.Controls),
+		Tab.Controls,
 	)
-	layout_load(&controls, "music.rgl", string(#load("../resources/music.rgl")), int(Tab.Music))
-	layout_load(
-		&controls,
-		"chrome.rgl",
-		string(#load("../resources/chrome.rgl")),
-		VISIBLE_ON_ALL_GROUPS,
-	)
+	layout_load(&controls, "music.rgl", string(#load("../resources/music.rgl")), Tab.Music)
+	layout_load(&controls, "chrome.rgl", string(#load("../resources/chrome.rgl")), Tab.All)
 
 	controls_prepare_for_render(controls[:], rl.GetRenderWidth(), rl.GetRenderHeight())
 	return controls
@@ -590,9 +581,11 @@ controls_draw :: proc() {
 				index := int(control.state.(i32))
 				switch Tab(index) {
 				case .Controls, .Music:
-					gm.active_tab = index
+					gm.active_tab = Tab(index)
+				case .All:
+					fallthrough
 				case:
-					gm.active_tab = int(Tab.Controls)
+					gm.active_tab = Tab.Controls
 				}
 			}
 		case .Music_Volume:
