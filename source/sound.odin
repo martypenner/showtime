@@ -37,6 +37,7 @@ SoundSettings :: struct {
 	music_voices:             [MUSIC_VOICE_COUNT]MusicVoice `json:"-"`,
 	current_sounds:           SoundVoices `json:"-"`,
 	is_sound_playing:         bool `json:"-"`,
+	points:                   [dynamic]rl.Vector2 `json:"-"`,
 }
 
 // A cross-fade only ever blends the outgoing track into the incoming one, so two
