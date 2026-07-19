@@ -1,6 +1,5 @@
 package game
 
-import hm "core:container/handle_map"
 import "core:testing"
 
 // After a hot reload the freshly-loaded DLL starts with a nil package global,
@@ -213,11 +212,8 @@ track_pick_unplayed_returns_nil_when_exhausted_and_reset_makes_pickable :: proc(
 	playlist := Playlist {
 		name = "test",
 	}
-	hm.dynamic_init(&playlist.tracks, context.allocator)
-	defer hm.dynamic_destroy(&playlist.tracks)
-
-	_, err := hm.add(&playlist.tracks, Track{title = "played", path = "played.mp3", played = true})
-	testing.expect(t, err == nil)
+	defer delete(playlist.tracks)
+	append(&playlist.tracks, Track{title = "played", path = "played.mp3", played = true})
 
 	testing.expect(t, playlist_pick_track_unplayed(&playlist) == nil)
 	track := track_pick_unplayed_after_reset_for_test(&playlist)
@@ -232,7 +228,7 @@ track_pick_unplayed_uses_insertion_order_when_shuffle_off :: proc(t: ^testing.T)
 	sound_settings = &settings
 
 	playlist := sound_test_playlist_make({"first", "second", "third"})
-	defer hm.dynamic_destroy(&playlist.tracks)
+	defer delete(playlist.tracks)
 
 	track := playlist_pick_track_unplayed(&playlist)
 	testing.expect(t, track != nil)
@@ -253,7 +249,7 @@ track_pick_unplayed_avoids_last_track_when_shuffle_off_if_possible :: proc(t: ^t
 	sound_settings = &settings
 
 	playlist := sound_test_playlist_make({"first", "second"})
-	defer hm.dynamic_destroy(&playlist.tracks)
+	defer delete(playlist.tracks)
 
 	first := playlist_pick_track_unplayed(&playlist)
 	testing.expect(t, first != nil)
@@ -265,9 +261,7 @@ track_pick_unplayed_avoids_last_track_when_shuffle_off_if_possible :: proc(t: ^t
 }
 
 track_pick_unplayed_after_reset_for_test :: proc(playlist: ^Playlist) -> ^Track {
-	it := hm.iterator_make(&playlist.tracks)
-	for track, _ in hm.iterate(&it) {
-		ensure(hm.is_valid(&playlist.tracks, track.handle))
+	for &track in playlist.tracks {
 		track.played = false
 	}
 	return playlist_pick_track_unplayed(playlist)
@@ -277,10 +271,8 @@ sound_test_playlist_make :: proc(titles: []string) -> Playlist {
 	playlist := Playlist {
 		name = "test",
 	}
-	hm.dynamic_init(&playlist.tracks, context.allocator)
 	for title in titles {
-		_, err := hm.add(&playlist.tracks, Track{title = title, path = title})
-		if err != nil do return playlist
+		append(&playlist.tracks, Track{title = title, path = title})
 	}
 	return playlist
 }

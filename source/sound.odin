@@ -1,6 +1,5 @@
 package game
 
-import hm "core:container/handle_map"
 import "core:encoding/json"
 import "core:fmt"
 import "core:log"
@@ -23,21 +22,22 @@ SoundSettings :: struct {
 	// The music master volume (0..1). Scales every music track on top of its
 	// per-track normalization gain. It is deliberately NOT raylib's global
 	// master volume, which would also attenuate sound effects.
-	music_volume:             f32 `json:"-"`,
-	use_house_music:          bool,
-	fade_in_time:             f32,
-	fade_out_time:            f32,
-	start_next_time:          f32,
-	shuffle:                  bool,
-	loop:                     bool,
-	normalize_volume:         bool,
-	target_loudness:          f32,
-	playlists:                Playlists `json:"-"`,
-	current_playing_playlist: ^Playlist `json:"-"`,
-	selected_playlist:        ^Playlist `json:"-"`,
-	music_voices:             [MUSIC_VOICE_COUNT]MusicVoice `json:"-"`,
-	current_sounds:           SoundVoices `json:"-"`,
-	is_sound_playing:         bool `json:"-"`,
+	music_volume:                 f32 `json:"-"`,
+	use_house_music:              bool,
+	fade_in_time:                 f32,
+	fade_out_time:                f32,
+	start_next_time:              f32,
+	shuffle:                      bool,
+	loop:                         bool,
+	normalize_volume:             bool,
+	target_loudness:              f32,
+	playlists:                    Playlists `json:"-"`,
+	current_playing_playlist:     ^Playlist `json:"-"`,
+	music_browser_playlist_index: Maybe(i32) `json:"-"`,
+	music_browser_track_index:    Maybe(i32) `json:"-"`,
+	music_voices:                 [MUSIC_VOICE_COUNT]MusicVoice `json:"-"`,
+	current_sounds:               SoundVoices `json:"-"`,
+	is_sound_playing:             bool `json:"-"`,
 }
 
 // A cross-fade only ever blends the outgoing track into the incoming one, so two
@@ -76,7 +76,7 @@ MusicVoice :: struct {
 
 Playlist :: struct {
 	name:                  string,
-	tracks:                hm.Dynamic_Handle_Map(Track, TrackHandle),
+	tracks:                [dynamic]Track,
 	played_track_count:    int,
 	current_playing_track: ^Track,
 	last_played_track:     ^Track,
@@ -84,10 +84,7 @@ Playlist :: struct {
 
 Playlists :: [dynamic; 64]Playlist
 
-TrackHandle :: distinct hm.Handle32
-
 Track :: struct {
-	handle:        TrackHandle,
 	title:         string,
 	path:          string,
 
@@ -169,11 +166,11 @@ playlists_load :: proc() -> Playlists {
 		track_relative_path: string,
 		track_name:          string,
 		track_keys:          ^TrackKeys,
-		tracks:              ^hm.Dynamic_Handle_Map(Track, TrackHandle),
-		playlist_name:       string,
-		// All tasks share one mutex guarding the writes to the shared track_keys
-		// list and each playlist's handle map (tracks of the same playlist are
-		// added concurrently).
+		playlists:           ^Playlists,
+		playlist_index:      int,
+		track_index:         int,
+		// All tasks share one mutex guarding writes to the shared track_keys list
+		// and the reserved slots in each playlist's track array.
 		mutex:               ^sync.Mutex,
 	}
 
@@ -185,8 +182,7 @@ playlists_load :: proc() -> Playlists {
 		if playlist_dir.type != .Directory && playlist_dir.type != .Symlink do continue
 
 		append(&playlists, Playlist{name = strings.clone(playlist_dir.name)})
-		playlist := &playlists[len(playlists) - 1]
-		hm.dynamic_init(&playlist.tracks, context.allocator)
+		playlist_index := len(playlists) - 1
 
 		track_files, tracks_err := os.read_all_directory_by_path(
 			playlist_dir.fullpath,
@@ -210,14 +206,17 @@ playlists_load :: proc() -> Playlists {
 				playlist_dir.name,
 				rel_err,
 			)
+			track_index := len(playlists[playlist_index].tracks)
+			append(&playlists[playlist_index].tracks, Track{})
 
 			data := new(PoolData, context.temp_allocator)
 			data^ = PoolData {
 				track_relative_path = rel_path,
 				track_name          = track_file.name,
 				track_keys          = &track_keys,
-				tracks              = &playlist.tracks,
-				playlist_name       = playlist.name,
+				playlists           = &playlists,
+				playlist_index      = playlist_index,
+				track_index         = track_index,
 				mutex               = &mutex,
 			}
 			thread.pool_add_task(&pool, context.allocator, proc(t: thread.Task) {
@@ -240,14 +239,7 @@ playlists_load :: proc() -> Playlists {
 						path   = strings.clone(data.track_relative_path),
 						played = false,
 					}
-					_, err := hm.add(&data.tracks^, track)
-					log.ensuref(
-						err == nil,
-						"Error adding track `%s` to playlist `%s`: %v",
-						track,
-						data.playlist_name,
-						err,
-					)
+					data.playlists^[data.playlist_index].tracks[data.track_index] = track
 				}, data)
 		}
 	}
@@ -292,7 +284,13 @@ playlists_load_async :: proc() {
 	defer mem.dynamic_arena_destroy(&scratch)
 
 	sound_settings.playlists = playlists_load()
-	sound_settings.selected_playlist = &sound_settings.playlists[0]
+	for _, playlist_index in sound_settings.playlists {
+		sound_settings.music_browser_playlist_index = i32(playlist_index)
+		sound_settings.music_browser_track_index = i32(0)
+		break
+	}
+	_, playlist_selected := sound_settings.music_browser_playlist_index.?
+	ensure(playlist_selected, "No music tracks found")
 }
 
 sound_retrigger_fade_needed :: proc(
@@ -672,22 +670,18 @@ playlist_pick_random_track :: proc(playlist: ^Playlist) -> ^Track {
 	track := playlist_pick_track_unplayed(playlist)
 	if track != nil || !sound_settings.loop do return track
 
-	it := hm.iterator_make(&playlist.tracks)
-	for current_track, _ in hm.iterate(&it) {
-		ensure(hm.is_valid(&playlist.tracks, current_track.handle))
+	for &current_track in playlist.tracks {
 		current_track.played = false
 	}
 	return playlist_pick_track_unplayed(playlist)
 }
 
 playlist_pick_specific_track :: proc(playlist: ^Playlist, control_name: ControlName) -> ^Track {
-	it := hm.iterator_make(&playlist.tracks)
-	for current_track, _ in hm.iterate(&it) {
-		ensure(hm.is_valid(&playlist.tracks, current_track.handle))
+	for &current_track in playlist.tracks {
 		track_name, ok := fmt.enum_value_to_string(control_name)
 		ensure(ok)
 		if current_track.title == track_name {
-			return current_track
+			return &current_track
 		}
 	}
 
@@ -697,13 +691,11 @@ playlist_pick_specific_track :: proc(playlist: ^Playlist, control_name: ControlN
 playlist_pick_track_unplayed :: proc(playlist: ^Playlist) -> ^Track {
 	if !sound_settings.shuffle {
 		fallback: ^Track
-		it := hm.iterator_make(&playlist.tracks)
-		for current_track, _ in hm.iterate(&it) {
-			ensure(hm.is_valid(&playlist.tracks, current_track.handle))
+		for &current_track in playlist.tracks {
 			if current_track.played do continue
-			if fallback == nil do fallback = current_track
-			if playlist.last_played_track == current_track do continue
-			return current_track
+			if fallback == nil do fallback = &current_track
+			if playlist.last_played_track == &current_track do continue
+			return &current_track
 		}
 		return fallback
 	}
@@ -711,14 +703,12 @@ playlist_pick_track_unplayed :: proc(playlist: ^Playlist) -> ^Track {
 	track: ^Track
 	fallback: ^Track
 	unplayed_seen := 0
-	it := hm.iterator_make(&playlist.tracks)
-	for current_track, _ in hm.iterate(&it) {
-		ensure(hm.is_valid(&playlist.tracks, current_track.handle))
-		fallback = current_track
+	for &current_track in playlist.tracks {
+		fallback = &current_track
 		if current_track.played do continue
 		unplayed_seen += 1
-		if rand.int_max(unplayed_seen) == 0 && playlist.last_played_track != current_track {
-			track = current_track
+		if rand.int_max(unplayed_seen) == 0 && playlist.last_played_track != &current_track {
+			track = &current_track
 		}
 	}
 	if track == nil do track = fallback

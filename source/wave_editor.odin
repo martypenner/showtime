@@ -121,11 +121,18 @@ wave_editor :: proc() {
 	rl.DrawFPS(10, 30)
 }
 
-wave_editor_load :: proc(filename: string) {
+wave_editor_track_load :: proc(track: ^Track) {
 	clear(&wave_editor_settings.points)
+	ensure(track != nil)
 
-	wave := rl.LoadWave(strings.clone_to_cstring(filename))
+	wave := rl.LoadWave(strings.clone_to_cstring(track.path))
+	ensure(rl.IsWaveValid(wave))
+	defer rl.UnloadWave(wave)
+	ensure(wave.frameCount > 0 && wave.channels > 0)
+
 	samples := rl.LoadWaveSamples(wave)
+	ensure(samples != nil)
+	defer rl.UnloadWaveSamples(samples)
 
 	sample_count := wave.frameCount * wave.channels
 	point_count := min(wave.frameCount, WAVEFORM_WIDTH)
@@ -141,7 +148,4 @@ wave_editor_load :: proc(filename: string) {
 			},
 		)
 	}
-
-	rl.UnloadWave(wave)
-	rl.UnloadWaveSamples(samples)
 }
