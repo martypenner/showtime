@@ -582,6 +582,20 @@ controls_draw :: proc() {
 				switch Tab(index) {
 				case .Controls, .Music:
 					gm.active_tab = Tab(index)
+					if Tab(index) == .Music {
+						p := sound_settings.selected_playlist
+						if (p == nil) {
+							p = &sound_settings.playlists[0]
+							sound_settings.selected_playlist = p
+						}
+						// This is so dumb. I think handle map was a bad idea. Or maybe just
+						// my structure is. Just feels like pointers would've been better.
+						it := hm.iterator_make(&p.tracks)
+						for track, _ in hm.iterate(&it) {
+							wave_editor_load(track.path)
+							break
+						}
+					}
 				case .All:
 					fallthrough
 				case:
@@ -994,13 +1008,43 @@ controls_draw :: proc() {
 				&s.active,
 				nil,
 			)
-			if prev != s.active do music_browser_tracks_refresh()
+			if prev != s.active {
+				music_browser_tracks_refresh()
+				sound_settings.selected_playlist = &sound_settings.playlists[s.active]
+			}
 		case .ChangeTrack:
-			control_draw_passive(&control)
+			s := &control.state.(List_State)
+			prev := s.active
+			rl.GuiListViewEx(
+				control.rect,
+				raw_data(s.items[:]),
+				i32(len(s.items)),
+				&s.scroll_index,
+				&s.active,
+				nil,
+			)
+			if prev != s.active {
+				p := sound_settings.selected_playlist
+				ensure(p != nil)
+				it := hm.iterator_make(&p.tracks)
+				i: i32 = 0
+				for track, _ in hm.iterate(&it) {
+					ensure(hm.is_valid(&p.tracks, track.handle))
+					if i == s.active {
+						wave_editor_load(track.path)
+						break
+					}
+					i += 1
+				}
+			}
 
 		case:
 			control_draw_passive(&control)
 		}
+	}
+
+	if gm.active_tab == .Music {
+		wave_editor()
 	}
 }
 
@@ -1042,30 +1086,23 @@ music_browser_playlists_refresh :: proc() {
 
 music_browser_playlist_selected :: proc() -> ^Playlist {
 	control := ui_control_get(&gm.ui, .ChangePlaylist)
-	if control == nil do return nil
-
 	s := control.state.(List_State)
 	index := int(s.active)
-	if index < 0 || index >= len(gm.sound_settings.playlists) do return nil
 	return &gm.sound_settings.playlists[index]
 }
 
 music_browser_tracks_refresh :: proc() {
 	control := ui_control_get(&gm.ui, .ChangeTrack)
-	if control == nil do return
-
 	playlist := music_browser_playlist_selected()
-	if playlist == nil {
-		control_text_replace(control, "")
-		return
-	}
-
 	names: [dynamic]string
-	defer delete(names)
-
 	it := hm.iterator_make(&playlist.tracks)
+	t: Track
+	i: i32
 	for track, _ in hm.iterate(&it) {
+		ensure(hm.is_valid(&playlist.tracks, track.handle))
 		append(&names, track.title)
+		if i == 0 do t = track^
+		i += 1
 	}
 	slice.sort_by(names[:], proc(a, b: string) -> bool {
 		return strings.compare(a, b) < 0
@@ -1075,6 +1112,8 @@ music_browser_tracks_refresh :: proc() {
 	s := &control.state.(List_State)
 	s.active = 0
 	s.scroll_index = 0
+
+	wave_editor_load(t.path)
 }
 
 @(private)

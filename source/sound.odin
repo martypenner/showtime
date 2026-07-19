@@ -34,10 +34,10 @@ SoundSettings :: struct {
 	target_loudness:          f32,
 	playlists:                Playlists `json:"-"`,
 	current_playing_playlist: ^Playlist `json:"-"`,
+	selected_playlist:        ^Playlist `json:"-"`,
 	music_voices:             [MUSIC_VOICE_COUNT]MusicVoice `json:"-"`,
 	current_sounds:           SoundVoices `json:"-"`,
 	is_sound_playing:         bool `json:"-"`,
-	points:                   [dynamic]rl.Vector2 `json:"-"`,
 }
 
 // A cross-fade only ever blends the outgoing track into the incoming one, so two
@@ -292,6 +292,7 @@ playlists_load_async :: proc() {
 	defer mem.dynamic_arena_destroy(&scratch)
 
 	sound_settings.playlists = playlists_load()
+	sound_settings.selected_playlist = &sound_settings.playlists[0]
 }
 
 sound_retrigger_fade_needed :: proc(
@@ -673,6 +674,7 @@ playlist_pick_random_track :: proc(playlist: ^Playlist) -> ^Track {
 
 	it := hm.iterator_make(&playlist.tracks)
 	for current_track, _ in hm.iterate(&it) {
+		ensure(hm.is_valid(&playlist.tracks, current_track.handle))
 		current_track.played = false
 	}
 	return playlist_pick_track_unplayed(playlist)
@@ -681,6 +683,7 @@ playlist_pick_random_track :: proc(playlist: ^Playlist) -> ^Track {
 playlist_pick_specific_track :: proc(playlist: ^Playlist, control_name: ControlName) -> ^Track {
 	it := hm.iterator_make(&playlist.tracks)
 	for current_track, _ in hm.iterate(&it) {
+		ensure(hm.is_valid(&playlist.tracks, current_track.handle))
 		track_name, ok := fmt.enum_value_to_string(control_name)
 		ensure(ok)
 		if current_track.title == track_name {
@@ -696,6 +699,7 @@ playlist_pick_track_unplayed :: proc(playlist: ^Playlist) -> ^Track {
 		fallback: ^Track
 		it := hm.iterator_make(&playlist.tracks)
 		for current_track, _ in hm.iterate(&it) {
+			ensure(hm.is_valid(&playlist.tracks, current_track.handle))
 			if current_track.played do continue
 			if fallback == nil do fallback = current_track
 			if playlist.last_played_track == current_track do continue
@@ -709,6 +713,7 @@ playlist_pick_track_unplayed :: proc(playlist: ^Playlist) -> ^Track {
 	unplayed_seen := 0
 	it := hm.iterator_make(&playlist.tracks)
 	for current_track, _ in hm.iterate(&it) {
+		ensure(hm.is_valid(&playlist.tracks, current_track.handle))
 		fallback = current_track
 		if current_track.played do continue
 		unplayed_seen += 1

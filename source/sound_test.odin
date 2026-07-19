@@ -267,6 +267,7 @@ track_pick_unplayed_avoids_last_track_when_shuffle_off_if_possible :: proc(t: ^t
 track_pick_unplayed_after_reset_for_test :: proc(playlist: ^Playlist) -> ^Track {
 	it := hm.iterator_make(&playlist.tracks)
 	for track, _ in hm.iterate(&it) {
+		ensure(hm.is_valid(&playlist.tracks, track.handle))
 		track.played = false
 	}
 	return playlist_pick_track_unplayed(playlist)

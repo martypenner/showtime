@@ -1,12 +1,19 @@
 package game
 
 import "core:math"
+import "core:strings"
 import rl "vendor:raylib"
 
-WAVEFORM_X :: 200
-WAVEFORM_Y :: 200
-WAVEFORM_WIDTH :: 800
-WAVEFORM_HEIGHT :: 400
+// This will not get hot reloaded
+WaveEditorSettings :: struct {
+	points: [dynamic]rl.Vector2,
+}
+wave_editor_settings: WaveEditorSettings
+
+WAVEFORM_X :: 240
+WAVEFORM_Y :: 552
+WAVEFORM_WIDTH :: 744
+WAVEFORM_HEIGHT :: 120
 
 start_x: f32 = WAVEFORM_X
 end_x := f32(WAVEFORM_X + WAVEFORM_WIDTH)
@@ -36,8 +43,8 @@ wave_editor :: proc() {
 	)
 
 	rl.DrawLineStrip(
-		raw_data(gm.sound_settings.points),
-		i32(len(gm.sound_settings.points)),
+		raw_data(wave_editor_settings.points),
+		i32(len(wave_editor_settings.points)),
 		rl.SKYBLUE,
 	)
 
@@ -112,4 +119,29 @@ wave_editor :: proc() {
 	}
 
 	rl.DrawFPS(10, 30)
+}
+
+wave_editor_load :: proc(filename: string) {
+	clear(&wave_editor_settings.points)
+
+	wave := rl.LoadWave(strings.clone_to_cstring(filename))
+	samples := rl.LoadWaveSamples(wave)
+
+	sample_count := wave.frameCount * wave.channels
+	point_count := min(wave.frameCount, WAVEFORM_WIDTH)
+	x_step := f32(WAVEFORM_WIDTH) / f32(point_count)
+	for point_index in 0 ..< point_count {
+		sample_index := point_index * sample_count / point_count
+		sample := samples[sample_index]
+		append(
+			&wave_editor_settings.points,
+			rl.Vector2 {
+				f32(WAVEFORM_X) + f32(point_index) * x_step,
+				f32(WAVEFORM_Y) + f32(WAVEFORM_HEIGHT) / 2 - sample * f32(WAVEFORM_HEIGHT) / 2,
+			},
+		)
+	}
+
+	rl.UnloadWave(wave)
+	rl.UnloadWaveSamples(samples)
 }
