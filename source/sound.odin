@@ -18,6 +18,12 @@ import rl "vendor:raylib"
 // The shared GameMemory holds only a pointer to SoundSettings (the hot-reload
 // persistence shell), so these definitions stay local to the sound Module.
 
+MusicTrackBounds :: struct {
+	file_hash:  string,
+	start_time: f32,
+	end_time:   f32,
+}
+
 SoundSettings :: struct {
 	// The music master volume (0..1). Scales every music track on top of its
 	// per-track normalization gain. It is deliberately NOT raylib's global
@@ -31,10 +37,13 @@ SoundSettings :: struct {
 	loop:                         bool,
 	normalize_volume:             bool,
 	target_loudness:              f32,
+	music_track_bounds:           map[string]MusicTrackBounds,
 	playlists:                    Playlists `json:"-"`,
 	current_playing_playlist:     ^Playlist `json:"-"`,
+	music_voice_current:          ^MusicVoice `json:"-"`,
 	music_browser_playlist_index: Maybe(i32) `json:"-"`,
 	music_browser_track_index:    Maybe(i32) `json:"-"`,
+	settings_save_time_left:      f32 `json:"-"`,
 	music_voices:                 [MUSIC_VOICE_COUNT]MusicVoice `json:"-"`,
 	current_sounds:               SoundVoices `json:"-"`,
 	is_sound_playing:             bool `json:"-"`,
@@ -54,6 +63,10 @@ MusicVoice :: struct {
 	// The track being played, used to look up its normalization gain. Borrowed
 	// from the playlist, which outlives every voice.
 	path:                   string,
+	playlist:               ^Playlist,
+	track:                  ^Track,
+	start_time:             f32,
+	end_time:               f32,
 	// The master music volume this voice plays at, snapshotted when it started.
 	// Held per-voice (rather than read from the live setting) so a volume change
 	// cross-fades: the outgoing track keeps its old volume while the incoming
@@ -85,22 +98,16 @@ Playlist :: struct {
 Playlists :: [dynamic; 64]Playlist
 
 Track :: struct {
-	title:         string,
-	path:          string,
-
-	// The actual portion of the track to play. If it's been edited, this will be
-	// the "slice" to play. If not, this is the full track length.
-	slice_to_play: struct {
-		start_time: f16,
-		end_time:   f16,
-	},
-	played:        bool,
+	title:  string,
+	path:   string,
+	played: bool,
 }
 
 PathName :: string
 
 SOUND_FADE_OUT_DURATION :: f32(2.0)
 SOUND_REPLAY_FADE_THRESHOLD :: f32(4.0)
+SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION :: f32(0.25)
 
 SoundVoice :: struct {
 	sound:        rl.Sound,
@@ -347,33 +354,76 @@ sound_play :: proc(name: SoundEffectName, volume: f32) -> rl.Sound {
 }
 
 playlist_is_current :: proc(playlist_name: PlaylistName) -> bool {
-	playlist := sound_settings.current_playing_playlist
-	return playlist != nil && playlist.name == playlist_name_string(playlist_name)
+	voice := sound_settings.music_voice_current
+	return voice != nil && voice.playlist.name == playlist_name_string(playlist_name)
 }
 
 track_is_current :: proc(track_name: ControlName) -> bool {
 	name, _ := fmt.enum_value_to_string(track_name)
-	return(
-		sound_settings.current_playing_playlist != nil &&
-		sound_settings.current_playing_playlist.current_playing_track != nil &&
-		sound_settings.current_playing_playlist.current_playing_track.title == name \
-	)
+	voice := sound_settings.music_voice_current
+	return voice != nil && voice.track.title == name
 }
 
 sound_settings_load :: proc() -> SoundSettings {
 	filename := sound_settings_filename()
 	settings := DefaultSoundSettings
-	if !os.exists(filename) {
-		return settings
+	if os.exists(filename) {
+		settings_data, err := os.read_entire_file(filename, context.temp_allocator)
+		log.ensuref(err == nil, "Error reading settings file: %v", err)
+
+		json_err := json.unmarshal(settings_data, &settings, .Bitsquid, context.allocator)
+		log.ensuref(json_err == nil, "Error unmarshaling json from settings file: %v", json_err)
 	}
-
-	settings_data, err := os.read_entire_file(filename, context.temp_allocator)
-	log.ensuref(err == nil, "Error reading settings file: %v", err)
-
-	json_err := json.unmarshal(settings_data, &settings, .Bitsquid, context.allocator)
-	log.ensuref(json_err == nil, "Error unmarshaling json from settings file: %v", json_err)
-
+	if settings.music_track_bounds == nil {
+		settings.music_track_bounds = make(map[string]MusicTrackBounds)
+	}
 	return settings
+}
+
+music_track_bounds_resolve :: proc(
+	bounds_by_path: map[string]MusicTrackBounds,
+	path: string,
+	file_hash: string,
+	duration: f32,
+) -> (
+	bounds: MusicTrackBounds,
+	stale: bool,
+) {
+	ensure(duration > 0 && !math.is_nan(duration) && !math.is_inf(duration, 0))
+	stored_bounds, ok := bounds_by_path[path]
+	if !ok {
+		return MusicTrackBounds{file_hash = file_hash, start_time = 0, end_time = duration}, false
+	}
+	if stored_bounds.file_hash != file_hash {
+		return MusicTrackBounds{file_hash = file_hash, start_time = 0, end_time = duration}, true
+	}
+	ensure(!math.is_nan(stored_bounds.start_time) && !math.is_inf(stored_bounds.start_time, 0))
+	ensure(!math.is_nan(stored_bounds.end_time) && !math.is_inf(stored_bounds.end_time, 0))
+	ensure(stored_bounds.start_time >= 0 && stored_bounds.start_time < stored_bounds.end_time)
+	ensure(stored_bounds.end_time <= duration + 0.1)
+	stored_bounds.end_time = min(stored_bounds.end_time, duration)
+	return stored_bounds, false
+}
+
+music_track_time_relative :: proc(file_time, start_time, end_time: f32) -> (played, length: f32) {
+	length = end_time - start_time
+	ensure(length > 0)
+	played = math.clamp(file_time - start_time, 0, length)
+	return
+}
+
+music_voice_transition_needed :: proc(
+	played: f32,
+	start_time: f32,
+	end_time: f32,
+	start_next_time: f32,
+	ended: bool,
+) -> bool {
+	if ended do return true
+	duration := end_time - start_time
+	ensure(duration > 0)
+	if duration <= start_next_time do return false
+	return end_time - played <= start_next_time
 }
 
 music_voice_fade_out :: proc(voice: ^MusicVoice, fade_out_duration: f32) {
@@ -405,6 +455,7 @@ music_voice_swell_after_fade_in :: proc(voice: ^MusicVoice, volume_target: f32, 
 }
 
 music_voice_start :: proc(
+	playlist: ^Playlist,
 	track: ^Track,
 	volume: f32,
 	fade_in_duration: f32,
@@ -415,7 +466,26 @@ music_voice_start :: proc(
 ) -> ^MusicVoice {
 	voice := music_voice_find_available()
 	music := rl.LoadMusicStream(strings.clone_to_cstring(track.path, context.temp_allocator))
-	if !rl.IsMusicValid(music) do return nil
+	ensure(rl.IsMusicValid(music), fmt.tprintf("Couldn't load music stream: %s", track.path))
+	music.looping = false
+
+	generated_track, generated_track_ok := TRACKS[track.path]
+	ensure(generated_track_ok, fmt.tprintf("Missing generated track metadata: %s", track.path))
+	bounds, stale := music_track_bounds_resolve(
+		sound_settings.music_track_bounds,
+		track.path,
+		generated_track.file_hash,
+		generated_track.duration_seconds,
+	)
+	if stale {
+		log.warnf("Ignoring bounds for changed track: %s", track.path)
+		delete_key(&sound_settings.music_track_bounds, track.path)
+		sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
+	}
+	stream_length := rl.GetMusicTimeLength(music)
+	ensure(stream_length > 0)
+	bounds.end_time = min(bounds.end_time, stream_length)
+	ensure(bounds.start_time < bounds.end_time)
 
 	fade_phase := MusicFadePhase.Holding
 	if fade_in_time_left > 0 {
@@ -430,6 +500,10 @@ music_voice_start :: proc(
 		music              = music,
 		active             = true,
 		path               = track.path,
+		playlist           = playlist,
+		track              = track,
+		start_time         = bounds.start_time,
+		end_time           = bounds.end_time,
 		volume             = volume,
 		fade_phase         = fade_phase,
 		fade_in_duration   = fade_in_duration,
@@ -440,6 +514,7 @@ music_voice_start :: proc(
 	}
 
 	rl.SetMusicVolume(music, music_voice_volume_current(voice^))
+	rl.SeekMusicStream(music, bounds.start_time)
 	rl.PlayMusicStream(music)
 	return voice
 }
@@ -468,6 +543,15 @@ music_voice_find_available :: proc() -> ^MusicVoice {
 
 music_voice_stop :: proc(voice: ^MusicVoice) {
 	if !voice.active do return
+	if sound_settings.music_voice_current == voice {
+		if voice.playlist.current_playing_track == voice.track {
+			voice.playlist.current_playing_track = nil
+		}
+		if sound_settings.current_playing_playlist == voice.playlist {
+			sound_settings.current_playing_playlist = nil
+		}
+		sound_settings.music_voice_current = nil
+	}
 	rl.StopMusicStream(voice.music)
 	rl.UnloadMusicStream(voice.music)
 	voice^ = {}
@@ -520,9 +604,9 @@ sound_music_current_volume :: proc() -> f32 {
 }
 
 music_current_label :: proc() -> string {
-	playlist := sound_settings.current_playing_playlist
-	if playlist == nil || playlist.current_playing_track == nil do return "No music playing"
-	return fmt.tprintf("%s - %s", playlist.name, playlist.current_playing_track.title)
+	voice := sound_settings.music_voice_current
+	if voice == nil do return "No music playing"
+	return fmt.tprintf("%s - %s", voice.playlist.name, voice.track.title)
 }
 
 music_current_progress :: proc() -> f32 {
@@ -532,17 +616,13 @@ music_current_progress :: proc() -> f32 {
 }
 
 music_current_time :: proc() -> (played, length: f32) {
-	playlist := sound_settings.current_playing_playlist
-	if playlist == nil || playlist.current_playing_track == nil do return 0, 0
-
-	for voice in sound_settings.music_voices {
-		if !voice.active do continue
-		if voice.path != playlist.current_playing_track.path do continue
-
-		return rl.GetMusicTimePlayed(voice.music), rl.GetMusicTimeLength(voice.music)
-	}
-
-	return 0, 0
+	voice := sound_settings.music_voice_current
+	if voice == nil do return 0, 0
+	return music_track_time_relative(
+		rl.GetMusicTimePlayed(voice.music),
+		voice.start_time,
+		voice.end_time,
+	)
 }
 
 music_time_pair_label :: proc(played, length: f32) -> string {
@@ -579,6 +659,7 @@ music_start_playlist_track :: proc(
 	fade_out_duration: f32,
 ) -> ^MusicVoice {
 	voice := music_voice_start(
+		playlist,
 		track,
 		volume,
 		fade_in_duration,
@@ -587,8 +668,10 @@ music_start_playlist_track :: proc(
 		fade_out_duration,
 		fade_out_duration,
 	)
+	ensure(voice != nil)
 
 	sound_settings.current_playing_playlist = playlist
+	sound_settings.music_voice_current = voice
 	sound_settings.music_volume = volume
 	track.played = true
 	playlist.last_played_track = playlist.current_playing_track
@@ -596,22 +679,17 @@ music_start_playlist_track :: proc(
 	return voice
 }
 
-music_voice_update :: proc(voice: ^MusicVoice, dt: f32) {
-	if !voice.active do return
+music_voice_update :: proc(voice: ^MusicVoice, dt: f32) -> bool {
+	ensure(voice.active)
 
 	rl.UpdateMusicStream(voice.music)
 	music_voice_fade_update(voice, dt)
 
 	rl.SetMusicVolume(voice.music, music_voice_volume_current(voice^))
 
-	if voice.fade_phase == .FadingOut && voice.fade_out_time_left <= 0 {
-		music_voice_stop(voice)
-		return
-	}
-
-	if !rl.IsMusicStreamPlaying(voice.music) {
-		music_voice_stop(voice)
-	}
+	if voice.fade_phase == .FadingOut && voice.fade_out_time_left <= 0 do return true
+	if rl.GetMusicTimePlayed(voice.music) >= voice.end_time do return true
+	return !rl.IsMusicStreamPlaying(voice.music)
 }
 
 music_voice_fade_update :: proc(voice: ^MusicVoice, dt: f32) {
@@ -721,14 +799,15 @@ sound_settings_filename :: proc() -> string {
 
 sound_settings_save :: proc() {
 	settings := SoundSettings {
-		use_house_music  = sound_settings.use_house_music,
-		fade_in_time     = sound_settings.fade_in_time,
-		fade_out_time    = sound_settings.fade_out_time,
-		start_next_time  = sound_settings.start_next_time,
-		shuffle          = sound_settings.shuffle,
-		loop             = sound_settings.loop,
-		normalize_volume = sound_settings.normalize_volume,
-		target_loudness  = sound_settings.target_loudness,
+		use_house_music    = sound_settings.use_house_music,
+		fade_in_time       = sound_settings.fade_in_time,
+		fade_out_time      = sound_settings.fade_out_time,
+		start_next_time    = sound_settings.start_next_time,
+		shuffle            = sound_settings.shuffle,
+		loop               = sound_settings.loop,
+		normalize_volume   = sound_settings.normalize_volume,
+		target_loudness    = sound_settings.target_loudness,
+		music_track_bounds = sound_settings.music_track_bounds,
 	}
 
 	settings_json, json_err := json.marshal(
@@ -750,6 +829,7 @@ sound_settings_save :: proc() {
 	filename := sound_settings_filename()
 	write_err := os.write_entire_file(filename, settings_json)
 	log.ensuref(write_err == nil, "Error writing settings file: %v", write_err)
+	sound_settings.settings_save_time_left = 0
 }
 
 sound_settings_init :: proc() -> ^SoundSettings {
@@ -788,50 +868,72 @@ sound_update :: proc() {
 	}
 	sound_settings.is_sound_playing = len(sound_settings.current_sounds) > 0
 
-	for &voice in sound_settings.music_voices {
-		if !voice.active do continue
-		music_voice_update(&voice, dt)
+	if sound_settings.settings_save_time_left > 0 {
+		sound_settings.settings_save_time_left = max(
+			sound_settings.settings_save_time_left - dt,
+			0,
+		)
+		if sound_settings.settings_save_time_left == 0 do sound_settings_save()
 	}
 
-	playlist := sound_settings.current_playing_playlist
-	if playlist != nil && playlist.current_playing_track != nil {
-		for &voice in sound_settings.music_voices {
-			if !voice.active do continue
-			if voice.started_next do continue
-			if voice.fade_phase == .FadingOut do continue
-			if voice.path != playlist.current_playing_track.path do continue
+	music_voice_ended: [MUSIC_VOICE_COUNT]bool
+	current_voice := sound_settings.music_voice_current
+	for &voice, voice_index in sound_settings.music_voices {
+		if !voice.active do continue
+		music_voice_ended[voice_index] = music_voice_update(&voice, dt)
+	}
 
-			played := rl.GetMusicTimePlayed(voice.music)
-			length := rl.GetMusicTimeLength(voice.music)
-			if length <= 0 || length - played > sound_settings.start_next_time do continue
-
-			voice.started_next = true
-			track := playlist_pick_random_track(playlist)
-			if track == nil do continue
-
-			new_voice := music_start_playlist_track(
-				playlist,
-				track,
-				sound_settings.music_volume,
-				sound_settings.fade_in_time,
-				0,
-				sound_settings.fade_out_time,
-			)
-			if new_voice == nil do continue
-
-			music_voices_fade_out_except(new_voice, sound_settings.fade_out_time)
+	successor_started := false
+	if current_voice != nil &&
+	   current_voice.active &&
+	   !current_voice.started_next &&
+	   current_voice.fade_phase != .FadingOut {
+		current_voice_ended := false
+		for &voice, voice_index in sound_settings.music_voices {
+			if &voice == current_voice {
+				current_voice_ended = music_voice_ended[voice_index]
+				break
+			}
+		}
+		played := rl.GetMusicTimePlayed(current_voice.music)
+		if music_voice_transition_needed(
+			played,
+			current_voice.start_time,
+			current_voice.end_time,
+			sound_settings.start_next_time,
+			current_voice_ended,
+		) {
+			current_voice.started_next = true
+			track := playlist_pick_random_track(current_voice.playlist)
+			if track != nil {
+				new_voice := music_start_playlist_track(
+					current_voice.playlist,
+					track,
+					sound_settings.music_volume,
+					sound_settings.fade_in_time,
+					0,
+					sound_settings.fade_out_time,
+				)
+				for &voice, voice_index in sound_settings.music_voices {
+					if &voice == new_voice {
+						music_voice_ended[voice_index] = false
+						break
+					}
+				}
+				music_voices_fade_out_except(new_voice, sound_settings.fade_out_time)
+				successor_started = true
+			}
 		}
 	}
 
-	active_music_count := 0
-	for voice in sound_settings.music_voices {
-		if voice.active do active_music_count += 1
+	for &voice, voice_index in sound_settings.music_voices {
+		if !voice.active || !music_voice_ended[voice_index] do continue
+		if &voice == current_voice && successor_started {
+			// The successor is already current, so stopping this voice must not clear it.
+			ensure(sound_settings.music_voice_current != current_voice)
+		}
+		music_voice_stop(&voice)
 	}
-	if active_music_count == 0 && sound_settings.current_playing_playlist != nil {
-		sound_settings.current_playing_playlist.current_playing_track = nil
-		sound_settings.current_playing_playlist = nil
-	}
-
 }
 
 sound_hot_reloaded :: proc(settings: ^SoundSettings) {
@@ -839,5 +941,6 @@ sound_hot_reloaded :: proc(settings: ^SoundSettings) {
 }
 
 sound_shutdown :: proc() {
+	if sound_settings.settings_save_time_left > 0 do sound_settings_save()
 	rl.CloseAudioDevice()
 }

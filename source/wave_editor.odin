@@ -1,14 +1,8 @@
 package game
 
+import "core:log"
 import "core:math"
-import "core:strings"
 import rl "vendor:raylib"
-
-// This will not get hot reloaded
-WaveEditorSettings :: struct {
-	points: [dynamic]rl.Vector2,
-}
-wave_editor_settings: WaveEditorSettings
 
 WAVEFORM_X :: 240
 WAVEFORM_Y :: 552
@@ -28,7 +22,33 @@ End :: enum u8 {
 dragging: End
 hovering: End
 
+wave_editor_track_select :: proc(track: ^Track) {
+	generated_track, ok := TRACKS[track.path]
+	ensure(ok)
+	dragging = .None
+	bounds, stale := music_track_bounds_resolve(
+		sound_settings.music_track_bounds,
+		track.path,
+		generated_track.file_hash,
+		generated_track.duration_seconds,
+	)
+	if stale {
+		log.warnf("Ignoring bounds for changed track: %s", track.path)
+		delete_key(&sound_settings.music_track_bounds, track.path)
+		sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
+	}
+	start_x =
+		f32(WAVEFORM_X) +
+		bounds.start_time / generated_track.duration_seconds * f32(WAVEFORM_WIDTH)
+	end_x =
+		f32(WAVEFORM_X) + bounds.end_time / generated_track.duration_seconds * f32(WAVEFORM_WIDTH)
+}
+
 wave_editor :: proc() {
+	track := music_browser_track_selected()
+	generated_track, ok := TRACKS[track.path]
+	ensure(ok)
+
 	// Middle colored play space
 	rl.DrawRectangleRec({start_x, WAVEFORM_Y, end_x - start_x, WAVEFORM_HEIGHT}, rl.DARKBLUE)
 	// Start grayed out section
@@ -42,11 +62,16 @@ wave_editor :: proc() {
 		{32, 32, 32, 255},
 	)
 
-	rl.DrawLineStrip(
-		raw_data(wave_editor_settings.points),
-		i32(len(wave_editor_settings.points)),
-		rl.SKYBLUE,
-	)
+	waveform_points: [TRACK_WAVEFORM_SAMPLE_COUNT]rl.Vector2
+	waveform_center_y := f32(WAVEFORM_Y + WAVEFORM_HEIGHT / 2)
+	for sample, index in generated_track.waveform_samples {
+		x :=
+			f32(WAVEFORM_X) +
+			f32(index) * f32(WAVEFORM_WIDTH) / f32(TRACK_WAVEFORM_SAMPLE_COUNT - 1)
+		y := waveform_center_y - f32(sample) / 127 * f32(WAVEFORM_HEIGHT) / 2
+		waveform_points[index] = {x, y}
+	}
+	rl.DrawLineStrip(raw_data(waveform_points[:]), TRACK_WAVEFORM_SAMPLE_COUNT, rl.SKYBLUE)
 
 	start_line: [2]rl.Vector2 = {{start_x, WAVEFORM_Y}, {start_x, WAVEFORM_Y + WAVEFORM_HEIGHT}}
 	end_line: [2]rl.Vector2 = {{end_x, WAVEFORM_Y}, {end_x, WAVEFORM_Y + WAVEFORM_HEIGHT}}
@@ -98,6 +123,8 @@ wave_editor :: proc() {
 
 	if rl.IsMouseButtonReleased(rl.MouseButton.LEFT) do dragging = .None
 
+	previous_start_x := start_x
+	previous_end_x := end_x
 	if dragging == .Start {
 		start_x = math.clamp(
 			mouse_x,
@@ -111,6 +138,20 @@ wave_editor :: proc() {
 			WAVEFORM_X + WAVEFORM_WIDTH,
 		)
 	}
+	if start_x != previous_start_x || end_x != previous_end_x {
+		if start_x == WAVEFORM_X && end_x == WAVEFORM_X + WAVEFORM_WIDTH {
+			delete_key(&sound_settings.music_track_bounds, track.path)
+		} else {
+			sound_settings.music_track_bounds[track.path] = MusicTrackBounds {
+				file_hash  = generated_track.file_hash,
+				start_time = (start_x -
+					WAVEFORM_X) / f32(WAVEFORM_WIDTH) * generated_track.duration_seconds,
+				end_time   = (end_x -
+					WAVEFORM_X) / f32(WAVEFORM_WIDTH) * generated_track.duration_seconds,
+			}
+		}
+		sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
+	}
 
 	if hovering == .Start || hovering == .End || dragging == .Start || dragging == .End {
 		rl.SetMouseCursor(rl.MouseCursor.RESIZE_EW)
@@ -119,33 +160,4 @@ wave_editor :: proc() {
 	}
 
 	rl.DrawFPS(10, 30)
-}
-
-wave_editor_track_load :: proc(track: ^Track) {
-	clear(&wave_editor_settings.points)
-	ensure(track != nil)
-
-	wave := rl.LoadWave(strings.clone_to_cstring(track.path))
-	ensure(rl.IsWaveValid(wave))
-	defer rl.UnloadWave(wave)
-	ensure(wave.frameCount > 0 && wave.channels > 0)
-
-	samples := rl.LoadWaveSamples(wave)
-	ensure(samples != nil)
-	defer rl.UnloadWaveSamples(samples)
-
-	sample_count := wave.frameCount * wave.channels
-	point_count := min(wave.frameCount, WAVEFORM_WIDTH)
-	x_step := f32(WAVEFORM_WIDTH) / f32(point_count)
-	for point_index in 0 ..< point_count {
-		sample_index := point_index * sample_count / point_count
-		sample := samples[sample_index]
-		append(
-			&wave_editor_settings.points,
-			rl.Vector2 {
-				f32(WAVEFORM_X) + f32(point_index) * x_step,
-				f32(WAVEFORM_Y) + f32(WAVEFORM_HEIGHT) / 2 - sample * f32(WAVEFORM_HEIGHT) / 2,
-			},
-		)
-	}
 }

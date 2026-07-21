@@ -35,13 +35,16 @@ ControlNameEntry :: struct {
 }
 
 GeneratedTrack :: struct {
-	path:       string,
-	file_hash:  string,
-	active_rms: f32,
+	path:             string,
+	file_hash:        string,
+	active_rms:       f32,
+	duration_seconds: f32,
+	waveform_samples: [TRACK_WAVEFORM_SAMPLE_COUNT]i8,
 }
 
 RMSCache :: struct {
 	version:                   int,
+	waveform_sample_count:     int,
 	active_sample_gate:        f32,
 	active_rms_window_seconds: f64,
 	min_active_rms_seconds:    f64,
@@ -49,13 +52,17 @@ RMSCache :: struct {
 }
 
 RMSCacheEntry :: struct {
-	file_hash:  string,
-	active_rms: f32,
+	file_hash:        string,
+	active_rms:       f32,
+	duration_seconds: f32,
+	waveform_samples: [TRACK_WAVEFORM_SAMPLE_COUNT]i8,
 }
 
 MUSIC_ACTIVE_SAMPLE_GATE :: f32(0.02)
 MUSIC_ACTIVE_RMS_WINDOW_SECONDS :: f64(0.05)
 MUSIC_MIN_ACTIVE_RMS_SECONDS :: f64(0.5)
+TRACK_WAVEFORM_SAMPLE_COUNT :: 1024
+TRACK_ANALYSIS_THREAD_COUNT :: 2
 
 main :: proc() {
 	rms_cache := load_rms_cache()
@@ -77,7 +84,11 @@ main :: proc() {
 	defer delete(tracks)
 
 	pool: thread.Pool
-	thread.pool_init(&pool, context.temp_allocator, os.get_processor_core_count())
+	thread.pool_init(
+		&pool,
+		context.temp_allocator,
+		min(os.get_processor_core_count(), TRACK_ANALYSIS_THREAD_COUNT),
+	)
 	defer thread.pool_destroy(&pool)
 
 	scratch: mem.Dynamic_Arena
@@ -144,10 +155,13 @@ main :: proc() {
 					}
 
 					file_hash := fmt.tprint(hash.murmur64a(track_bytes))
+					cache_entry := track_cache_entry_resolve(data.path, file_hash, data.rms_cache)
 					track := GeneratedTrack {
-						path       = strings.clone(data.path),
-						file_hash  = strings.clone(file_hash),
-						active_rms = active_rms_for_track(data.path, file_hash, data.rms_cache),
+						path             = strings.clone(data.path),
+						file_hash        = strings.clone(file_hash),
+						active_rms       = cache_entry.active_rms,
+						duration_seconds = cache_entry.duration_seconds,
+						waveform_samples = cache_entry.waveform_samples,
 					}
 
 					sync.guard(data.mutex)
@@ -203,20 +217,33 @@ main :: proc() {
 	}
 	fmt.sbprintln(&builder, "}")
 	fmt.sbprintln(&builder)
+	fmt.sbprintf(&builder, "TRACK_WAVEFORM_SAMPLE_COUNT :: %d\n", TRACK_WAVEFORM_SAMPLE_COUNT)
+	fmt.sbprintln(&builder)
 	fmt.sbprintln(&builder, "GeneratedTrack :: struct {")
 	fmt.sbprintln(&builder, "\tfile_hash: string,")
 	fmt.sbprintln(&builder, "\tactive_rms: f32,")
+	fmt.sbprintln(&builder, "\tduration_seconds: f32,")
+	fmt.sbprintln(&builder, "\twaveform_samples: [TRACK_WAVEFORM_SAMPLE_COUNT]i8,")
 	fmt.sbprintln(&builder, "}")
 	fmt.sbprintln(&builder)
 	fmt.sbprintln(&builder, "TRACKS := map[string]GeneratedTrack {")
 	for track in tracks {
-		fmt.sbprintf(
-			&builder,
-			"\t%q = {{file_hash = %q, active_rms = %.8f}},\n",
-			track.path,
-			track.file_hash,
-			track.active_rms,
-		)
+		fmt.sbprintf(&builder, "\t%q = {{\n", track.path)
+		fmt.sbprintf(&builder, "\t\tfile_hash = %q,\n", track.file_hash)
+		fmt.sbprintf(&builder, "\t\tactive_rms = %.8f,\n", track.active_rms)
+		fmt.sbprintf(&builder, "\t\tduration_seconds = %.8f,\n", track.duration_seconds)
+		fmt.sbprintln(&builder, "\t\twaveform_samples = {")
+		for value, index in track.waveform_samples {
+			if index % 32 == 0 do fmt.sbprint(&builder, "\t\t\t")
+			fmt.sbprintf(&builder, "%d,", value)
+			if index % 32 == 31 || index == len(track.waveform_samples) - 1 {
+				fmt.sbprintln(&builder)
+			} else {
+				fmt.sbprint(&builder, " ")
+			}
+		}
+		fmt.sbprintln(&builder, "\t\t},")
+		fmt.sbprintln(&builder, "\t},")
 	}
 	fmt.sbprintln(&builder, "}")
 	fmt.sbprintln(&builder)
@@ -361,10 +388,14 @@ load_control_names :: proc() -> [dynamic]ControlNameEntry {
 	return control_names
 }
 
-active_rms_for_track :: proc(path: string, file_hash: string, cache: RMSCache) -> f32 {
+track_cache_entry_resolve :: proc(
+	path: string,
+	file_hash: string,
+	cache: RMSCache,
+) -> RMSCacheEntry {
 	entry, ok := cache.tracks[path]
-	if ok && entry.file_hash == file_hash do return entry.active_rms
-	return music_active_rms_for_file(path)
+	if ok && entry.file_hash == file_hash do return entry
+	return track_cache_entry_generate(path, file_hash)
 }
 
 load_rms_cache :: proc() -> RMSCache {
@@ -378,6 +409,7 @@ load_rms_cache :: proc() -> RMSCache {
 	if unmarshal_err != nil do return cache
 
 	if loaded.version != cache.version ||
+	   loaded.waveform_sample_count != cache.waveform_sample_count ||
 	   loaded.active_sample_gate != cache.active_sample_gate ||
 	   loaded.active_rms_window_seconds != cache.active_rms_window_seconds ||
 	   loaded.min_active_rms_seconds != cache.min_active_rms_seconds ||
@@ -396,8 +428,10 @@ save_rms_cache :: proc(tracks: []GeneratedTrack) {
 
 	for track in tracks {
 		cache.tracks[track.path] = RMSCacheEntry {
-			file_hash  = track.file_hash,
-			active_rms = track.active_rms,
+			file_hash        = track.file_hash,
+			active_rms       = track.active_rms,
+			duration_seconds = track.duration_seconds,
+			waveform_samples = track.waveform_samples,
 		}
 	}
 
@@ -428,7 +462,8 @@ save_rms_cache :: proc(tracks: []GeneratedTrack) {
 
 default_rms_cache :: proc() -> RMSCache {
 	return RMSCache {
-		version = 1,
+		version = 4,
+		waveform_sample_count = TRACK_WAVEFORM_SAMPLE_COUNT,
 		active_sample_gate = MUSIC_ACTIVE_SAMPLE_GATE,
 		active_rms_window_seconds = MUSIC_ACTIVE_RMS_WINDOW_SECONDS,
 		min_active_rms_seconds = MUSIC_MIN_ACTIVE_RMS_SECONDS,
@@ -436,18 +471,22 @@ default_rms_cache :: proc() -> RMSCache {
 	}
 }
 
-music_active_rms_for_file :: proc(path: string) -> f32 {
+track_cache_entry_generate :: proc(path: string, file_hash: string) -> RMSCacheEntry {
 	wave := rl.LoadWave(strings.clone_to_cstring(path, context.temp_allocator))
-	if !rl.IsWaveValid(wave) do return 0
+	ensure(rl.IsWaveValid(wave), fmt.tprintf("Invalid music track: %s", path))
 	defer rl.UnloadWave(wave)
 
 	samples := rl.LoadWaveSamples(wave)
-	if samples == nil do return 0
+	ensure(samples != nil, fmt.tprintf("Couldn't load music samples: %s", path))
 	defer rl.UnloadWaveSamples(samples)
 
 	channels := int(wave.channels)
 	frames := int(wave.frameCount)
-	if channels <= 0 || frames <= 0 do return 0
+	sample_rate := int(wave.sampleRate)
+	ensure(
+		channels > 0 && frames > 0 && sample_rate > 0,
+		fmt.tprintf("Empty music track: %s", path),
+	)
 
 	window_frames := max(int(f64(wave.sampleRate) * MUSIC_ACTIVE_RMS_WINDOW_SECONDS), 1)
 	active_min_frames := int(f64(wave.sampleRate) * MUSIC_MIN_ACTIVE_RMS_SECONDS)
@@ -462,7 +501,8 @@ music_active_rms_for_file :: proc(path: string) -> f32 {
 			sample := f64(samples[frame * channels + channel])
 			frame_power += sample * sample
 		}
-		window_power_sum += frame_power / f64(channels)
+		frame_power /= f64(channels)
+		window_power_sum += frame_power
 		window_frame_count += 1
 
 		if window_frame_count >= window_frames || frame == frames - 1 {
@@ -476,8 +516,19 @@ music_active_rms_for_file :: proc(path: string) -> f32 {
 		}
 	}
 
-	if active_frame_count < active_min_frames do return 0
-	return f32(math.sqrt(active_power_sum / f64(active_frame_count)))
+	entry := RMSCacheEntry {
+		file_hash        = file_hash,
+		duration_seconds = f32(frames) / f32(sample_rate),
+	}
+	if active_frame_count >= active_min_frames {
+		entry.active_rms = f32(math.sqrt(active_power_sum / f64(active_frame_count)))
+	}
+
+	for &sample, sample_index in entry.waveform_samples {
+		frame := sample_index * frames / TRACK_WAVEFORM_SAMPLE_COUNT
+		sample = i8(math.clamp(samples[frame * channels] * 127, -127, 127))
+	}
+	return entry
 }
 
 // Convert folder names into Odin enum identifiers:

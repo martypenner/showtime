@@ -203,6 +203,75 @@ music_voice_holds_after_fade_in_then_targets_fade_out :: proc(t: ^testing.T) {
 }
 
 @(test)
+music_track_bounds_missing_uses_full_track :: proc(t: ^testing.T) {
+	bounds_by_path := make(map[string]MusicTrackBounds)
+	defer delete(bounds_by_path)
+
+	bounds, stale := music_track_bounds_resolve(bounds_by_path, "track.mp3", "hash", 120)
+	testing.expect_value(t, stale, false)
+	testing.expect_value(t, bounds.file_hash, "hash")
+	testing.expect_value(t, bounds.start_time, f32(0))
+	testing.expect_value(t, bounds.end_time, f32(120))
+}
+
+@(test)
+music_track_bounds_matching_hash_restores_selection :: proc(t: ^testing.T) {
+	bounds_by_path := make(map[string]MusicTrackBounds)
+	defer delete(bounds_by_path)
+	bounds_by_path["track.mp3"] = MusicTrackBounds {
+		file_hash  = "hash",
+		start_time = 12.5,
+		end_time   = 45.25,
+	}
+
+	bounds, stale := music_track_bounds_resolve(bounds_by_path, "track.mp3", "hash", 120)
+	testing.expect_value(t, stale, false)
+	testing.expect_value(t, bounds.start_time, f32(12.5))
+	testing.expect_value(t, bounds.end_time, f32(45.25))
+}
+
+@(test)
+music_track_bounds_changed_hash_reports_stale_and_uses_full_track :: proc(t: ^testing.T) {
+	bounds_by_path := make(map[string]MusicTrackBounds)
+	defer delete(bounds_by_path)
+	bounds_by_path["track.mp3"] = MusicTrackBounds {
+		file_hash  = "old-hash",
+		start_time = 12.5,
+		end_time   = 45.25,
+	}
+
+	bounds, stale := music_track_bounds_resolve(bounds_by_path, "track.mp3", "new-hash", 120)
+	testing.expect_value(t, stale, true)
+	testing.expect_value(t, bounds.file_hash, "new-hash")
+	testing.expect_value(t, bounds.start_time, f32(0))
+	testing.expect_value(t, bounds.end_time, f32(120))
+}
+
+@(test)
+music_track_time_is_relative_to_selected_bounds :: proc(t: ^testing.T) {
+	played, length := music_track_time_relative(35, 10, 50)
+	testing.expect_value(t, played, f32(25))
+	testing.expect_value(t, length, f32(40))
+
+	played, _ = music_track_time_relative(5, 10, 50)
+	testing.expect_value(t, played, f32(0))
+	played, _ = music_track_time_relative(60, 10, 50)
+	testing.expect_value(t, played, f32(40))
+}
+
+@(test)
+music_voice_transition_uses_bound_end_and_waits_for_short_segments :: proc(t: ^testing.T) {
+	testing.expect_value(t, music_voice_transition_needed(7.9, 2, 12, 4, false), false)
+	testing.expect_value(t, music_voice_transition_needed(8, 2, 12, 4, false), true)
+	// A segment shorter than the configured overlap plays to its end instead of
+	// starting one successor per frame.
+	testing.expect_value(t, music_voice_transition_needed(2, 0, 3, 4, false), false)
+	testing.expect_value(t, music_voice_transition_needed(3, 0, 3, 4, true), true)
+	// Zero overlap still transitions when the bounded stream reaches its end.
+	testing.expect_value(t, music_voice_transition_needed(12, 2, 12, 0, true), true)
+}
+
+@(test)
 track_pick_unplayed_returns_nil_when_exhausted_and_reset_makes_pickable :: proc(t: ^testing.T) {
 	settings := SoundSettings {
 		shuffle = false,

@@ -580,8 +580,8 @@ controls_draw :: proc() {
 				switch Tab(index) {
 				case .Controls, .Music:
 					gm.active_tab = Tab(index)
-					if Tab(index) == .Music {
-						wave_editor_track_load(music_browser_track_selected())
+					if gm.active_tab == .Music {
+						wave_editor_track_select(music_browser_track_selected())
 					}
 				case .All:
 					fallthrough
@@ -720,6 +720,9 @@ controls_draw :: proc() {
 					}
 				}
 				if primary != nil {
+					gm.sound_settings.music_voice_current = primary
+					gm.sound_settings.current_playing_playlist = primary.playlist
+					primary.playlist.current_playing_track = primary.track
 					ramp_up_duration := f32(0.5)
 					hold_duration := f32(3)
 					fade_out_duration := f32(1)
@@ -820,15 +823,11 @@ controls_draw :: proc() {
 				playlist := playlist_find_by_name(.Oscar_Moment)
 				ensure(playlist != nil, "Couldn't find playlist for Oscar_Moment")
 
-				oscar_moment_playing := false
-				if playlist_is_current(.Oscar_Moment) && playlist.current_playing_track != nil {
-					for voice in gm.sound_settings.music_voices {
-						if !voice.active do continue
-						if voice.fade_phase == .FadingOut do continue
-						if voice.path != playlist.current_playing_track.path do continue
-						oscar_moment_playing = true
-					}
-				}
+				current_voice := gm.sound_settings.music_voice_current
+				oscar_moment_playing :=
+					current_voice != nil &&
+					current_voice.playlist == playlist &&
+					current_voice.fade_phase != .FadingOut
 
 				for &voice in gm.sound_settings.music_voices {
 					music_voice_fade_out(&voice, gm.sound_settings.fade_out_time)
@@ -1004,7 +1003,7 @@ controls_draw :: proc() {
 				ensure(len(playlist.tracks) > 0)
 				sound_settings.music_browser_track_index = i32(0)
 				music_browser_tracks_refresh()
-				wave_editor_track_load(music_browser_track_selected())
+				wave_editor_track_select(&playlist.tracks[0])
 			}
 		case .ChangeTrack:
 			s := &control.state.(List_State)
@@ -1023,7 +1022,7 @@ controls_draw :: proc() {
 			if previous != active {
 				ensure(active >= 0 && active < i32(len(playlist.tracks)))
 				sound_settings.music_browser_track_index = active
-				wave_editor_track_load(&playlist.tracks[active])
+				wave_editor_track_select(&playlist.tracks[active])
 			}
 
 		case:
