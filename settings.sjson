@@ -1,0 +1,60 @@
+"use_house_music" = true
+"fade_in_time" = 2.00000000
+"fade_out_time" = 2.00000000
+"start_next_time" = 4.00000000
+"shuffle" = true
+"loop" = true
+"normalize_volume" = true
+"target_loudness" = -8.00000000
+"music_track_bounds" = {
+  "assets/sounds/music/Needle Droppers/Beastie Boys - Sabotage.mp3" = {
+    "file_hash" = "14873540764860444401"
+    "start_time" = 16.30903244
+    "end_time" = 178.44000244
+  }
+  "assets/sounds/music/Needle Droppers/Bonnie Tyler - Holding Out for a Hero - From 'Footloose' Soundtrack.mp3" = {
+    "file_hash" = "7394167703424313409"
+    "start_time" = 6.08646965
+    "end_time" = 348.33334351
+  }
+  "assets/sounds/music/Needle Droppers/DJ Snake, Lil Jon - Turn Down for What.mp3" = {
+    "file_hash" = "12717819796988393344"
+    "start_time" = 18.38566399
+    "end_time" = 213.73333740
+  }
+  "assets/sounds/music/Needle Droppers/Elvis Presley & Britney Spears - Toxic Las Vegas (Jamieson Shaw Remix) [KQddH8OxbPc].mp3" = {
+    "file_hash" = "3084350857716967788"
+    "start_time" = 8.81291008
+    "end_time" = 172.54750061
+  }
+  "assets/sounds/music/Needle Droppers/LMFAO, Lauren Bennett, GoonRock - Party Rock Anthem.mp3" = {
+    "file_hash" = "9675751967890409623"
+    "start_time" = 136.72480774
+    "end_time" = 262.17333984
+  }
+  "assets/sounds/music/Needle Droppers/Led Zeppelin - Immigrant Song - Remaster.mp3" = {
+    "file_hash" = "1649752218585338732"
+    "start_time" = 1.76915407
+    "end_time" = 146.25007629
+  }
+  "assets/sounds/music/Needle Droppers/Macklemore, Ryan Lewis, Macklemore & Ryan Lewis, Ray Dalton - Can't Hold Us (feat. Ray Dalton).mp3" = {
+    "file_hash" = "13435782561187443313"
+    "start_time" = 98.26748657
+    "end_time" = 258.34280396
+  }
+  "assets/sounds/music/Needle Droppers/Rage Against The Machine - Killing In The Name.mp3" = {
+    "file_hash" = "7670549487279451885"
+    "start_time" = 17.28025055
+    "end_time" = 313.57333374
+  }
+  "assets/sounds/music/Needle Droppers/Van Halen - Jump - 2015 Remaster.mp3" = {
+    "file_hash" = "2090831225839605522"
+    "start_time" = 7.14407301
+    "end_time" = 241.59956360
+  }
+  "assets/sounds/music/Needle Droppers/Wafia - I'm Good.mp3" = {
+    "file_hash" = "18365498080418082270"
+    "start_time" = 32.10344315
+    "end_time" = 217.13601685
+  }
+}

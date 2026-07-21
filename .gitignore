@@ -5,6 +5,5 @@ game_hot_reload.bin
 game_hot_reload.bin.DSYM
 raylib.dll
 linux/**
-/settings.sjson
 /source/generated_enums.odin
 /source/generated_playlists.rms_cache.sjson
