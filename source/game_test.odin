@@ -85,7 +85,7 @@ build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
 		case .Tab_Bar, .Status_Bar:
 			testing.expect_value(t, control.visibility_group, Tab.All)
 			chrome_seen += 1
-		case .ChangePlaylist, .ChangeTrack:
+		case .ChangePlaylist, .ChangeTrack, .WavePreview:
 			testing.expect_value(t, control.visibility_group, Tab.Music)
 			music_seen += 1
 		case:
@@ -94,6 +94,6 @@ build_layout_groups_controls_by_tab :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect_value(t, chrome_seen, 2)
-	testing.expect_value(t, music_seen, 2)
+	testing.expect_value(t, music_seen, 3)
 	testing.expect(t, controls_seen > 0, "expected controls.rgl controls on the Controls tab")
 }

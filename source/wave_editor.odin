@@ -2,6 +2,7 @@ package game
 
 import "core:log"
 import "core:math"
+import "core:strings"
 import rl "vendor:raylib"
 
 WAVEFORM_X :: 240
@@ -22,7 +23,64 @@ End :: enum u8 {
 dragging: End
 hovering: End
 
+WaveEditorPreview :: struct {
+	music:    rl.Music,
+	end_time: f32,
+	active:   bool,
+}
+wave_editor_preview: WaveEditorPreview
+
+wave_editor_preview_is_playing :: proc() -> bool {
+	return wave_editor_preview.active
+}
+
+wave_editor_preview_stop :: proc() {
+	if !wave_editor_preview.active do return
+	rl.StopMusicStream(wave_editor_preview.music)
+	rl.UnloadMusicStream(wave_editor_preview.music)
+	wave_editor_preview = {}
+}
+
+wave_editor_preview_start :: proc(track: ^Track) {
+	wave_editor_preview_stop()
+
+	generated_track, ok := TRACKS[track.path]
+	ensure(ok)
+	bounds, stale := music_track_bounds_resolve(
+		sound_settings.music_track_bounds,
+		track.path,
+		generated_track.file_hash,
+		generated_track.duration_seconds,
+	)
+	ensure(!stale)
+
+	music := rl.LoadMusicStream(strings.clone_to_cstring(track.path, context.temp_allocator))
+	ensure(rl.IsMusicValid(music))
+	music.looping = false
+	stream_length := rl.GetMusicTimeLength(music)
+	ensure(stream_length > 0)
+	bounds.end_time = min(bounds.end_time, stream_length)
+	ensure(bounds.start_time < bounds.end_time)
+
+	for &voice in sound_settings.music_voices {
+		if voice.active do music_voice_stop(&voice)
+	}
+
+	rl.SetMusicVolume(
+		music,
+		sound_settings.music_volume * track_volume_multiplier(generated_track.active_rms),
+	)
+	rl.SeekMusicStream(music, bounds.start_time)
+	rl.PlayMusicStream(music)
+	wave_editor_preview = {
+		music    = music,
+		end_time = bounds.end_time,
+		active   = true,
+	}
+}
+
 wave_editor_track_select :: proc(track: ^Track) {
+	wave_editor_preview_stop()
 	generated_track, ok := TRACKS[track.path]
 	ensure(ok)
 	dragging = .None
@@ -45,6 +103,14 @@ wave_editor_track_select :: proc(track: ^Track) {
 }
 
 wave_editor :: proc() {
+	if wave_editor_preview.active {
+		rl.UpdateMusicStream(wave_editor_preview.music)
+		if rl.GetMusicTimePlayed(wave_editor_preview.music) >= wave_editor_preview.end_time ||
+		   !rl.IsMusicStreamPlaying(wave_editor_preview.music) {
+			wave_editor_preview_stop()
+		}
+	}
+
 	track := music_browser_track_selected()
 	generated_track, ok := TRACKS[track.path]
 	ensure(ok)

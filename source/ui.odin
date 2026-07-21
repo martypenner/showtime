@@ -582,6 +582,8 @@ controls_draw :: proc() {
 					gm.active_tab = Tab(index)
 					if gm.active_tab == .Music {
 						wave_editor_track_select(music_browser_track_selected())
+					} else {
+						wave_editor_preview_stop()
 					}
 				case .All:
 					fallthrough
@@ -1023,6 +1025,20 @@ controls_draw :: proc() {
 				ensure(active >= 0 && active < i32(len(playlist.tracks)))
 				sound_settings.music_browser_track_index = active
 				wave_editor_track_select(&playlist.tracks[active])
+			}
+		case .WavePreview:
+			if wave_editor_preview_is_playing() {
+				control.text = "Stop"
+			} else {
+				control.text = "Preview"
+			}
+
+			if control_button_pressed(&control) {
+				if wave_editor_preview_is_playing() {
+					wave_editor_preview_stop()
+				} else {
+					wave_editor_preview_start(music_browser_track_selected())
+				}
 			}
 
 		case:

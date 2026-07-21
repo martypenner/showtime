@@ -1,7 +1,7 @@
 #
 # rgl layout text file (v4.0) - raygui layout file generated using rGuiLayout
 #
-# Number of controls:     2
+# Number of controls:     3
 #
 # Ref. window:    r <x> <y> <width> <height>
 # Anchor info:    a <id> <name> <posx> <posy> <enabled>
@@ -11,3 +11,4 @@ r 0 40 -1 -1
 a 001 anchor01 24 24 1
 c 000 21 ChangePlaylist 0 24 192 624 1 
 c 001 21 ChangeTrack 216 24 744 480 1 
+c 002 5 WavePreview 216 656 96 24 1 Preview
