@@ -901,11 +901,11 @@ controls_draw :: proc() {
 
 				if playlist_is_current(.Ave_Maria) {
 					for &voice in gm.sound_settings.music_voices {
-						music_voice_fade_out(&voice, 2)
+						music_voice_stop(&voice)
 					}
 				} else {
 					track := playlist_pick_random_track(playlist)
-					ensure(track != nil, "Couldn't pick track for Innuendo")
+					ensure(track != nil, "Couldn't pick track for AveMaria")
 
 					vol := f32(1)
 					new_voice := music_start_playlist_track(
