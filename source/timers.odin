@@ -4,10 +4,12 @@ import imgui "../vendor/odin-imgui"
 import "core:fmt"
 import "core:math"
 import "core:strings"
+import utf8 "core:unicode/utf8"
 import sdl "vendor:sdl3"
 
 MAX_TIMERS :: 24
-TIMER_PANEL_WIDTH :: 300
+MAX_TIMER_MARKS :: 128
+TIMER_PANEL_WIDTH :: 380
 TIMER_BLINK_SECONDS :: 4
 TIMER_STEP_SECONDS :: 1
 TIMER_MIN_SECONDS :: 0
@@ -23,7 +25,13 @@ Timer :: struct {
 	start_tick:        u64,
 }
 
+TimerMark :: struct {
+	timer_label: string,
+	elapsed_s:   f32,
+}
+
 timers_overflow_hint_seconds: f32
+timers_marks_overflow_hint_seconds: f32
 timer_label_input: [64]u8
 timer_seconds_input: f32 = DEFAULT_TIMER_SECONDS
 
@@ -50,7 +58,6 @@ timers_add :: proc(label: string, duration_s_in: f32) -> bool {
 		}
 	}
 	if oldest_done_index >= 0 {
-		delete(gm.timers[oldest_done_index].label)
 		timers_slot_set(oldest_done_index, label, duration_s, running = false)
 		return true
 	}
@@ -77,9 +84,7 @@ timers_start :: proc(index: int) {
 }
 
 timers_stop :: proc(index: int) {
-	timer := &gm.timers[index]
-	delete(timer.label)
-	timer^ = {}
+	gm.timers[index] = {}
 }
 
 timers_stop_all :: proc() {
@@ -102,13 +107,41 @@ timers_active_count :: proc() -> int {
 	return count
 }
 
+timers_marks_count :: proc() -> int {
+	return gm.timer_marks_count
+}
+
+timers_mark :: proc(index: int) -> bool {
+	timer := &gm.timers[index]
+	if timer.label == "" || timer.done || timer.start_tick == 0 do return false
+	if gm.timer_marks_count >= MAX_TIMER_MARKS {
+		timers_marks_overflow_hint_seconds = 2
+		return false
+	}
+
+	mark := &gm.timer_marks[gm.timer_marks_count]
+	mark^ = TimerMark {
+		timer_label = strings.clone(timer.label),
+		elapsed_s   = f32(sdl.GetTicks() - timer.start_tick) / 1000,
+	}
+	gm.timer_marks_count += 1
+	return true
+}
+
+timers_marks_clear :: proc() {
+	gm.timer_marks_count = 0
+}
+
 timers_submit_input :: proc() {
 	label := strings.trim_space(string(cstring(&timer_label_input[0])))
 	if len(label) == 0 do label = "Timer"
-	if timers_add(label, timer_seconds_input) {
-		timer_label_input[0] = 0
-		timer_seconds_input = DEFAULT_TIMER_SECONDS
+	gm.timer_serial_next += 1
+	if !timers_add(fmt.tprintf("%d. %s", gm.timer_serial_next, label), timer_seconds_input) {
+		gm.timer_serial_next -= 1
+		return
 	}
+	timer_label_input[0] = 0
+	timer_seconds_input = DEFAULT_TIMER_SECONDS
 }
 
 timers_update :: proc(dt: f32) {
@@ -131,6 +164,9 @@ timers_update :: proc(dt: f32) {
 
 	if timers_overflow_hint_seconds > 0 {
 		timers_overflow_hint_seconds = max(timers_overflow_hint_seconds - dt, 0)
+	}
+	if timers_marks_overflow_hint_seconds > 0 {
+		timers_marks_overflow_hint_seconds = max(timers_marks_overflow_hint_seconds - dt, 0)
 	}
 }
 
@@ -172,7 +208,11 @@ timers_draw :: proc() {
 
 	imgui.Separator()
 
-	if imgui.BeginChild("TimerList", {0, 0}, child_flags = {.FrameStyle}) {
+	if imgui.BeginChild(
+		"TimerList",
+		{0, imgui.GetContentRegionAvail().y * 0.55},
+		child_flags = {.FrameStyle},
+	) {
 		defer imgui.EndChild()
 
 		for i in 0 ..< MAX_TIMERS {
@@ -183,15 +223,51 @@ timers_draw :: proc() {
 			imgui.TextColored({1, 0.2, 0.2, 1}, "Max 24 timers")
 		}
 	}
+
+	imgui.Separator()
+
+	imgui.AlignTextToFramePadding()
+	imgui.TextColored({0.95, 0.25, 0.25, 1}, "Marks")
+	imgui.SameLine()
+	imgui.Text("%d/%d", timers_marks_count(), MAX_TIMER_MARKS)
+	imgui.SameLine()
+	if imgui.Button("Clear") do timers_marks_clear()
+
+	if imgui.BeginChild("MarksList", {0, 0}, child_flags = {.FrameStyle}) {
+		defer imgui.EndChild()
+
+		for i in 0 ..< gm.timer_marks_count {
+			mark := &gm.timer_marks[i]
+			line := strings.clone_to_cstring(
+				fmt.tprintf("%s  %.2fs", mark.timer_label, mark.elapsed_s),
+				context.temp_allocator,
+			)
+			imgui.TextUnformatted(
+				timers_text_clipped(
+					string(line),
+					imgui.GetContentRegionAvail().x - imgui.GetStyle().ItemSpacing.x,
+				),
+			)
+		}
+
+		if timers_marks_overflow_hint_seconds > 0 {
+			imgui.TextColored({1, 0.2, 0.2, 1}, "Max %d marks", MAX_TIMER_MARKS)
+		}
+	}
 }
 
 timers_timer_row_draw :: proc(index: int) {
 	timer := &gm.timers[index]
 	if timer.label == "" do return
 
-	label_cstr := strings.clone_to_cstring(timer.label, context.temp_allocator)
+	row_width := imgui.GetContentRegionAvail().x
 
 	if timer.done {
+		x_button_width := timers_small_button_width("x")
+		label_budget := row_width - x_button_width - imgui.GetStyle().ItemSpacing.x
+		done_prefix_width := imgui.CalcTextSize("Done  ").x
+		label_cstr := timers_text_clipped(timer.label, label_budget - done_prefix_width)
+
 		blink_alpha := f32(1)
 		if timer.flash_remaining_s > 0 {
 			blink_alpha = f32(0.35 + 0.4 * (math.sin(f64(sdl.GetTicks()) * 0.012) + 1) / 2)
@@ -202,7 +278,7 @@ timers_timer_row_draw :: proc(index: int) {
 		imgui.PushStyleColorImVec4(.ButtonActive, blink_color)
 		imgui.PushStyleColorImVec4(.Text, {1, 0.9, 0.9, blink_alpha})
 		imgui.Button(
-			strings.clone_to_cstring(fmt.tprintf("Done  %s", timer.label), context.temp_allocator),
+			strings.clone_to_cstring(fmt.tprintf("Done  %s", label_cstr), context.temp_allocator),
 			{0, 0},
 		)
 		imgui.PopStyleColor(4)
@@ -210,12 +286,26 @@ timers_timer_row_draw :: proc(index: int) {
 		remaining := f32(math.ceil(timer.remaining_s))
 		minutes := i64(remaining) / 60
 		seconds := i64(remaining) % 60
-		imgui.TextUnformatted(
-			strings.clone_to_cstring(
-				fmt.tprintf("%02d:%02d", minutes, seconds),
-				context.temp_allocator,
-			),
+		time_cstr := strings.clone_to_cstring(
+			fmt.tprintf("%02d:%02d", minutes, seconds),
+			context.temp_allocator,
 		)
+		time_width := imgui.CalcTextSize(time_cstr).x
+
+		run_label := timer.running ? "Pause" : "Play"
+		reserved :=
+			timers_small_button_width(
+				strings.clone_to_cstring(run_label, context.temp_allocator),
+			) +
+			timers_small_button_width("-") +
+			timers_small_button_width("+") +
+			timers_small_button_width("Mark") +
+			timers_small_button_width("x") +
+			imgui.GetStyle().ItemSpacing.x * 2
+		label_budget := row_width - time_width - imgui.GetStyle().ItemSpacing.x - reserved
+		label_cstr := timers_text_clipped(timer.label, label_budget)
+
+		imgui.TextUnformatted(time_cstr)
 		imgui.SameLine()
 		imgui.TextUnformatted(label_cstr)
 
@@ -250,6 +340,13 @@ timers_timer_row_draw :: proc(index: int) {
 			timers_adjust(index, +TIMER_STEP_SECONDS)
 		}
 		imgui.EndDisabled()
+
+		imgui.SameLine()
+		if timers_small_button(
+			strings.clone_to_cstring(fmt.tprintf("Mark##%d", index), context.temp_allocator),
+		) {
+			timers_mark(index)
+		}
 	}
 
 	imgui.SameLine()
@@ -264,4 +361,38 @@ timers_small_button :: proc(label: cstring) -> bool {
 	imgui.PushStyleVarX(.FramePadding, 3)
 	defer imgui.PopStyleVar(1)
 	return imgui.Button(label, {0, 0})
+}
+
+timers_small_button_width :: proc(label: cstring) -> f32 {
+	return imgui.CalcTextSize(label).x + 3 * 2 + imgui.GetStyle().ItemSpacing.x
+}
+
+// Clip a single line of text to max_px, replacing the tail with an ellipsis,
+// cutting only on rune boundaries. Binary-searches the longest fitting prefix
+// so the cost is O(log n) allocations, not one per rune.
+timers_text_clipped :: proc(text: string, max_px: f32) -> cstring {
+	full := strings.clone_to_cstring(text, context.temp_allocator)
+	if max_px <= 0 || imgui.CalcTextSize(full).x <= max_px do return full
+
+	runes := utf8.string_to_runes(text, context.temp_allocator)
+	lo := 0
+	hi := len(runes) - 1
+	for _ in 0 ..< 8 {
+		if !(lo < hi) do continue
+		mid := lo + (hi - lo + 1) / 2
+		candidate := strings.clone_to_cstring(
+			fmt.tprintf("%s...", utf8.runes_to_string(runes[:mid], context.temp_allocator)),
+			context.temp_allocator,
+		)
+		if imgui.CalcTextSize(candidate).x <= max_px {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	if lo == 0 do return strings.clone_to_cstring("...", context.temp_allocator)
+	return strings.clone_to_cstring(
+		fmt.tprintf("%s...", utf8.runes_to_string(runes[:lo], context.temp_allocator)),
+		context.temp_allocator,
+	)
 }

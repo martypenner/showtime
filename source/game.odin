@@ -52,6 +52,9 @@ GameMemory :: struct {
 	},
 	active_tab:            Tab,
 	timers:                [MAX_TIMERS]Timer,
+	timer_marks:           [MAX_TIMER_MARKS]TimerMark,
+	timer_marks_count:     int,
+	timer_serial_next:     int,
 	// imgui state preserved across hot reloads. imgui's context, allocator
 	// functions, and SDL handles are DLL-global statics that reset to nil when
 	// a new DLL loads, so they must be saved on first init and restored here.
