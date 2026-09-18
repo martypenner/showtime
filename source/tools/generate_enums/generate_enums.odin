@@ -19,7 +19,7 @@ import mixer "vendor:sdl3/mixer"
 MUSIC_DIR :: "assets/sounds/music"
 FX_DIR :: "assets/sounds/fx"
 LAYOUT_DIR :: "resources"
-OUT_FILE :: "source/generated_enums.odin"
+WEB_OUT_FILE :: "source/generated_enums_js.odin"
 OUT_DATA_FILE :: "assets/sounds/music.rms"
 CACHE_FILE :: "source/generated_playlists.rms_cache.sjson"
 
@@ -256,15 +256,26 @@ main :: proc() {
 	fmt.sbprintln(&builder, "\t}")
 	fmt.sbprintln(&builder, "}")
 
-	write_err := os.write_entire_file(OUT_FILE, strings.to_string(builder))
-	if write_err != nil {
-		fmt.eprintf("Error writing %s: %v\n", OUT_FILE, write_err)
-		os.exit(1)
+	enum_file_write(enum_file_name(ODIN_OS_STRING), strings.to_string(builder))
+	if ODIN_OS_STRING != "js" {
+		enum_file_write(WEB_OUT_FILE, strings.to_string(builder))
 	}
 
 	track_data_write(tracks[:])
 
 	save_rms_cache(tracks[:])
+}
+
+enum_file_name :: proc(os_name: string) -> string {
+	return fmt.aprintf("source/generated_enums_%s.odin", os_name)
+}
+
+enum_file_write :: proc(path: string, contents: string) {
+	write_err := os.write_entire_file(path, contents)
+	if write_err != nil {
+		fmt.eprintf("Error writing %s: %v\n", path, write_err)
+		os.exit(1)
+	}
 }
 
 // Writes track metadata + waveforms as a binary blob consumed by
@@ -353,12 +364,16 @@ load_sound_effects :: proc() -> [dynamic]SoundEffect {
 	return sound_effects
 }
 
+track_cache_key :: proc(file_hash: FileHash) -> string {
+	return fmt.aprintf("%v", u128(file_hash))
+}
+
 track_cache_entry_resolve :: proc(
 	path: string,
 	file_hash: FileHash,
 	cache: RMSCache,
 ) -> RMSCacheEntry {
-	entry, ok := cache.tracks[path]
+	entry, ok := cache.tracks[track_cache_key(file_hash)]
 	if ok && entry.file_hash == file_hash do return entry
 	return track_cache_entry_generate(path, file_hash)
 }
@@ -392,7 +407,7 @@ save_rms_cache :: proc(tracks: []GeneratedTrack) {
 	defer delete(cache.tracks)
 
 	for track in tracks {
-		cache.tracks[track.path] = RMSCacheEntry {
+		cache.tracks[track_cache_key(track.file_hash)] = RMSCacheEntry {
 			file_hash        = track.file_hash,
 			active_rms       = track.active_rms,
 			duration_seconds = track.duration_seconds,
@@ -427,7 +442,7 @@ save_rms_cache :: proc(tracks: []GeneratedTrack) {
 
 default_rms_cache :: proc() -> RMSCache {
 	return RMSCache {
-		version = 5,
+		version = 6,
 		waveform_sample_count = TRACK_WAVEFORM_SAMPLE_COUNT,
 		active_sample_gate = MUSIC_ACTIVE_SAMPLE_GATE,
 		active_rms_window_seconds = MUSIC_ACTIVE_RMS_WINDOW_SECONDS,
