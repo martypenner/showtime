@@ -163,7 +163,7 @@ show_to_house :: proc() {
 		new_playback := music_playback_start_playlist_track(
 			playlist,
 			track,
-			0.08,
+			0.05,
 			gm.sound_settings.fade_in_time,
 		)
 		for &playback in gm.sound_settings.music_playbacks {
