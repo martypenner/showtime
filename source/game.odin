@@ -207,7 +207,7 @@ game_init_window :: proc() {
 	sdl.SetRenderVSync(projection_renderer, 1)
 	sdl.SetWindowPosition(controls_window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
 	sdl.ShowWindow(controls_window)
-	// sdl.ShowWindow(projection_window)
+	sdl.ShowWindow(projection_window)
 
 	// Setup Dear ImGui, one context per window. Each context needs its own
 	// platform + renderer backend and font atlas: an SDL_Texture, the font
@@ -224,9 +224,6 @@ game_init_window :: proc() {
 		main_scale,
 	)
 
-	// Both contexts default to imgui.ini; only the controls one should own it.
-	projection_io.IniFilename = nil
-
 	imgui.SetCurrentContext(controls_context)
 }
 
@@ -242,6 +239,9 @@ imgui_context_init :: proc(
 	imgui_io := imgui.GetIO()
 	imgui_io.ConfigFlags += {.NavEnableKeyboard}
 	imgui.FontAtlas_AddFontDefaultVector(imgui_io.Fonts)
+
+	// No imgui.ini: all layout is defined in code, so there is nothing to persist.
+	imgui_io.IniFilename = nil
 
 	imgui.StyleColorsDark()
 	style := imgui.GetStyle()
