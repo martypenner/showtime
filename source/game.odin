@@ -81,7 +81,7 @@ projection_window: ^sdl.Window
 projection_renderer: ^sdl.Renderer
 controls_context: ^imgui.Context
 projection_context: ^imgui.Context
-io: ^imgui.IO
+controls_io: ^imgui.IO
 projection_io: ^imgui.IO
 window_width: i32 = 1280
 window_height: i32 = 720
@@ -111,7 +111,7 @@ update :: proc() {
 				if !event.key.repeat ||
 				   event.key.key == sdl.K_PLUS ||
 				   event.key.key == sdl.K_MINUS {
-					if gm.active_tab == .Controls && !io.WantTextInput {
+					if gm.active_tab == .Controls && !controls_io.WantTextInput {
 						hotkeys_handle_key(event.key.key)
 					}
 				}
@@ -128,7 +128,7 @@ update :: proc() {
 
 draw :: proc() {
 	draw_window(projection_context, projection_renderer, projection_io, projection_draw)
-	draw_window(controls_context, controls_renderer, io, controls_draw)
+	draw_window(controls_context, controls_renderer, controls_io, controls_draw)
 }
 
 @(private = "file")
@@ -216,7 +216,12 @@ game_init_window :: proc() {
 	controls_context = imgui.CreateContext()
 	projection_context = imgui.CreateContext()
 
-	io = imgui_context_init(controls_context, controls_window, controls_renderer, main_scale)
+	controls_io = imgui_context_init(
+		controls_context,
+		controls_window,
+		controls_renderer,
+		main_scale,
+	)
 	projection_io = imgui_context_init(
 		projection_context,
 		projection_window,
@@ -364,7 +369,7 @@ game_hot_reloaded :: proc(mem: rawptr) {
 			gm.imgui_free_func,
 			&gm.imgui_alloc_user_data,
 		)
-		io = imgui.GetIO()
+		controls_io = imgui.GetIO()
 
 		imgui.SetCurrentContext(projection_context)
 		projection_io = imgui.GetIO()
