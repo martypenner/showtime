@@ -55,10 +55,13 @@ GameMemory :: struct {
 	timer_marks:           [MAX_TIMER_MARKS]TimerMark,
 	timer_marks_count:     int,
 	timer_serial_next:     int,
-	// imgui state preserved across hot reloads. imgui's context, allocator
+	// imgui state preserved across hot reloads. imgui's contexts, allocator
 	// functions, and SDL handles are DLL-global statics that reset to nil when
 	// a new DLL loads, so they must be saved on first init and restored here.
-	imgui_context:         ^imgui.Context,
+	imgui_contexts:        struct {
+		controls:   ^imgui.Context,
+		projection: ^imgui.Context,
+	},
 	imgui_alloc_func:      imgui.MemAllocFunc,
 	imgui_free_func:       imgui.MemFreeFunc,
 	imgui_alloc_user_data: rawptr,
@@ -76,7 +79,10 @@ controls_window: ^sdl.Window
 controls_renderer: ^sdl.Renderer
 projection_window: ^sdl.Window
 projection_renderer: ^sdl.Renderer
+controls_context: ^imgui.Context
+projection_context: ^imgui.Context
 io: ^imgui.IO
+projection_io: ^imgui.IO
 window_width: i32 = 1280
 window_height: i32 = 720
 
@@ -91,9 +97,13 @@ update :: proc() {
 
 	event: sdl.Event
 	for sdl.PollEvent(&event) {
-		imsdl3.ProcessEvent(&event)
+		if event.window.windowID == sdl.GetWindowID(projection_window) {
+			imgui.SetCurrentContext(projection_context)
+			imsdl3.ProcessEvent(&event)
+		} else if event.window.windowID == sdl.GetWindowID(controls_window) {
+			imgui.SetCurrentContext(controls_context)
+			imsdl3.ProcessEvent(&event)
 
-		if event.window.windowID == sdl.GetWindowID(controls_window) {
 			#partial switch event.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
 				gm.should_run = false
@@ -117,25 +127,31 @@ update :: proc() {
 }
 
 draw :: proc() {
-	sdl.SetRenderDrawColor(projection_renderer, 16, 16, 16, sdl.ALPHA_OPAQUE)
-	sdl.RenderClear(projection_renderer)
-	sdl.RenderPresent(projection_renderer)
+	draw_window(projection_context, projection_renderer, projection_io, projection_draw)
+	draw_window(controls_context, controls_renderer, io, controls_draw)
+}
+
+@(private = "file")
+draw_window :: proc(
+	imgui_context: ^imgui.Context,
+	renderer: ^sdl.Renderer,
+	io: ^imgui.IO,
+	draw_ui: proc(),
+) {
+	imgui.SetCurrentContext(imgui_context)
 
 	imsdlrenderer3.NewFrame()
 	imsdl3.NewFrame()
 	imgui.NewFrame()
 
-	controls_draw()
+	draw_ui()
 	imgui.Render()
-	sdl.SetRenderScale(
-		controls_renderer,
-		io.DisplayFramebufferScale.x,
-		io.DisplayFramebufferScale.y,
-	)
-	sdl.SetRenderDrawColor(controls_renderer, 16, 16, 16, sdl.ALPHA_OPAQUE)
-	sdl.RenderClear(controls_renderer)
-	imsdlrenderer3.RenderDrawData(imgui.GetDrawData(), controls_renderer)
-	sdl.RenderPresent(controls_renderer)
+
+	sdl.SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
+	sdl.SetRenderDrawColor(renderer, 16, 16, 16, sdl.ALPHA_OPAQUE)
+	sdl.RenderClear(renderer)
+	imsdlrenderer3.RenderDrawData(imgui.GetDrawData(), renderer)
+	sdl.RenderPresent(renderer)
 }
 
 @(export)
@@ -193,12 +209,39 @@ game_init_window :: proc() {
 	sdl.ShowWindow(controls_window)
 	// sdl.ShowWindow(projection_window)
 
-	// Setup Dear ImGui context
+	// Setup Dear ImGui, one context per window. Each context needs its own
+	// platform + renderer backend and font atlas: an SDL_Texture, the font
+	// atlas included, can only be used with the renderer that created it.
 	imgui.CHECKVERSION()
-	imgui.CreateContext()
-	io = imgui.GetIO()
-	io.ConfigFlags += {.NavEnableKeyboard}
-	imgui.FontAtlas_AddFontDefaultVector(io.Fonts)
+	controls_context = imgui.CreateContext()
+	projection_context = imgui.CreateContext()
+
+	io = imgui_context_init(controls_context, controls_window, controls_renderer, main_scale)
+	projection_io = imgui_context_init(
+		projection_context,
+		projection_window,
+		projection_renderer,
+		main_scale,
+	)
+
+	// Both contexts default to imgui.ini; only the controls one should own it.
+	projection_io.IniFilename = nil
+
+	imgui.SetCurrentContext(controls_context)
+}
+
+@(private = "file")
+imgui_context_init :: proc(
+	imgui_context: ^imgui.Context,
+	window: ^sdl.Window,
+	renderer: ^sdl.Renderer,
+	main_scale: f32,
+) -> ^imgui.IO {
+	imgui.SetCurrentContext(imgui_context)
+
+	imgui_io := imgui.GetIO()
+	imgui_io.ConfigFlags += {.NavEnableKeyboard}
+	imgui.FontAtlas_AddFontDefaultVector(imgui_io.Fonts)
 
 	imgui.StyleColorsDark()
 	style := imgui.GetStyle()
@@ -206,8 +249,10 @@ game_init_window :: proc() {
 	style.FontScaleDpi = main_scale
 	style.FontSizeBase = 14
 
-	imsdl3.InitForSDLRenderer(controls_window, controls_renderer)
-	imsdlrenderer3.Init(controls_renderer)
+	imsdl3.InitForSDLRenderer(window, renderer)
+	imsdlrenderer3.Init(renderer)
+
+	return imgui_io
 }
 
 game_memory_make :: proc() -> ^GameMemory {
@@ -255,9 +300,16 @@ game_shutdown :: proc() {
 
 @(export)
 game_shutdown_window :: proc() {
+	imgui.SetCurrentContext(controls_context)
 	imsdlrenderer3.Shutdown()
 	imsdl3.Shutdown()
-	imgui.DestroyContext()
+
+	imgui.SetCurrentContext(projection_context)
+	imsdlrenderer3.Shutdown()
+	imsdl3.Shutdown()
+
+	imgui.DestroyContext(controls_context)
+	imgui.DestroyContext(projection_context)
 
 	sdl.DestroyRenderer(controls_renderer)
 	sdl.DestroyRenderer(projection_renderer)
@@ -280,11 +332,12 @@ game_memory_size :: proc() -> int {
 game_hot_reloaded :: proc(mem: rawptr) {
 	gm = (^GameMemory)(mem)
 
-	if gm.imgui_context == nil {
-		// First load: imgui context and SDL handles exist in this DLL's
+	if gm.imgui_contexts.controls == nil {
+		// First load: imgui contexts and SDL handles exist in this DLL's
 		// globals. Save them into GameMemory so future reloads can restore
 		// them into the new DLL's fresh globals.
-		gm.imgui_context = imgui.GetCurrentContext()
+		gm.imgui_contexts.controls = controls_context
+		gm.imgui_contexts.projection = projection_context
 		imgui.GetAllocatorFunctions(
 			&gm.imgui_alloc_func,
 			&gm.imgui_free_func,
@@ -295,7 +348,7 @@ game_hot_reloaded :: proc(mem: rawptr) {
 		gm.renderers.controls = controls_renderer
 		gm.renderers.projection = projection_renderer
 	} else {
-		// Hot reload: the new DLL's globals are nil. Restore imgui context
+		// Hot reload: the new DLL's globals are nil. Restore imgui contexts
 		// and allocator functions (both are DLL-global statics in imgui, not
 		// per-context), plus the SDL handles that game_init_window set up
 		// once and never re-runs.
@@ -303,13 +356,20 @@ game_hot_reloaded :: proc(mem: rawptr) {
 		projection_window = gm.windows.projection
 		controls_renderer = gm.renderers.controls
 		projection_renderer = gm.renderers.projection
-		imgui.SetCurrentContext(gm.imgui_context)
+		controls_context = gm.imgui_contexts.controls
+		projection_context = gm.imgui_contexts.projection
+		imgui.SetCurrentContext(controls_context)
 		imgui.SetAllocatorFunctions(
 			gm.imgui_alloc_func,
 			gm.imgui_free_func,
 			&gm.imgui_alloc_user_data,
 		)
 		io = imgui.GetIO()
+
+		imgui.SetCurrentContext(projection_context)
+		projection_io = imgui.GetIO()
+
+		imgui.SetCurrentContext(controls_context)
 	}
 
 	// Track data globals reset on every DLL reload, so they must reload here

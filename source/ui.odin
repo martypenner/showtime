@@ -1137,3 +1137,33 @@ controls_draw :: proc() {
 
 	imgui.End()
 }
+
+projection_draw :: proc() {
+	// imgui.ShowDemoWindow()
+
+	vp := imgui.GetMainViewport()
+	imgui.SetNextWindowPos(vp.WorkPos)
+	imgui.SetNextWindowSize(vp.WorkSize)
+
+	imgui.PushStyleVarImVec2(.WindowPadding, {0, 0})
+	imgui.PushStyleVar(.WindowRounding, 0)
+	imgui.PushStyleVar(.WindowBorderSize, 0)
+
+	imgui.Begin(
+		"ProjectionRoot",
+		nil,
+		{
+			.NoTitleBar,
+			.NoResize,
+			.NoMove,
+			.NoCollapse,
+			.NoBackground,
+			.NoSavedSettings,
+			.NoBringToFrontOnFocus,
+			.NoNavFocus,
+		},
+	)
+	imgui.PopStyleVar(3)
+
+	imgui.End()
+}
