@@ -568,6 +568,14 @@ sound_play_yeeeaaahhh :: proc() {
 	sound_play(.Yeeeeaaaaaaaahh, 1)
 }
 
+sound_play_buzzer :: proc() {
+	sound_play(._244932_Kwahmah_02_Short_Buzzer, 0.7)
+}
+
+sound_play_whistle :: proc() {
+	sound_play(._495367_Kirkpatricklive_Coach_Whistle_35_Long, 0.6)
+}
+
 hotkeys_handle_key :: proc(key: sdl.Keycode) {
 	switch key {
 	case sdl.K_PLUS:
@@ -933,12 +941,12 @@ controls_draw :: proc() {
 				) {sound_play_scream_lady()}
 				imgui.SameLine()
 				if controls_button("Fireworks (d)", .Sound, button_width) {sound_play_fireworks()}
+				imgui.SameLine()
 				if controls_button(
 					"Train horn (v)",
 					.Sound,
 					button_width,
 				) {sound_play_train_horn()}
-				imgui.SameLine()
 				if controls_button(
 					"Tick tick ding (k)",
 					.Sound,
@@ -952,12 +960,15 @@ controls_draw :: proc() {
 				if controls_button("Rain (.)", .Sound, button_width) {sound_play_rain()}
 				imgui.SameLine()
 				if controls_button("Meow (/)", .Sound, button_width) {sound_play_meow()}
-				imgui.SameLine()
 				if controls_button(
 					"Yeeeaaahhh (o)",
 					.Sound,
 					button_width,
 				) {sound_play_yeeeaaahhh()}
+				imgui.SameLine()
+				if controls_button("Buzzer", .Sound, button_width) {sound_play_buzzer()}
+				imgui.SameLine()
+				if controls_button("Whistle", .Sound, button_width) {sound_play_whistle()}
 
 				controls_group_end()
 			}
