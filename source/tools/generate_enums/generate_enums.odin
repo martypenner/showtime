@@ -3,6 +3,7 @@ package generate_enums
 import "core:c"
 import "core:encoding/json"
 import "core:fmt"
+import norm "../../path_normalize"
 import "core:hash/xxhash"
 import "core:io"
 import "core:log"
@@ -318,7 +319,8 @@ track_data_write :: proc(tracks: []GeneratedTrack) {
 	value_write(w, u32(len(tracks)))
 	value_write(w, TRACK_WAVEFORM_SAMPLE_COUNT)
 	for &track in tracks {
-		string_write(w, track.path)
+		// Blob keys are NFC so lookups match on any platform (see path_nfc).
+		string_write(w, norm.path_nfc(track.path))
 		string_write(w, fmt.aprintf("%v", u128(track.file_hash)))
 		value_write(w, transmute(u32)track.active_rms)
 		value_write(w, transmute(u32)track.duration_seconds)

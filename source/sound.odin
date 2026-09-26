@@ -11,6 +11,7 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
+import norm "path_normalize"
 import sdl "vendor:sdl3"
 import mixer "vendor:sdl3/mixer"
 
@@ -285,7 +286,7 @@ playlists_load :: proc() -> Playlists {
 			}
 			thread.pool_add_task(&pool, context.allocator, proc(t: thread.Task) {
 					data := (^PoolData)(t.data)
-					_, generated_track_ok := TRACKS[data.track_relative_path]
+					_, generated_track_ok := TRACKS[norm.path_nfc(data.track_relative_path)]
 					log.ensuref(
 						generated_track_ok,
 						"Missing generated track metadata for %s",
@@ -316,7 +317,7 @@ playlists_load :: proc() -> Playlists {
 	})
 
 	for track_key in track_keys {
-		_, generated_track_ok := TRACKS[string(track_key)]
+		_, generated_track_ok := TRACKS[norm.path_nfc(string(track_key))]
 		log.ensuref(generated_track_ok, "Missing generated track metadata for %s", track_key)
 	}
 
@@ -526,7 +527,7 @@ music_playback_volume_set :: proc(playback: ^MusicPlayback, points: []MusicVolum
 	playback.volume_frame_start = frame
 	playback.stopping = false
 
-	generated_track, ok := TRACKS[playback.source_path]
+	generated_track, ok := TRACKS[norm.path_nfc(playback.source_path)]
 	log.ensuref(ok, "Missing generated track metadata for %s", playback.source_path)
 	gain_multiplier := track_volume_multiplier(generated_track.active_rms)
 
@@ -597,17 +598,17 @@ music_playback_start :: proc(
 	ensure(mixer_track != nil)
 	ensure(mixer.SetTrackAudio(mixer_track, audio))
 
-	generated_track, generated_track_ok := TRACKS[track.path]
+	generated_track, generated_track_ok := TRACKS[norm.path_nfc(track.path)]
 	ensure(generated_track_ok, fmt.tprintf("Missing generated track metadata: %s", track.path))
 	bounds, stale := music_track_bounds_resolve(
 		sound_settings.music_track_bounds,
-		track.path,
+		norm.path_nfc(track.path),
 		generated_track.file_hash,
 		generated_track.duration_seconds,
 	)
 	if stale {
 		log.warnf("Ignoring bounds for changed track: %s", track.path)
-		delete_key(&sound_settings.music_track_bounds, track.path)
+		delete_key(&sound_settings.music_track_bounds, norm.path_nfc(track.path))
 		sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
 	}
 	stream_length := f32(mixer.AudioFramesToMS(audio, mixer.GetAudioDuration(audio))) / 1000
@@ -662,7 +663,7 @@ sound_music_current_volume :: proc() -> f32 {
 	volume_current := f32(0)
 	for &playback in sound_settings.music_playbacks {
 		if playback.mixer_track == nil || !mixer.TrackPlaying(playback.mixer_track) do continue
-		generated_track, ok := TRACKS[playback.source_path]
+		generated_track, ok := TRACKS[norm.path_nfc(playback.source_path)]
 		log.ensuref(ok, "Missing generated track metadata for %s", playback.source_path)
 		volume_current = max(
 			volume_current,
@@ -679,7 +680,7 @@ sound_music_current_volume :: proc() -> f32 {
 music_volume_adjust :: proc(delta: f32) {
 	primary := sound_settings.music_playback_primary
 	if primary == nil || primary.mixer_track == nil do return
-	generated_track, ok := TRACKS[primary.source_path]
+	generated_track, ok := TRACKS[norm.path_nfc(primary.source_path)]
 	log.ensuref(ok, "Missing generated track metadata for %s", primary.source_path)
 	current :=
 		music_playback_volume_at(primary, mixer.GetTrackPlaybackPosition(primary.mixer_track)) *
@@ -782,7 +783,7 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 		previous := playback.volume_points[playback.volume_point_next - 1]
 		next := playback.volume_points[playback.volume_point_next]
 		if next.volume > previous.volume && mixer.TrackPlaying(playback.mixer_track) {
-			generated_track, ok := TRACKS[playback.source_path]
+			generated_track, ok := TRACKS[norm.path_nfc(playback.source_path)]
 			log.ensuref(ok, "Missing generated track metadata for %s", playback.source_path)
 			gain_multiplier := track_volume_multiplier(generated_track.active_rms)
 			destination_gain := next.volume * gain_multiplier
@@ -802,7 +803,7 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 			defer sdl.DestroyProperties(props)
 			ensure(mixer.PlayTrack(playback.mixer_track, props))
 		} else if next.volume == 0 && mixer.TrackPlaying(playback.mixer_track) {
-			generated_track, ok := TRACKS[playback.source_path]
+			generated_track, ok := TRACKS[norm.path_nfc(playback.source_path)]
 			log.ensuref(ok, "Missing generated track metadata for %s", playback.source_path)
 			gain_multiplier := track_volume_multiplier(generated_track.active_rms)
 			audible_volume := music_playback_volume_at(playback, frame)
@@ -820,7 +821,7 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 		}
 	}
 	ensure(playback.volume_point_count > 0)
-	generated_track, ok := TRACKS[playback.source_path]
+	generated_track, ok := TRACKS[norm.path_nfc(playback.source_path)]
 	log.ensuref(ok, "Missing generated track metadata for %s", playback.source_path)
 	if playback.stopping {
 		ensure(playback.volume_point_count >= 2)
@@ -914,7 +915,7 @@ sound_settings_save :: proc() {
 	played_track_paths := make(map[string]bool, context.temp_allocator)
 	for &playlist in sound_settings.playlists {
 		for &track in playlist.tracks {
-			if track.played do played_track_paths[track.path] = true
+			if track.played do played_track_paths[norm.path_nfc(track.path)] = true
 		}
 	}
 
@@ -964,7 +965,7 @@ sound_settings_init :: proc() -> ^SoundSettings {
 	sound_settings.playlists = playlists_load()
 	for &playlist in sound_settings.playlists {
 		for &track in playlist.tracks {
-			if _, ok := sound_settings.played_track_paths[track.path]; ok {
+			if _, ok := sound_settings.played_track_paths[norm.path_nfc(track.path)]; ok {
 				track.played = true
 			}
 		}
