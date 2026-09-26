@@ -4,6 +4,7 @@ import imgui "../vendor/odin-imgui"
 import "core:log"
 import "core:math"
 import "core:strings"
+import norm "path_normalize"
 import sdl "vendor:sdl3"
 import mixer "vendor:sdl3/mixer"
 
@@ -36,11 +37,11 @@ wave_editor_preview_stop :: proc() {
 wave_editor_preview_start :: proc(track: ^Track) {
 	wave_editor_preview_stop()
 
-	generated_track, ok := TRACKS[track.path]
+	generated_track, ok := TRACKS[norm.path_nfc(track.path)]
 	ensure(ok)
 	bounds, stale := music_track_bounds_resolve(
 		sound_settings.music_track_bounds,
-		track.path,
+		norm.path_nfc(track.path),
 		generated_track.file_hash,
 		generated_track.duration_seconds,
 	)
@@ -83,17 +84,17 @@ wave_editor_preview_start :: proc(track: ^Track) {
 
 wave_editor_track_select :: proc(track: ^Track) {
 	wave_editor_preview_stop()
-	generated_track, ok := TRACKS[track.path]
+	generated_track, ok := TRACKS[norm.path_nfc(track.path)]
 	ensure(ok && generated_track.duration_seconds > 0)
 	bounds, stale := music_track_bounds_resolve(
 		sound_settings.music_track_bounds,
-		track.path,
+		norm.path_nfc(track.path),
 		generated_track.file_hash,
 		generated_track.duration_seconds,
 	)
 	if stale {
 		log.warnf("Ignoring bounds for changed track: %s", track.path)
-		delete_key(&sound_settings.music_track_bounds, track.path)
+		delete_key(&sound_settings.music_track_bounds, norm.path_nfc(track.path))
 		sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
 	}
 	sound_settings.wave_editor_start_fraction =
@@ -103,7 +104,7 @@ wave_editor_track_select :: proc(track: ^Track) {
 
 wave_editor :: proc() {
 	track := music_browser_track_selected()
-	generated_track, ok := TRACKS[track.path]
+	generated_track, ok := TRACKS[norm.path_nfc(track.path)]
 	ensure(ok && generated_track.duration_seconds > 0)
 
 	origin := imgui.GetCursorScreenPos()
@@ -198,9 +199,9 @@ wave_editor :: proc() {
 	if changed {
 		if sound_settings.wave_editor_start_fraction == 0 &&
 		   sound_settings.wave_editor_end_fraction == 1 {
-			delete_key(&sound_settings.music_track_bounds, track.path)
+			delete_key(&sound_settings.music_track_bounds, norm.path_nfc(track.path))
 		} else {
-			sound_settings.music_track_bounds[track.path] = {
+			sound_settings.music_track_bounds[norm.path_nfc(track.path)] = {
 				file_hash  = generated_track.file_hash,
 				start_time = sound_settings.wave_editor_start_fraction * generated_track.duration_seconds,
 				end_time   = sound_settings.wave_editor_end_fraction * generated_track.duration_seconds,
