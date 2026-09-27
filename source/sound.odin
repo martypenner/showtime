@@ -119,16 +119,16 @@ sound_settings: ^SoundSettings
 // Track paths are stored relative to the directory the binary is run from so
 // the gain cache in settings stays portable across machines and checkouts.
 // Playlist dirs are usually symlinks; keys/paths go through the symlink
-// (assets/sounds/music/<playlist>/<track>) rather than the resolved target,
+// (assets/sound/music/<playlist>/<track>) rather than the resolved target,
 // so the cache stays portable even when the symlink target moves.
-MUSIC_DIR :: "assets/sounds/music"
+MUSIC_DIR :: "assets/sound/music"
 
 // Track metadata and waveforms load at runtime from the binary blob that
-// source/tools/generate_enums writes to assets/sounds/music.rms. Keeping the
+// source/tools/generate_enums writes to assets/sound/music.rms. Keeping the
 // multi-thousand-track dataset out of compiled Odin source keeps build times
 // down. Strings and waveform slices point into the loaded buffer, which lives
 // as long as the game memory arena.
-TRACK_DATA_PATH :: "assets/sounds/music.rms"
+TRACK_DATA_PATH :: "assets/sound/music.rms"
 TRACK_DATA_MAGIC :: "RMST"
 TRACK_DATA_VERSION :: 1
 

@@ -1,9 +1,9 @@
 package generate_enums
 
+import norm "../../path_normalize"
 import "core:c"
 import "core:encoding/json"
 import "core:fmt"
-import norm "../../path_normalize"
 import "core:hash/xxhash"
 import "core:io"
 import "core:log"
@@ -17,11 +17,11 @@ import "core:thread"
 import sdl "vendor:sdl3"
 import mixer "vendor:sdl3/mixer"
 
-MUSIC_DIR :: "assets/sounds/music"
-FX_DIR :: "assets/sounds/fx"
+MUSIC_DIR :: "assets/sound/music"
+FX_DIR :: "assets/sound/fx"
 LAYOUT_DIR :: "resources"
 WEB_OUT_FILE :: "source/generated_enums_js.odin"
-OUT_DATA_FILE :: "assets/sounds/music.rms"
+OUT_DATA_FILE :: "assets/sound/music.rms"
 CACHE_FILE :: "source/generated_playlists.rms_cache.sjson"
 
 TRACK_DATA_MAGIC :: string("RMST")
@@ -219,7 +219,7 @@ main :: proc() {
 	fmt.sbprintln(&builder)
 	fmt.sbprintln(&builder, "package game")
 	fmt.sbprintln(&builder)
-	fmt.sbprintln(&builder, "// Generated from assets/sounds/music and assets/sounds/fx by")
+	fmt.sbprintln(&builder, "// Generated from assets/sound/music and assets/sound/fx by")
 	fmt.sbprintln(&builder, "// source/tools/generate_enums. Do not edit by hand.")
 	fmt.sbprintln(&builder)
 	fmt.sbprintln(&builder, "PlaylistName :: enum {")
