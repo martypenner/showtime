@@ -152,6 +152,27 @@ show_arena_pre_show :: proc() {
 	lighting_look_activate(.House)
 }
 
+show_start :: proc() {
+	playlist := playlist_find_by_name(.Show_Starters)
+	ensure(playlist != nil, "Couldn't find playlist for Show_Start")
+
+	track := playlist_pick_random_track(playlist)
+	ensure(track != nil, "Couldn't pick track for Show_Start")
+
+	new_playback := music_playback_start_playlist_track(playlist, track, 0.7, 0.5)
+	for &playback in gm.sound_settings.music_playbacks {
+		if playback.mixer_track == nil || &playback == new_playback do continue
+		audible := music_playback_volume_at(
+			&playback,
+			mixer.GetTrackPlaybackPosition(playback.mixer_track),
+		)
+		music_playback_volume_set(&playback, {{0, audible}, {gm.sound_settings.fade_out_time, 0}})
+	}
+
+	lighting_fx_deactivate_all()
+	lighting_look_activate(.House)
+}
+
 show_post_show :: proc() {
 	playlist := playlist_find_by_name(.Kids_on_Bikes_80s_Explore)
 	ensure(playlist != nil, "Couldn't find playlist for Post_Show")
@@ -595,7 +616,7 @@ hotkeys_handle_key :: proc(key: sdl.Keycode) {
 	case sdl.K_M:
 		show_drop_needle()
 	case sdl.K_N:
-		show_ave_maria()
+		show_start()
 	case sdl.K_Q:
 		game_innuendo()
 	case sdl.K_W:
@@ -757,12 +778,17 @@ controls_draw :: proc() {
 				}
 				imgui.SameLine()
 
+				if controls_button("Show start (n)", .SoundAndLighting, button_width) {
+					show_start()
+				}
+				imgui.SameLine()
+
 				if controls_button("Post-show (r)", .SoundAndLighting, button_width) {
 					show_post_show()
 				}
 				imgui.SameLine()
 
-				if controls_button("Ave Maria (n)", .SoundAndLighting, button_width) {
+				if controls_button("Ave Maria", .SoundAndLighting, button_width) {
 					show_ave_maria()
 				}
 
