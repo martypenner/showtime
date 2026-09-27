@@ -321,10 +321,7 @@ show_ave_maria :: proc() {
 				&playback,
 				mixer.GetTrackPlaybackPosition(playback.mixer_track),
 			)
-			music_playback_volume_set(
-				&playback,
-				{{0, audible}, {gm.sound_settings.fade_out_time, 0}},
-			)
+			music_playback_volume_set(&playback, {{0, audible}, {0.3, 0}})
 		}
 	}
 
