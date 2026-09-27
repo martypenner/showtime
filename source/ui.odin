@@ -570,7 +570,7 @@ sound_play_tick_tick_ding :: proc() {
 }
 
 sound_play_ding :: proc() {
-	sound_play(.Ding_126626, 1.0)
+	sound_play(.Ding_126626, 2.0)
 }
 
 sound_play_lightning :: proc() {
