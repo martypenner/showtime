@@ -1204,8 +1204,6 @@ controls_draw :: proc() {
 }
 
 projection_draw :: proc() {
-	// imgui.ShowDemoWindow()
-
 	vp := imgui.GetMainViewport()
 	imgui.SetNextWindowPos(vp.WorkPos)
 	imgui.SetNextWindowSize(vp.WorkSize)
@@ -1229,6 +1227,13 @@ projection_draw :: proc() {
 		},
 	)
 	imgui.PopStyleVar(3)
+
+	imgui.PushFontFloat(nil, 280)
+	text := strings.clone_to_cstring(timers_projection_text(), context.temp_allocator)
+	text_size := imgui.CalcTextSize(text)
+	imgui.SetCursorPos({(vp.WorkSize.x - text_size.x) * 0.5, (vp.WorkSize.y - text_size.y) * 0.5})
+	imgui.TextColored({0.85, 0.25, 0.25, 1}, text)
+	imgui.PopFont()
 
 	imgui.End()
 }

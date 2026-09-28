@@ -107,6 +107,21 @@ timers_active_count :: proc() -> int {
 	return count
 }
 
+// The projection follows the most recently started running timer, so a timer
+// left sitting at 00:00 doesn't mask the next cue's countdown.
+timers_projection_text :: proc() -> string {
+	active: ^Timer
+	for i in 0 ..< MAX_TIMERS {
+		timer := &gm.timers[i]
+		if timer.label == "" || !timer.running do continue
+		if active == nil || timer.start_tick > active.start_tick do active = timer
+	}
+	if active == nil do return ""
+
+	seconds := i64(math.ceil(active.remaining_s))
+	return fmt.tprintf("%02d:%02d", seconds / 60, seconds % 60)
+}
+
 timers_marks_count :: proc() -> int {
 	return gm.timer_marks_count
 }
