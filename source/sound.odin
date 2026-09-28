@@ -756,8 +756,8 @@ music_playback_start_playlist_track :: proc(
 	sound_settings.music_playback_primary = playback
 	track.played = true
 	sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
-	playlist.last_played_track = playlist.current_playing_track
 	playlist.current_playing_track = track
+	playlist.last_played_track = track
 	return playback
 }
 

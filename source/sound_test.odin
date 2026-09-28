@@ -423,6 +423,51 @@ playlist_selection_preserves_order_and_avoids_last :: proc(t: ^testing.T) {
 	testing.expect_value(t, playlist_pick_track_unplayed(&playlist).title, "second")
 }
 
+@(test)
+playlist_reset_avoids_just_started_track :: proc(t: ^testing.T) {
+	music_playback_test_tone_write()
+	defer os.remove(MUSIC_PLAYBACK_TEST_TONE_PATH)
+	TRACKS = make(map[string]GeneratedTrack)
+	defer delete(TRACKS)
+	TRACKS[MUSIC_PLAYBACK_TEST_TONE_PATH] = {
+		file_hash        = "test",
+		duration_seconds = 0.5,
+	}
+	dummy, mixer_value := music_playback_test_make({{0, 0}})
+	settings := SoundSettings {
+		mixer   = mixer_value,
+		shuffle = true,
+		loop    = true,
+	}
+	sound_settings = &settings
+	playlist := Playlist {
+		name = "test",
+	}
+	defer delete(playlist.tracks)
+	append(
+		&playlist.tracks,
+		Track{title = "first", path = MUSIC_PLAYBACK_TEST_TONE_PATH},
+		Track{title = "second", path = MUSIC_PLAYBACK_TEST_TONE_PATH},
+	)
+
+	first := playlist_pick_random_track(&playlist)
+	first_playback := music_playback_start_playlist_track(&playlist, first, 1, 0)
+	testing.expect(t, playlist.last_played_track == first)
+
+	second := playlist_pick_random_track(&playlist)
+	testing.expect(t, second != first)
+	second_playback := music_playback_start_playlist_track(&playlist, second, 1, 0)
+	testing.expect(t, playlist.last_played_track == second)
+
+	// Both tracks have played, so this pick clears the played flags: it has to
+	// land on the other track instead of replaying the one that is playing.
+	testing.expect(t, playlist_pick_random_track(&playlist) != second)
+
+	music_playback_stop(second_playback)
+	music_playback_stop(first_playback)
+	music_playback_test_destroy(&dummy, mixer_value)
+}
+
 MUSIC_PLAYBACK_TEST_TONE_PATH :: "build/music_playback_test_tone.wav"
 
 Wav_Header :: struct #packed {
