@@ -591,7 +591,7 @@ sound_play_buzzer :: proc() {
 }
 
 sound_play_whistle :: proc() {
-	sound_play(._495367_Kirkpatricklive_Coach_Whistle_35_Long, 0.6)
+	sound_play(._495367_Kirkpatricklive_Coach_Whistle_35_Long, 1.2)
 }
 
 hotkeys_handle_key :: proc(key: sdl.Keycode) {
