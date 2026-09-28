@@ -127,7 +127,7 @@ show_pre_show :: proc() {
 }
 
 show_arena_pre_show :: proc() {
-	playlist := playlist_find_by_name(.Arena_pre_show)
+	playlist := playlist_find_by_name(.Arena_Pre_show)
 	ensure(playlist != nil, "Couldn't find playlist for Arena_Pre_Show")
 
 	track := playlist_pick_random_track(playlist)
