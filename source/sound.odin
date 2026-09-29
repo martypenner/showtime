@@ -27,7 +27,6 @@ MusicTrackBounds :: struct {
 
 SoundSettings :: struct {
 	mixer:                        ^mixer.Mixer `json:"-"`,
-	update_ticks:                 u64 `json:"-"`,
 	// The endpoint/default volume (0..1) for ordinary playback.
 	music_volume:                 f32 `json:"-"`,
 	use_house_music:              bool,
@@ -49,6 +48,8 @@ SoundSettings :: struct {
 	music_playbacks:              [MUSIC_PLAYBACK_COUNT]MusicPlayback `json:"-"`,
 	current_sounds:               SoundVoices `json:"-"`,
 	is_sound_playing:             bool `json:"-"`,
+	// Multiplier on all music track gain while sound effects are playing.
+	duck_gain:                    f32 `json:"-"`,
 	wave_editor_preview:          WaveEditorPreview `json:"-"`,
 	wave_editor_start_fraction:   f32 `json:"-"`,
 	wave_editor_end_fraction:     f32 `json:"-"`,
@@ -100,6 +101,12 @@ PathName :: string
 SOUND_FADE_OUT_DURATION :: f32(2.0)
 SOUND_REPLAY_FADE_THRESHOLD :: f32(4.0)
 SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION :: f32(0.25)
+
+// Music ducks to this gain multiplier while sound effects play, ramping down
+// and back up over MUSIC_DUCK_SECONDS. The return starts in the last
+// MUSIC_DUCK_SECONDS of the soonest-ending sound effect.
+MUSIC_DUCK_GAIN :: f32(0.2)
+MUSIC_DUCK_SECONDS :: f32(0.2)
 
 SoundVoice :: struct {
 	audio:       ^mixer.Audio,
@@ -216,6 +223,7 @@ DefaultSoundSettings := SoundSettings {
 	loop                     = true,
 	normalize_volume         = true,
 	target_loudness          = -8,
+	duck_gain                = 1,
 	wave_editor_end_fraction = 1,
 }
 
@@ -533,16 +541,26 @@ music_playback_volume_set :: proc(playback: ^MusicPlayback, points: []MusicVolum
 
 	first := points[0]
 	if len(points) == 1 {
-		ensure(mixer.SetTrackGain(playback.mixer_track, first.volume * gain_multiplier))
+		ensure(
+			mixer.SetTrackGain(
+				playback.mixer_track,
+				first.volume * gain_multiplier * sound_settings.duck_gain,
+			),
+		)
 		return
 	}
 
 	second := points[1]
 	if second.volume > first.volume {
-		destination_gain := second.volume * gain_multiplier
+		destination_volume := second.volume * gain_multiplier
 		start_fraction := f32(0)
-		if destination_gain > 0 do start_fraction = math.clamp(audible_volume * gain_multiplier / destination_gain, 0, 1)
-		ensure(mixer.SetTrackGain(playback.mixer_track, destination_gain))
+		if destination_volume > 0 do start_fraction = math.clamp(audible_volume * gain_multiplier / destination_volume, 0, 1)
+		ensure(
+			mixer.SetTrackGain(
+				playback.mixer_track,
+				destination_volume * sound_settings.duck_gain,
+			),
+		)
 		props := sound_play_options(
 			frame,
 			mixer.AudioMSToFrames(playback.mixer_audio, i64(playback.bounds_end_seconds * 1000)),
@@ -552,7 +570,12 @@ music_playback_volume_set :: proc(playback: ^MusicPlayback, points: []MusicVolum
 		defer sdl.DestroyProperties(props)
 		ensure(mixer.PlayTrack(playback.mixer_track, props))
 	} else if second.volume == 0 {
-		ensure(mixer.SetTrackGain(playback.mixer_track, audible_volume * gain_multiplier))
+		ensure(
+			mixer.SetTrackGain(
+				playback.mixer_track,
+				audible_volume * gain_multiplier * sound_settings.duck_gain,
+			),
+		)
 		ensure(
 			mixer.StopTrack(
 				playback.mixer_track,
@@ -786,7 +809,8 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 			generated_track, ok := TRACKS[norm.path_nfc(playback.source_path)]
 			log.ensuref(ok, "Missing generated track metadata for %s", playback.source_path)
 			gain_multiplier := track_volume_multiplier(generated_track.active_rms)
-			destination_gain := next.volume * gain_multiplier
+			destination_volume := next.volume * gain_multiplier
+			destination_gain := destination_volume * sound_settings.duck_gain
 			ensure(mixer.SetTrackGain(playback.mixer_track, destination_gain))
 			props := sound_play_options(
 				frame,
@@ -798,7 +822,7 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 					playback.mixer_audio,
 					i64(max(next.at_seconds - elapsed_seconds, 0) * 1000),
 				),
-				math.clamp(previous.volume * gain_multiplier / destination_gain, 0, 1),
+				math.clamp(previous.volume * gain_multiplier / destination_volume, 0, 1),
 			)
 			defer sdl.DestroyProperties(props)
 			ensure(mixer.PlayTrack(playback.mixer_track, props))
@@ -807,7 +831,12 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 			log.ensuref(ok, "Missing generated track metadata for %s", playback.source_path)
 			gain_multiplier := track_volume_multiplier(generated_track.active_rms)
 			audible_volume := music_playback_volume_at(playback, frame)
-			ensure(mixer.SetTrackGain(playback.mixer_track, audible_volume * gain_multiplier))
+			ensure(
+				mixer.SetTrackGain(
+					playback.mixer_track,
+					audible_volume * gain_multiplier * sound_settings.duck_gain,
+				),
+			)
 			ensure(
 				mixer.StopTrack(
 					playback.mixer_track,
@@ -829,7 +858,8 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 		ensure(playback.volume_points[terminal_index].volume == 0)
 		gain :=
 			playback.volume_points[terminal_index - 1].volume *
-			track_volume_multiplier(generated_track.active_rms)
+			track_volume_multiplier(generated_track.active_rms) *
+			sound_settings.duck_gain
 		if mixer.GetTrackGain(playback.mixer_track) != gain {
 			ensure(mixer.SetTrackGain(playback.mixer_track, gain))
 		}
@@ -840,7 +870,8 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 		)
 		gain :=
 			playback.volume_points[destination_index].volume *
-			track_volume_multiplier(generated_track.active_rms)
+			track_volume_multiplier(generated_track.active_rms) *
+			sound_settings.duck_gain
 		if mixer.GetTrackGain(playback.mixer_track) != gain {
 			ensure(mixer.SetTrackGain(playback.mixer_track, gain))
 		}
@@ -961,7 +992,6 @@ sound_settings_init :: proc() -> ^SoundSettings {
 	ensure(mixer.Init())
 	sound_settings.mixer = mixer.CreateMixerDevice(sdl.AUDIO_DEVICE_DEFAULT_PLAYBACK, nil)
 	ensure(sound_settings.mixer != nil)
-	sound_settings.update_ticks = sdl.GetTicks()
 	sound_settings.playlists = playlists_load()
 	for &playlist in sound_settings.playlists {
 		for &track in playlist.tracks {
@@ -980,10 +1010,6 @@ sound_settings_init :: proc() -> ^SoundSettings {
 }
 
 sound_update :: proc() {
-	ticks := sdl.GetTicks()
-	dt := f32(ticks - sound_settings.update_ticks) / 1000
-	sound_settings.update_ticks = ticks
-
 	sound_index := 0
 	for sound_index < len(sound_settings.current_sounds) {
 		voice := &sound_settings.current_sounds[sound_index]
@@ -996,6 +1022,34 @@ sound_update :: proc() {
 		sound_index += 1
 	}
 	sound_settings.is_sound_playing = len(sound_settings.current_sounds) > 0
+
+	remaining_min := f32(0)
+	for &voice in sound_settings.current_sounds {
+		if voice.fading do continue
+		elapsed :=
+			f32(
+				mixer.AudioFramesToMS(
+					voice.audio,
+					mixer.GetTrackPlaybackPosition(voice.mixer_track),
+				),
+			) /
+			1000
+		remaining := max(voice.duration - elapsed, 0)
+		if remaining_min == 0 || remaining < remaining_min do remaining_min = remaining
+	}
+	if remaining_min > MUSIC_DUCK_SECONDS {
+		sound_settings.duck_gain = max(
+			MUSIC_DUCK_GAIN,
+			sound_settings.duck_gain - dt * (1 - MUSIC_DUCK_GAIN) / MUSIC_DUCK_SECONDS,
+		)
+	} else if remaining_min > 0 {
+		sound_settings.duck_gain = min(
+			1,
+			MUSIC_DUCK_GAIN + (1 - MUSIC_DUCK_GAIN) * (1 - remaining_min / MUSIC_DUCK_SECONDS),
+		)
+	} else {
+		sound_settings.duck_gain = 1
+	}
 
 	if sound_settings.settings_save_time_left > 0 {
 		sound_settings.settings_save_time_left = max(
