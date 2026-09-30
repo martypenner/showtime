@@ -51,6 +51,7 @@ lighting_look_labels := [LightingLook]cstring {
 	.SceneWithFullFade = "Scene - fade",
 	.CenterFocus       = "Center focus",
 	.Challenge         = "Challenge",
+	.FinalShowdown     = "Final Showdown",
 }
 
 lighting_fx_labels := [LightingFxKind]cstring {
@@ -501,6 +502,11 @@ game_challenge :: proc() {
 	lighting_look_activate(.Challenge)
 }
 
+game_final_showdown :: proc() {
+	sound_play(._810166_Long_Brass_Stab, 1.0)
+	lighting_look_activate(.FinalShowdown)
+}
+
 lighting_house :: proc() {
 	lighting_fx_deactivate_all()
 	lighting_look_activate(.House)
@@ -859,6 +865,11 @@ controls_draw :: proc() {
 
 				if controls_button("Challenge", .Game, button_width) {
 					game_challenge()
+				}
+				imgui.SameLine()
+
+				if controls_button("Final Showdown", .Game, button_width) {
+					game_final_showdown()
 				}
 
 				controls_group_end()

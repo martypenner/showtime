@@ -12,6 +12,7 @@ LightingLook :: enum {
 	SceneWithFullFade,
 	CenterFocus,
 	Challenge,
+	FinalShowdown,
 }
 
 LightingFxKind :: enum {
