@@ -621,7 +621,7 @@ sound_play_brass_stab :: proc() {
 
 hotkeys_handle_key :: proc(key: sdl.Keycode) {
 	switch key {
-	case sdl.K_PLUS:
+	case sdl.K_PLUS, sdl.K_EQUALS:
 		music_volume_adjust(+0.005)
 	case sdl.K_MINUS:
 		music_volume_adjust(-0.005)

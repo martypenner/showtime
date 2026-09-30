@@ -110,6 +110,7 @@ update :: proc() {
 			case .KEY_DOWN:
 				if !event.key.repeat ||
 				   event.key.key == sdl.K_PLUS ||
+				   event.key.key == sdl.K_EQUALS ||
 				   event.key.key == sdl.K_MINUS {
 					if gm.active_tab == .Controls && !controls_io.WantTextInput {
 						hotkeys_handle_key(event.key.key)
