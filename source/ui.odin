@@ -497,7 +497,7 @@ game_sounds_like_a_song :: proc() {
 }
 
 game_challenge :: proc() {
-	sound_play_orchestral_hits()
+	sound_play(.Double_Orchestral_Hits_C, 1.0, 1.0)
 	lighting_look_activate(.Challenge)
 }
 

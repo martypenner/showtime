@@ -121,7 +121,7 @@ update :: proc() {
 		}
 	}
 
-	sound_update()
+	sound_update(dt)
 	lighting_update()
 	timers_update(dt)
 }

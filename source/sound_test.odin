@@ -361,7 +361,7 @@ music_playback_zero_final_volume_suppresses_automatic_next :: proc(t: ^testing.T
 	settings.music_playbacks[0] = playback
 	settings.music_playback_primary = &settings.music_playbacks[0]
 	sound_settings = &settings
-	sound_update()
+	sound_update(0)
 	testing.expect(t, !settings.music_playbacks[0].playlist_successor_started)
 	mixer.DestroyMixer(mixer_value)
 	mixer.Quit()
@@ -393,7 +393,7 @@ music_playback_one_point_zero_starts_silent_automatic_next :: proc(t: ^testing.T
 	settings.music_playbacks[0] = playback
 	settings.music_playback_primary = &settings.music_playbacks[0]
 	sound_settings = &settings
-	sound_update()
+	sound_update(0)
 	successor := settings.music_playback_primary
 	testing.expect(t, successor != &settings.music_playbacks[0])
 	testing.expect_value(t, successor.volume_point_count, u8(1))

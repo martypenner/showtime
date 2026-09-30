@@ -47,6 +47,7 @@ SoundSettings :: struct {
 	settings_save_time_left:      f32 `json:"-"`,
 	music_playbacks:              [MUSIC_PLAYBACK_COUNT]MusicPlayback `json:"-"`,
 	current_sounds:               SoundVoices `json:"-"`,
+	pending_sounds:               PendingSounds `json:"-"`,
 	is_sound_playing:             bool `json:"-"`,
 	// Multiplier on all music track gain while sound effects are playing.
 	duck_gain:                    f32 `json:"-"`,
@@ -118,6 +119,14 @@ SoundVoice :: struct {
 }
 
 SoundVoices :: [dynamic; 32]SoundVoice
+
+PendingSound :: struct {
+	name:        SoundEffectName,
+	volume:      f32,
+	remaining_s: f32,
+}
+
+PendingSounds :: [dynamic; 8]PendingSound
 
 TrackKeys :: [dynamic; 512]PathName
 
@@ -370,7 +379,15 @@ sound_play_options :: proc(
 	return props
 }
 
-sound_play :: proc(name: SoundEffectName, volume: f32) -> ^mixer.Track {
+sound_play :: proc(name: SoundEffectName, volume: f32, delay_s: f32 = 0) -> ^mixer.Track {
+	if delay_s > 0 {
+		append(
+			&sound_settings.pending_sounds,
+			PendingSound{name = name, volume = volume, remaining_s = delay_s},
+		)
+		return nil
+	}
+
 	for &voice in sound_settings.current_sounds {
 		if !sound_retrigger_fade_needed(voice.name, name, mixer.TrackPlaying(voice.mixer_track), voice.duration) do continue
 		if !voice.fading {
@@ -395,6 +412,7 @@ sound_play :: proc(name: SoundEffectName, volume: f32) -> ^mixer.Track {
 	ensure(mixer.PlayTrack(track, 0))
 	duration_frames := mixer.GetAudioDuration(audio)
 	ensure(duration_frames > 0)
+
 	append(
 		&sound_settings.current_sounds,
 		SoundVoice {
@@ -406,6 +424,7 @@ sound_play :: proc(name: SoundEffectName, volume: f32) -> ^mixer.Track {
 		},
 	)
 	sound_settings.is_sound_playing = true
+
 	return track
 }
 
@@ -1009,7 +1028,19 @@ sound_settings_init :: proc() -> ^SoundSettings {
 	return sound_settings
 }
 
-sound_update :: proc() {
+sound_update :: proc(dt: f32) {
+	pending_index := 0
+	for pending_index < len(sound_settings.pending_sounds) {
+		pending := &sound_settings.pending_sounds[pending_index]
+		pending.remaining_s -= dt
+		if pending.remaining_s > 0 {
+			pending_index += 1
+			continue
+		}
+		sound_play(pending.name, pending.volume)
+		unordered_remove(&sound_settings.pending_sounds, pending_index)
+	}
+
 	sound_index := 0
 	for sound_index < len(sound_settings.current_sounds) {
 		voice := &sound_settings.current_sounds[sound_index]
