@@ -50,6 +50,7 @@ lighting_look_labels := [LightingLook]cstring {
 	.Scene             = "Scene",
 	.SceneWithFullFade = "Scene - fade",
 	.CenterFocus       = "Center focus",
+	.Challenge         = "Challenge",
 }
 
 lighting_fx_labels := [LightingFxKind]cstring {
@@ -495,6 +496,11 @@ game_sounds_like_a_song :: proc() {
 	}
 }
 
+game_challenge :: proc() {
+	sound_play_orchestral_hits()
+	lighting_look_activate(.Challenge)
+}
+
 lighting_house :: proc() {
 	lighting_fx_deactivate_all()
 	lighting_look_activate(.House)
@@ -594,72 +600,94 @@ sound_play_whistle :: proc() {
 	sound_play(._495367_Kirkpatricklive_Coach_Whistle_35_Long, 1.2)
 }
 
+sound_play_rimshot :: proc() {
+	sound_play(._276687_Comedy_Rimshot, 1.0)
+}
+
+sound_play_orchestral_hits :: proc() {
+	sound_play(.Double_Orchestral_Hits_C, 1.0)
+}
+
+sound_play_game_show_sting :: proc() {
+	sound_play(._502152_Game_Show_Brass_Intro_Sting, 0.7)
+}
+
+sound_play_dun_dun_dun :: proc() {
+	sound_play(.Dun_Dun_Dun, 1.0)
+}
+
+sound_play_brass_stab :: proc() {
+	sound_play(._810166_Long_Brass_Stab, 1.0)
+}
+
 hotkeys_handle_key :: proc(key: sdl.Keycode) {
 	switch key {
 	case sdl.K_PLUS:
 		music_volume_adjust(+0.005)
 	case sdl.K_MINUS:
 		music_volume_adjust(-0.005)
-	case sdl.K_A:
-		show_pre_show()
-	case sdl.K_R:
-		show_post_show()
-	case sdl.K_S:
-		show_to_house()
-	case sdl.K_T:
-		show_scene_ramp()
-	case sdl.K_G:
-		show_scene_fade()
-	case sdl.K_M:
-		show_drop_needle()
-	case sdl.K_N:
-		show_start()
 	case sdl.K_Q:
-		game_innuendo()
+		show_to_house()
 	case sdl.K_W:
-		game_oscar_moment()
+		show_scene_ramp()
 	case sdl.K_F:
-		game_sounds_like_a_song()
+		show_scene_fade()
 	case sdl.K_P:
-		lighting_house()
-	case sdl.K_B:
-		lighting_scene()
-	case sdl.K_J:
-		lighting_scene_fade()
-	case sdl.K_L:
-		lighting_fade_to_black()
-	case sdl.K_U:
-		lighting_cut_to_black()
-	case sdl.K_Y:
-		lighting_center_focus()
-	case sdl.K_SEMICOLON:
-		lighting_innuendo_toggle()
-	case sdl.K_BACKSLASH:
-		lighting_rainbow_sting_toggle()
-	case sdl.K_Z:
-		sound_play_break_glass()
-	case sdl.K_X:
-		sound_play_gunshot()
-	case sdl.K_C:
-		sound_play_scream_lady()
-	case sdl.K_D:
-		sound_play_fireworks()
-	case sdl.K_V:
-		sound_play_train_horn()
-	case sdl.K_K:
-		sound_play_tick_tick_ding()
-	case sdl.K_H:
-		sound_play_ding()
-	case sdl.K_COMMA:
-		sound_play_lightning()
+		show_drop_needle()
 	case sdl.K_PERIOD:
-		sound_play_rain()
-	case sdl.K_SLASH:
-		sound_play_meow()
-	case sdl.K_E:
 		music_fade_out()
-	case sdl.K_O:
+	case sdl.K_B:
+		lighting_house()
+	case sdl.K_J:
+		lighting_scene()
+	case sdl.K_L:
+		lighting_scene_fade()
+	case sdl.K_U:
+		lighting_fade_to_black()
+	case sdl.K_Y:
+		lighting_cut_to_black()
+	case sdl.K_SEMICOLON:
+		lighting_center_focus()
+	case sdl.K_BACKSLASH:
+		lighting_innuendo_toggle()
+	case sdl.K_A:
+		lighting_rainbow_sting_toggle()
+	case sdl.K_1:
+		sound_play_break_glass()
+	case sdl.K_2:
+		sound_play_gunshot()
+	case sdl.K_3:
+		sound_play_scream_lady()
+	case sdl.K_4:
+		sound_play_fireworks()
+	case sdl.K_5:
+		sound_play_train_horn()
+	case sdl.K_6:
+		sound_play_tick_tick_ding()
+	case sdl.K_7:
+		sound_play_ding()
+	case sdl.K_8:
+		sound_play_lightning()
+	case sdl.K_9:
+		sound_play_rain()
+	case sdl.K_0:
+		sound_play_meow()
+	case sdl.K_Z:
 		sound_play_yeeeaaahhh()
+	case sdl.K_X:
+		sound_play_buzzer()
+	case sdl.K_C:
+		sound_play_whistle()
+	case sdl.K_D:
+		sound_play_rimshot()
+	case sdl.K_V:
+		sound_play_game_show_sting()
+	case sdl.K_K:
+		sound_play_dun_dun_dun()
+	case sdl.K_H:
+		sound_play_orchestral_hits()
+	case sdl.K_COMMA:
+		sound_play_brass_stab()
 	}
 }
 
@@ -765,7 +793,7 @@ controls_draw :: proc() {
 			{
 				controls_group_begin("Show")
 
-				if controls_button("Pre-show (a)", .SoundAndLighting, button_width) {
+				if controls_button("Pre-show", .SoundAndLighting, button_width) {
 					show_pre_show()
 				}
 				imgui.SameLine()
@@ -775,12 +803,12 @@ controls_draw :: proc() {
 				}
 				imgui.SameLine()
 
-				if controls_button("Show start (n)", .SoundAndLighting, button_width) {
+				if controls_button("Show start", .SoundAndLighting, button_width) {
 					show_start()
 				}
 				imgui.SameLine()
 
-				if controls_button("Post-show (r)", .SoundAndLighting, button_width) {
+				if controls_button("Post-show", .SoundAndLighting, button_width) {
 					show_post_show()
 				}
 				imgui.SameLine()
@@ -789,22 +817,22 @@ controls_draw :: proc() {
 					show_ave_maria()
 				}
 
-				if controls_button("To house (s)", .SoundAndLighting, button_width) {
+				if controls_button("To house (q)", .SoundAndLighting, button_width) {
 					show_to_house()
 				}
 				imgui.SameLine()
 
-				if controls_button("Scene - ramp (t)", .SoundAndLighting, button_width) {
+				if controls_button("Scene - ramp (w)", .SoundAndLighting, button_width) {
 					show_scene_ramp()
 				}
 				imgui.SameLine()
 
-				if controls_button("Scene - fade (g)", .SoundAndLighting, button_width) {
+				if controls_button("Scene - fade (f)", .SoundAndLighting, button_width) {
 					show_scene_fade()
 				}
 				imgui.SameLine()
 
-				if controls_button("Drop needle (m)", .Destructive, button_width) {
+				if controls_button("Drop needle (p)", .Destructive, button_width) {
 					show_drop_needle()
 				}
 
@@ -814,18 +842,23 @@ controls_draw :: proc() {
 			{
 				controls_group_begin("Games")
 
-				if controls_button("Innuendo (q)", .Innuendo, button_width) {
+				if controls_button("Innuendo", .Innuendo, button_width) {
 					game_innuendo()
 				}
 				imgui.SameLine()
 
-				if controls_button("Oscar Moment (w)", .Game, button_width) {
+				if controls_button("Oscar Moment", .Game, button_width) {
 					game_oscar_moment()
 				}
 				imgui.SameLine()
 
-				if controls_button("Sounds Like\n a Song (f)", .Game, button_width) {
+				if controls_button("Sounds Like\n  a Song", .Game, button_width) {
 					game_sounds_like_a_song()
+				}
+				imgui.SameLine()
+
+				if controls_button("Challenge", .Game, button_width) {
+					game_challenge()
 				}
 
 				controls_group_end()
@@ -834,26 +867,26 @@ controls_draw :: proc() {
 			{
 				controls_group_begin("Lighting")
 
-				if controls_button("House (p)##Lighting", .Lighting, button_width) {
+				if controls_button("House (b)##Lighting", .Lighting, button_width) {
 					lighting_house()
 				}
 				imgui.SameLine()
-				if controls_button("Scene (b)##Lighting", .Lighting, button_width) {
+				if controls_button("Scene (j)##Lighting", .Lighting, button_width) {
 					lighting_scene()
 				}
 				imgui.SameLine()
-				if controls_button("Scene - fade (j)##Lighting", .Lighting, button_width) {
+				if controls_button("Scene - fade (l)##Lighting", .Lighting, button_width) {
 					lighting_scene_fade()
 				}
 				imgui.SameLine()
-				if controls_button("Fade to black (l)##Lighting", .Lighting, button_width) {
+				if controls_button("Fade to black (u)##Lighting", .Lighting, button_width) {
 					lighting_fade_to_black()
 				}
 				imgui.SameLine()
-				if controls_button("Cut to black (u)##Lighting", .Lighting, button_width) {
+				if controls_button("Cut to black (y)##Lighting", .Lighting, button_width) {
 					lighting_cut_to_black()
 				}
-				if controls_button("Center focus (y)##Lighting", .Lighting, button_width) {
+				if controls_button("Center focus (;)##Lighting", .Lighting, button_width) {
 					lighting_center_focus()
 				}
 				imgui.SameLine()
@@ -867,7 +900,7 @@ controls_draw :: proc() {
 					}
 					if controls_button(
 						strings.clone_to_cstring(
-							fmt.tprint(text, "(;)##Lighting"),
+							fmt.tprint(text, "(a)##Lighting"),
 							context.temp_allocator,
 						),
 						.Lighting,
@@ -887,7 +920,7 @@ controls_draw :: proc() {
 					}
 					if controls_button(
 						strings.clone_to_cstring(
-							fmt.tprint(text, " (\\)##Lighting"),
+							fmt.tprint(text, " (r)##Lighting"),
 							context.temp_allocator,
 						),
 						.Lighting,
@@ -949,49 +982,72 @@ controls_draw :: proc() {
 			{
 				controls_group_begin("Sounds")
 
-				if controls_button(
-					"Break glass (z)",
-					.Sound,
-					button_width,
-				) {sound_play_break_glass()}
+				if controls_button("Break glass (1)", .Sound, button_width) {
+					sound_play_break_glass()
+				}
 				imgui.SameLine()
-				if controls_button("Gunshot (x)", .Sound, button_width) {sound_play_gunshot()}
+				if controls_button("Gunshot (2)", .Sound, button_width) {sound_play_gunshot()}
 				imgui.SameLine()
 				if controls_button(
-					"Scream, lady! (c)",
+					"Scream, lady! (3)",
 					.Sound,
 					button_width,
 				) {sound_play_scream_lady()}
 				imgui.SameLine()
-				if controls_button("Fireworks (d)", .Sound, button_width) {sound_play_fireworks()}
+				if controls_button("Fireworks (4)", .Sound, button_width) {sound_play_fireworks()}
 				imgui.SameLine()
 				if controls_button(
-					"Train horn (v)",
+					"Train horn (5)",
 					.Sound,
 					button_width,
 				) {sound_play_train_horn()}
 				if controls_button(
-					"Tick tick ding (k)",
+					"Tick tick ding (6)",
 					.Sound,
 					button_width,
 				) {sound_play_tick_tick_ding()}
 				imgui.SameLine()
-				if controls_button("Ding (h)", .Sound, button_width) {sound_play_ding()}
+				if controls_button("Ding (7)", .Sound, button_width) {sound_play_ding()}
 				imgui.SameLine()
-				if controls_button("Lightning (,)", .Sound, button_width) {sound_play_lightning()}
+				if controls_button("Lightning (8)", .Sound, button_width) {sound_play_lightning()}
 				imgui.SameLine()
-				if controls_button("Rain (.)", .Sound, button_width) {sound_play_rain()}
+				if controls_button("Rain (9)", .Sound, button_width) {sound_play_rain()}
 				imgui.SameLine()
-				if controls_button("Meow (/)", .Sound, button_width) {sound_play_meow()}
+				if controls_button("Meow (0)", .Sound, button_width) {sound_play_meow()}
 				if controls_button(
-					"Yeeeaaahhh (o)",
+					"Yeeeaaahhh (z)",
 					.Sound,
 					button_width,
 				) {sound_play_yeeeaaahhh()}
 				imgui.SameLine()
-				if controls_button("Buzzer", .Sound, button_width) {sound_play_buzzer()}
+				if controls_button("Buzzer (x)", .Sound, button_width) {sound_play_buzzer()}
 				imgui.SameLine()
-				if controls_button("Whistle", .Sound, button_width) {sound_play_whistle()}
+				if controls_button("Whistle (c)", .Sound, button_width) {sound_play_whistle()}
+				imgui.SameLine()
+				if controls_button("Rimshot (d)", .Sound, button_width) {sound_play_rimshot()}
+				if controls_button(
+					"Game show sting (v)",
+					.Sound,
+					button_width,
+				) {sound_play_game_show_sting()}
+				imgui.SameLine()
+				if controls_button(
+					"Dun dun dun (k)",
+					.Sound,
+					button_width,
+				) {sound_play_dun_dun_dun()}
+				imgui.SameLine()
+				if controls_button(
+					"Orchestral hits (h)",
+					.Sound,
+					button_width,
+				) {sound_play_orchestral_hits()}
+				imgui.SameLine()
+				if controls_button(
+					"Brass stab (,)",
+					.Sound,
+					button_width,
+				) {sound_play_brass_stab()}
 
 				controls_group_end()
 			}
@@ -1016,7 +1072,7 @@ controls_draw :: proc() {
 						imgui.PushStyleColorImVec4(.Button, style.base)
 						imgui.PushStyleColorImVec4(.ButtonHovered, style.hovered)
 						imgui.PushStyleColorImVec4(.ButtonActive, style.active)
-						if imgui.Button("Fade out (e)", {0, 0}) {
+						if imgui.Button("Fade out (.)", {0, 0}) {
 							for &playback in gm.sound_settings.music_playbacks {
 								if playback.mixer_track == nil do continue
 								audible := music_playback_volume_at(

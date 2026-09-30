@@ -11,6 +11,7 @@ LightingLook :: enum {
 	Scene,
 	SceneWithFullFade,
 	CenterFocus,
+	Challenge,
 }
 
 LightingFxKind :: enum {
