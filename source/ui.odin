@@ -802,7 +802,7 @@ controls_draw :: proc() {
 				}
 				imgui.SameLine()
 
-				if controls_button("Show start", .SoundAndLighting, button_width) {
+				if controls_button("Show start", .Sound, button_width) {
 					show_start()
 				}
 				imgui.SameLine()
