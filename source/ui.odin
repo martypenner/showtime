@@ -170,9 +170,6 @@ show_start :: proc() {
 		)
 		music_playback_volume_set(&playback, {{0, audible}, {gm.sound_settings.fade_out_time, 0}})
 	}
-
-	lighting_fx_deactivate_all()
-	lighting_look_activate(.House)
 }
 
 show_post_show :: proc() {
@@ -462,8 +459,6 @@ game_sounds_like_a_song :: proc() {
 			)
 		}
 		sounds_like_a_song_playlist_retained = nil
-
-		lighting_look_activate(.Scene)
 	} else {
 		playlist := playlist_find_by_name(.Sounds_Like_a_Song)
 		ensure(playlist != nil, "Couldn't find playlist for Sounds_Like_a_Song")
@@ -492,8 +487,6 @@ game_sounds_like_a_song :: proc() {
 		ensure(new_playback != nil, "Couldn't start Sounds_Like_a_Song playback")
 		music_playback_volume_set(new_playback, {{0, 0}, {gm.sound_settings.fade_in_time, 0.5}})
 		sounds_like_a_song_playlist_retained = playlist
-
-		lighting_look_activate(.CenterFocus)
 	}
 }
 
@@ -607,7 +600,7 @@ sound_play_whistle :: proc() {
 }
 
 sound_play_rimshot :: proc() {
-	sound_play(._276687_Comedy_Rimshot, 1.0)
+	sound_play(._276687_Comedy_Rimshot, 1.2)
 }
 
 sound_play_orchestral_hits :: proc() {
@@ -654,9 +647,9 @@ hotkeys_handle_key :: proc(key: sdl.Keycode) {
 		lighting_cut_to_black()
 	case sdl.K_SEMICOLON:
 		lighting_center_focus()
-	case sdl.K_BACKSLASH:
-		lighting_innuendo_toggle()
 	case sdl.K_A:
+		lighting_innuendo_toggle()
+	case sdl.K_R:
 		lighting_rainbow_sting_toggle()
 	case sdl.K_1:
 		sound_play_break_glass()
