@@ -1288,7 +1288,7 @@ projection_draw :: proc() {
 	)
 	imgui.PopStyleVar(3)
 
-	imgui.PushFontFloat(nil, 280)
+	imgui.PushFontFloat(nil, 500)
 	text := strings.clone_to_cstring(timers_projection_text(), context.temp_allocator)
 	text_size := imgui.CalcTextSize(text)
 	imgui.SetCursorPos({(vp.WorkSize.x - text_size.x) * 0.5, (vp.WorkSize.y - text_size.y) * 0.5})
