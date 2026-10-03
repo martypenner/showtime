@@ -572,7 +572,7 @@ sound_play_tick_tick_ding :: proc() {
 }
 
 sound_play_ding :: proc() {
-	sound_play(.Ding_126626, 2.0)
+	sound_play(.Ding_126626, 1.0)
 }
 
 sound_play_lightning :: proc() {
@@ -592,11 +592,11 @@ sound_play_yeeeaaahhh :: proc() {
 }
 
 sound_play_buzzer :: proc() {
-	sound_play(._244932_Kwahmah_02_Short_Buzzer, 0.7)
+	sound_play(._244932_Kwahmah_02_Short_Buzzer, 0.3)
 }
 
 sound_play_whistle :: proc() {
-	sound_play(._495367_Kirkpatricklive_Coach_Whistle_35_Long, 1.2)
+	sound_play(._495367_Kirkpatricklive_Coach_Whistle_35_Long, 0.4)
 }
 
 sound_play_rimshot :: proc() {
@@ -608,7 +608,7 @@ sound_play_orchestral_hits :: proc() {
 }
 
 sound_play_game_show_sting :: proc() {
-	sound_play(._502152_Game_Show_Brass_Intro_Sting, 0.7)
+	sound_play(._502152_Game_Show_Brass_Intro_Sting, 0.4)
 }
 
 sound_play_dun_dun_dun :: proc() {
