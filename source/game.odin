@@ -97,6 +97,15 @@ update :: proc() {
 
 	event: sdl.Event
 	for sdl.PollEvent(&event) {
+		// QUIT has no windowID, so it must be handled before the
+		// per-window routing below. SDL's default SIGINT/SIGTERM
+		// handlers post this event, which is what Ctrl-C and the
+		// watch script's kill send. Any window closing should quit.
+		#partial switch event.type {
+		case .QUIT, .WINDOW_CLOSE_REQUESTED:
+			gm.should_run = false
+		}
+
 		if event.window.windowID == sdl.GetWindowID(projection_window) {
 			imgui.SetCurrentContext(projection_context)
 			imsdl3.ProcessEvent(&event)
@@ -105,8 +114,6 @@ update :: proc() {
 			imsdl3.ProcessEvent(&event)
 
 			#partial switch event.type {
-			case .QUIT, .WINDOW_CLOSE_REQUESTED:
-				gm.should_run = false
 			case .KEY_DOWN:
 				if !event.key.repeat ||
 				   event.key.key == sdl.K_PLUS ||

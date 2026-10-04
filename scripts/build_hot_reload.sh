@@ -36,6 +36,9 @@ mv $GAME_TMP$DLL_EXT $OUT_DIR_HOT_RELOAD/game$DLL_EXT
 # -f is there to make sure we match against full name, including .bin
 if pgrep -f $EXE >/dev/null; then
 	echo "Hot reloading..."
+	# Always record the running exe's PID so scripts/watch.sh tracks it even
+	# when it attached to an already-running game.
+	pgrep -f $EXE | head -1 >"$PIDFILE"
 	exit 0
 fi
 

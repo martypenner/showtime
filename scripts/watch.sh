@@ -8,7 +8,18 @@ set -eu
 . scripts/config.sh
 
 stop_game() {
-	kill "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null || true
+	pid="$(cat "$PIDFILE" 2>/dev/null)" || pid=
+	[ -n "$pid" ] || return
+	kill "$pid" 2>/dev/null || true
+	# Graceful exit is via SIGTERM (SDL turns it into a quit event). If the
+	# game is stuck and ignores it, force-kill after a short grace period.
+	for _ in $(seq 1 20); do
+		kill -0 "$pid" 2>/dev/null || break
+		sleep 0.1
+	done
+	if kill -0 "$pid" 2>/dev/null; then
+		kill -9 "$pid" 2>/dev/null || true
+	fi
 	rm -f "$PIDFILE"
 }
 
