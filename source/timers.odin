@@ -159,6 +159,16 @@ timers_submit_input :: proc() {
 	timer_seconds_input = DEFAULT_TIMER_SECONDS
 }
 
+// Any timer currently counting down. A playing timer owns the projection;
+// the score slide only shows when none is running.
+timers_any_running :: proc() -> bool {
+	for i in 0 ..< MAX_TIMERS {
+		timer := &gm.timers[i]
+		if timer.label != "" && timer.running && !timer.done do return true
+	}
+	return false
+}
+
 timers_update :: proc(dt: f32) {
 	for i in 0 ..< MAX_TIMERS {
 		timer := &gm.timers[i]

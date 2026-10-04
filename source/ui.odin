@@ -23,12 +23,14 @@ UI_Type :: enum u8 {
 Tab :: enum u8 {
 	Controls,
 	Music,
+	Scores,
 	All,
 }
 
 tab_labels := [Tab]cstring {
 	.Controls = "Controls",
 	.Music    = "Music editor",
+	.Scores   = "Score",
 	.All      = "All",
 }
 
@@ -83,6 +85,11 @@ controls_group_begin :: proc(label: cstring) {
 
 controls_group_end :: proc() {
 	imgui.EndChild()
+}
+
+controls_list_begin :: proc(label: cstring, height: f32) -> bool {
+	ensure(height > 0)
+	return imgui.BeginChild(label, {0, height}, {.FrameStyle})
 }
 
 music_browser_playlist_selected :: proc() -> ^Playlist {
@@ -1056,12 +1063,43 @@ controls_draw :: proc() {
 				controls_group_end()
 			}
 
+			ensure(video_state != nil)
+			list_row_height := imgui.GetTextLineHeightWithSpacing()
+			list_padding := imgui.GetStyle().FramePadding.y * 2
+			list_height_min := list_row_height * 6 + list_padding
+			music_height_needed := max(
+				list_height_min,
+				f32(len(sound_settings.playlists)) * list_row_height + list_padding,
+			)
+			video_height_needed := max(
+				list_height_min,
+				f32(len(video_state.pages)) * list_row_height + list_padding,
+			)
+			// Reserve both section headings, padding, gaps, and the video status/mode.
+			sections_height :=
+				imgui.GetFrameHeight() +
+				imgui.GetTextLineHeight() * 2 +
+				imgui.GetStyle().WindowPadding.y * 4 +
+				imgui.GetStyle().ItemSpacing.y * 4
+			if video_state.active != nil {
+				sections_height += imgui.GetFrameHeightWithSpacing()
+			}
+			list_height_extra := max(
+				0,
+				imgui.GetContentRegionAvail().y - sections_height - list_height_min * 2,
+			)
+			music_height_extra := min(music_height_needed - list_height_min, list_height_extra / 2)
+			video_height_extra := min(
+				video_height_needed - list_height_min,
+				list_height_extra - music_height_extra,
+			)
+			music_height_extra = min(
+				music_height_needed - list_height_min,
+				list_height_extra - video_height_extra,
+			)
+
 			{
-				imgui.BeginChild(
-					"Music",
-					{0, imgui.GetContentRegionAvail().y},
-					child_flags = {.AutoResizeY, .Borders},
-				)
+				imgui.BeginChild("Music", child_flags = {.AutoResizeY, .Borders})
 
 				imgui.AlignTextToFramePadding()
 				imgui.TextUnformatted("Music")
@@ -1091,7 +1129,10 @@ controls_draw :: proc() {
 					}
 				}
 
-				if imgui.BeginChild("Playlists##ControlList", {0, 0}, {.FrameStyle}) {
+				if controls_list_begin(
+					"Playlists##ControlList",
+					list_height_min + music_height_extra,
+				) {
 					for &playlist, index in sound_settings.playlists {
 						if imgui.Selectable(
 							strings.clone_to_cstring(playlist.name, context.temp_allocator),
@@ -1139,6 +1180,14 @@ controls_draw :: proc() {
 					}
 				}
 				imgui.EndChild()
+
+				controls_group_end()
+			}
+
+			{
+				controls_group_begin("Video")
+
+				video_controls_draw(list_height_min + video_height_extra)
 
 				controls_group_end()
 			}
@@ -1208,6 +1257,16 @@ controls_draw :: proc() {
 			wave_editor()
 
 			imgui.EndGroup()
+
+			imgui.EndTabItem()
+		}
+
+		if imgui.BeginTabItem(tab_labels[.Scores]) {
+			gm.active_tab = .Scores
+
+			controls_group_begin("Score slide")
+			score_controls_draw()
+			controls_group_end()
 
 			imgui.EndTabItem()
 		}
@@ -1288,12 +1347,18 @@ projection_draw :: proc() {
 	)
 	imgui.PopStyleVar(3)
 
-	imgui.PushFontFloat(nil, 500)
-	text := strings.clone_to_cstring(timers_projection_text(), context.temp_allocator)
-	text_size := imgui.CalcTextSize(text)
-	imgui.SetCursorPos({(vp.WorkSize.x - text_size.x) * 0.5, (vp.WorkSize.y - text_size.y) * 0.5})
-	imgui.TextColored({0.85, 0.25, 0.25, 1}, text)
-	imgui.PopFont()
+	if score_projection_shown() {
+		score_projection_draw()
+	} else {
+		imgui.PushFontFloat(nil, 500)
+		text := strings.clone_to_cstring(timers_projection_text(), context.temp_allocator)
+		text_size := imgui.CalcTextSize(text)
+		imgui.SetCursorPos(
+			{(vp.WorkSize.x - text_size.x) * 0.5, (vp.WorkSize.y - text_size.y) * 0.5},
+		)
+		imgui.TextColored({0.85, 0.25, 0.25, 1}, text)
+		imgui.PopFont()
+	}
 
 	imgui.End()
 }

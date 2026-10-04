@@ -55,6 +55,8 @@ GameMemory :: struct {
 	timer_marks:           [MAX_TIMER_MARKS]TimerMark,
 	timer_marks_count:     int,
 	timer_serial_next:     int,
+	video:                 ^VideoState,
+	scores:                ^ScoreState,
 	// imgui state preserved across hot reloads. imgui's contexts, allocator
 	// functions, and SDL handles are DLL-global statics that reset to nil when
 	// a new DLL loads, so they must be saved on first init and restored here.
@@ -132,6 +134,8 @@ update :: proc() {
 	sound_update(dt)
 	lighting_update()
 	timers_update(dt)
+	score_update()
+	video_update()
 }
 
 draw :: proc() {
@@ -155,9 +159,19 @@ draw_window :: proc(
 	draw_ui()
 	imgui.Render()
 
-	sdl.SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
 	sdl.SetRenderDrawColor(renderer, 16, 16, 16, sdl.ALPHA_OPAQUE)
 	sdl.RenderClear(renderer)
+	if renderer == projection_renderer {
+		// Slide art sits under the imgui draw data, at 1:1 pixel scale.
+		sdl.SetRenderScale(renderer, 1, 1)
+		if score_projection_shown() {
+			score_projection_background_render(renderer)
+		} else {
+			video_projection_render(renderer)
+		}
+	} else {
+		sdl.SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
+	}
 	imsdlrenderer3.RenderDrawData(imgui.GetDrawData(), renderer)
 	sdl.RenderPresent(renderer)
 }
@@ -282,6 +296,13 @@ game_init :: proc() {
 
 	gm.sound_settings = sound_settings_init()
 
+	gm.video = video_init()
+
+	gm.scores = score_init()
+	imgui.SetCurrentContext(projection_context)
+	score_font_load()
+	imgui.SetCurrentContext(controls_context)
+
 	endpoint, endpoint_ok := net.parse_endpoint("127.0.0.1:42000")
 	log.ensuref(endpoint_ok, "Error parsing endpoint", endpoint)
 	socket, socket_err := net.make_unbound_udp_socket(.IP4)
@@ -302,6 +323,10 @@ game_should_run :: proc() -> bool {
 @(export)
 game_shutdown :: proc() {
 	sound_shutdown()
+
+	video_shutdown()
+
+	score_shutdown()
 
 	if socket, ok := gm.lighting.socket.?; ok {
 		net.close(socket)
@@ -338,7 +363,13 @@ game_memory :: proc() -> rawptr {
 
 @(export)
 game_memory_size :: proc() -> int {
-	return size_of(GameMemory)
+	// Nested video layouts also require a restart when they change.
+	return(
+		size_of(GameMemory) +
+		size_of(VideoState) +
+		size_of(VideoPlayback) +
+		size_of(VideoDecoder) \
+	)
 }
 
 @(export)
@@ -391,6 +422,10 @@ game_hot_reloaded :: proc(mem: rawptr) {
 	tracks_data_load()
 
 	sound_hot_reloaded(gm.sound_settings)
+
+	video_hot_reloaded(gm.video)
+
+	score_hot_reloaded(gm.scores)
 }
 
 @(export)

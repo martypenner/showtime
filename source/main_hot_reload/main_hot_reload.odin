@@ -197,6 +197,7 @@ main :: proc() {
 					// probably lead to a crash anyways.
 
 					game_api.shutdown()
+					game_api.shutdown_window()
 					context.allocator = tracking
 					mem.dynamic_arena_destroy(&game_memory_arena)
 					reset_tracking_allocator(&tracking_allocator)
@@ -218,6 +219,7 @@ main :: proc() {
 						mem.dynamic_arena_allocator(&game_memory_arena),
 					)
 					context.allocator = mem.mutex_allocator(&game_memory_arena_mutex)
+					game_api.init_window()
 					game_api.init()
 				}
 
