@@ -1,8 +1,8 @@
 package game
 
 import "core:testing"
-import norm "path_normalize"
 import utf8 "core:unicode/utf8"
+import norm "path_normalize"
 
 @(private = "file")
 name_from_runes :: proc(runes: []rune) -> string {

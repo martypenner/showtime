@@ -172,7 +172,9 @@ path_nfc :: proc(name: string) -> string {
 			cho := u32(runes[base_index])
 			if is_cho(cho) {
 				runes[base_index] = rune(
-					SYLLABLE_BASE + (cho - CHO_BASE) * JUNG_COUNT * JONG_COUNT + (cp - JUNG_BASE) * JONG_COUNT,
+					SYLLABLE_BASE +
+					(cho - CHO_BASE) * JUNG_COUNT * JONG_COUNT +
+					(cp - JUNG_BASE) * JONG_COUNT,
 				)
 				continue
 			}
