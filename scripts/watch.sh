@@ -39,14 +39,18 @@ if command -v inotifywait >/dev/null 2>&1; then
 	inotifywait -mqr -e modify,create,delete,move ./source |
 		while IFS= read -r event; do
 			while IFS= read -rt 0.2 next_event; do :; done
-			./scripts/build_hot_reload.sh
+			if ! ./scripts/build_hot_reload.sh; then
+				echo "Build failed, waiting for changes..."
+			fi
 		done &
 elif command -v fswatch >/dev/null 2>&1; then
 	echo "Watching source/ for changes (fswatch)..."
 	fswatch -0r --latency 0.2 ./source |
 		while IFS= read -r -d '' path; do
 			while IFS= read -r -d '' -t 1 next_event; do :; done
-			./scripts/build_hot_reload.sh
+			if ! ./scripts/build_hot_reload.sh; then
+				echo "Build failed, waiting for changes..."
+			fi
 		done &
 else
 	echo "Error: need inotifywait (inotify-tools) or fswatch to watch for changes." >&2
