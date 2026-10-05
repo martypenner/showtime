@@ -76,6 +76,35 @@ You can put assets such as textures, sounds and music in the `assets` folder. Th
 
 The hot reload build doesn't do any copying, because the hot reload executable lives in the root of the repository, alongside the `assets` folder.
 
+### Export Canva pages for video playback
+
+Requires Bash, curl, jq, OpenSSL, and ffmpeg (including ffprobe).
+
+1. Create an app in the [Canva Developer Portal](https://www.canva.com/developers/) with REST APIs enabled under **Outside Canva**, scope `design:content:read`, and redirect URL `http://127.0.0.1:8765/callback`.
+2. Set `CANVA_CLIENT_ID` and `CANVA_CLIENT_SECRET` via direnv or your shell, then authorize:
+
+   ```sh
+   bash scripts/canva_export.sh auth
+   ```
+
+   Open the printed URL, allow access, and paste the full redirect URL into the prompt.
+   A browser connection error is expected; copy the address bar anyway.
+3. Copy the design ID from `https://www.canva.com/design/<DESIGN_ID>/edit` and export selected pages:
+
+   ```sh
+   bash scripts/canva_export.sh export DESIGN_ID \
+     --page 1,2=01-opener --page 3,4,5=02-halftime --page 7=03-outro
+   ```
+
+   Each `--page NUMBERS=NAME` exports the comma-separated, 1-based Canva pages into one
+   `assets/videos/NAME.mp4`. Single pages such as `--page 7=03-outro` work.
+   Repeat `--page` with a unique name for each separate video. Page numbers must be 1..500.
+   Numeric filename prefixes control display order.
+4. Start or restart Showtime after exporting.
+
+Rerun the export command after editing Canva; update page numbers if pages move.
+Keep filenames unchanged to preserve their `Loop`/`Once`/`Still` settings in `video.sjson`.
+
 ## Sublime Text
 
 For those who use Sublime Text there's a project file: `project.sublime-project`.

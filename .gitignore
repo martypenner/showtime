@@ -4,3 +4,4 @@ project.sublime-workspace
 linux/**
 game_hot_reload.*
 **/*generated*
+.envrc
