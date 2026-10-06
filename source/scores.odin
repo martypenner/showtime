@@ -277,7 +277,15 @@ score_projection_draw :: proc() {
 		int(width),
 		int(height),
 	)
-	dpi := max(projection_io.DisplayFramebufferScale.x, 1.0)
+	dpi := projection_io.DisplayFramebufferScale
+	ensure(dpi.x > 0 && dpi.y > 0)
+	fit.x /= dpi.x
+	fit.y /= dpi.y
+	fit.w /= dpi.x
+	fit.h /= dpi.y
+	style := imgui.GetStyle()
+	font_scale := style.FontScaleMain * style.FontScaleDpi
+	ensure(font_scale > 0)
 
 	for team in Score_Team {
 		region := board.regions[team]
@@ -291,13 +299,10 @@ score_projection_draw :: proc() {
 			context.temp_allocator,
 		)
 
-		imgui.PushFontFloat(state.font, region_h / dpi)
+		imgui.PushFontFloat(state.font, region_h / font_scale)
 		text_size := imgui.CalcTextSize(text)
 		imgui.SetCursorPos(
-			{
-				(region_x + (region_w - text_size.x) / 2) / dpi,
-				(region_y + (region_h - text_size.y) / 2) / dpi,
-			},
+			{region_x + (region_w - text_size.x) / 2, region_y + (region_h - text_size.y) / 2},
 		)
 		imgui.TextColoredUnformatted({1, 1, 1, 1}, text)
 		imgui.PopFont()

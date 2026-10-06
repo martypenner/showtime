@@ -169,9 +169,8 @@ draw_window :: proc(
 		} else {
 			video_projection_render(renderer)
 		}
-	} else {
-		sdl.SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
 	}
+	sdl.SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
 	imsdlrenderer3.RenderDrawData(imgui.GetDrawData(), renderer)
 	sdl.RenderPresent(renderer)
 }

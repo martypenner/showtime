@@ -108,6 +108,7 @@ music_playback_explicit_endpoints_ignore_settings_volume :: proc(t: ^testing.T) 
 	playback.bounds_end_seconds = 30
 	settings := SoundSettings {
 		music_volume = 0.9,
+		duck_gain    = 1,
 	}
 	sound_settings = &settings
 	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
@@ -164,6 +165,7 @@ music_playback_stopping_gain_tracks_normalization :: proc(t: ^testing.T) {
 	settings := SoundSettings {
 		music_volume     = 0.5,
 		normalize_volume = false,
+		duck_gain        = 1,
 	}
 	sound_settings = &settings
 	points := playback.volume_points
@@ -308,6 +310,7 @@ music_playback_volume_set_one_point_is_ongoing :: proc(t: ^testing.T) {
 		settings := SoundSettings {
 			music_volume     = 0.5,
 			normalize_volume = false,
+			duck_gain        = 1,
 		}
 		sound_settings = &settings
 		music_playback_volume_set(&playback, {{0, volume}})

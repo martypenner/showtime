@@ -388,7 +388,11 @@ video_playback_play :: proc(playback: ^VideoPlayback) -> bool {
 	os.close(write_file)
 	if start_err != nil {
 		os.close(read_file)
-		log.errorf("Video: cannot start ffmpeg for %s: %v", playback.path, start_err)
+		log.errorf(
+			"Video: cannot start ffmpeg for %s: %s",
+			playback.path,
+			os.error_string(start_err),
+		)
 		playback.state = .Failed
 		return false
 	}
@@ -490,7 +494,11 @@ video_ffprobe_spawn :: proc(playback: ^VideoPlayback) -> bool {
 	os.close(write_file)
 	if start_err != nil {
 		os.close(read_file)
-		log.errorf("Video: cannot start ffprobe for %s: %v", playback.path, start_err)
+		log.errorf(
+			"Video: cannot start ffprobe for %s: %s",
+			playback.path,
+			os.error_string(start_err),
+		)
 		playback.state = .Failed
 		return false
 	}

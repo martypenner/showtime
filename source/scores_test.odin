@@ -1,6 +1,100 @@
 package game
 
+import imgui "../vendor/odin-imgui"
+import imsdlrenderer3 "../vendor/odin-imgui/imgui_impl_sdlrenderer3"
+import "core:math"
+import "core:mem"
 import "core:testing"
+import sdl "vendor:sdl3"
+
+@(test)
+score_projection_centers_text_at_display_scales :: proc(t: ^testing.T) {
+	allocator_previous := context.allocator
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	context.allocator = mem.dynamic_arena_allocator(&arena)
+	defer {
+		context.allocator = allocator_previous
+		mem.dynamic_arena_destroy(&arena)
+	}
+	state_previous := score_state
+	renderer_previous := projection_renderer
+	io_previous := projection_io
+	context_previous := imgui.GetCurrentContext()
+	defer {
+		score_state = state_previous
+		projection_renderer = renderer_previous
+		projection_io = io_previous
+		imgui.SetCurrentContext(context_previous)
+	}
+
+	surface := sdl.CreateSurface(960, 640, .RGBA32)
+	ensure(surface != nil)
+	defer sdl.DestroySurface(surface)
+	projection_renderer = sdl.CreateSoftwareRenderer(surface)
+	ensure(projection_renderer != nil)
+	defer sdl.DestroyRenderer(projection_renderer)
+	imgui_context := imgui.CreateContext()
+	defer imgui.DestroyContext(imgui_context)
+	projection_io = imgui.GetIO()
+	projection_io.IniFilename = nil
+	projection_io.DeltaTime = 1.0 / 60.0
+	ensure(imsdlrenderer3.Init(projection_renderer))
+	defer imsdlrenderer3.Shutdown()
+	state := score_init()
+	defer score_shutdown()
+	score_font_load()
+	ensure(state.font != nil)
+	state.scoreboards[0].background.width = 1920
+	state.scoreboards[0].background.height = 1080
+	score_value_set(.Red, 2)
+	score_value_set(.Blue, 22)
+
+	for scale in ([3]imgui.Vec2{{1, 1}, {2, 2}, {2, 1.5}}) {
+		projection_io.DisplaySize = {960 / scale.x, 640 / scale.y}
+		projection_io.DisplayFramebufferScale = scale
+		for font_scale in ([2]f32{1, 1.5}) {
+			imgui.GetStyle().FontScaleDpi = font_scale
+			imsdlrenderer3.NewFrame()
+			imgui.NewFrame()
+			imgui.SetNextWindowPos({0, 0})
+			imgui.SetNextWindowSize(projection_io.DisplaySize)
+			imgui.Begin("Score test", nil, {.NoTitleBar, .NoSavedSettings, .NoScrollbar})
+			score_projection_draw()
+			// Letterboxing adds 50 pixels above the 960x540 background.
+			// The last item is Blue's score, centered at (720, 433.4) in pixels.
+			minimum := imgui.GetItemRectMin()
+			maximum := imgui.GetItemRectMax()
+			center := (minimum + maximum) * 0.5
+			testing.expectf(
+				t,
+				math.abs(center.x * scale.x - 720) < 2,
+				"blue score x at scale %v, font scale %f: %f",
+				scale,
+				font_scale,
+				center.x * scale.x,
+			)
+			testing.expectf(
+				t,
+				math.abs(center.y * scale.y - 433.4) < 2,
+				"blue score y at scale %v, font scale %f: %f",
+				scale,
+				font_scale,
+				center.y * scale.y,
+			)
+			testing.expectf(
+				t,
+				math.abs((maximum.y - minimum.y) * scale.y - 226.8) < 2,
+				"score height at scale %v, font scale %f: %f",
+				scale,
+				font_scale,
+				(maximum.y - minimum.y) * scale.y,
+			)
+			imgui.End()
+			imgui.Render()
+		}
+	}
+}
 
 @(test)
 score_seeds_three_boards :: proc(t: ^testing.T) {
