@@ -206,7 +206,7 @@ game_init_window :: proc() {
 		"Showtime Projection",
 		window_width,
 		window_height,
-		{.RESIZABLE, .HIGH_PIXEL_DENSITY, .HIDDEN, .MAXIMIZED, .FULLSCREEN},
+		{.RESIZABLE, .HIGH_PIXEL_DENSITY, .HIDDEN, .MAXIMIZED},
 	)
 	ensure(projection_window != nil, string(sdl.GetError()))
 
@@ -228,8 +228,8 @@ game_init_window :: proc() {
 	sdl.SetRenderVSync(controls_renderer, 1)
 	sdl.SetRenderVSync(projection_renderer, 1)
 	sdl.SetWindowPosition(controls_window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
-	sdl.ShowWindow(controls_window)
 	sdl.ShowWindow(projection_window)
+	sdl.ShowWindow(controls_window)
 
 	// Setup Dear ImGui, one context per window. Each context needs its own
 	// platform + renderer backend and font atlas: an SDL_Texture, the font
