@@ -103,7 +103,7 @@ Requires Bash, curl, jq, OpenSSL, and ffmpeg (including ffprobe).
 4. Start or restart Showtime after exporting.
 
 Rerun the export command after editing Canva; update page numbers if pages move.
-Keep filenames unchanged to preserve their `Loop`/`Once`/`Still` settings in `video.sjson`.
+Keep filenames unchanged to preserve their `Loop`/`Once`/`Still` settings under `video_pages` in `settings.sjson`.
 
 ## Sublime Text
 

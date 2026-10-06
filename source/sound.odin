@@ -1,6 +1,5 @@
 package game
 
-import "core:encoding/json"
 import "core:fmt"
 import "core:log"
 import "core:math"
@@ -439,15 +438,8 @@ track_is_current :: proc(track_name: cstring) -> bool {
 }
 
 sound_settings_load_from_disk :: proc() -> SoundSettings {
-	filename := sound_settings_filename()
 	settings := DefaultSoundSettings
-	if os.exists(filename) {
-		settings_data, err := os.read_entire_file(filename, context.temp_allocator)
-		log.ensuref(err == nil, "Error reading settings file: %v", err)
-
-		json_err := json.unmarshal(settings_data, &settings, .Bitsquid, context.allocator)
-		log.ensuref(json_err == nil, "Error unmarshaling json from settings file: %v", json_err)
-	}
+	settings_load(&settings)
 	if settings.music_track_bounds == nil {
 		settings.music_track_bounds = make(map[string]MusicTrackBounds)
 	}
@@ -957,53 +949,6 @@ playlist_pick_track_unplayed :: proc(playlist: ^Playlist) -> ^Track {
 	return track
 }
 
-sound_settings_filename :: proc() -> string {
-	return fmt.tprint("settings.sjson", sep = filepath.SEPARATOR_STRING)
-}
-
-sound_settings_save :: proc() {
-	played_track_paths := make(map[string]bool, context.temp_allocator)
-	for &playlist in sound_settings.playlists {
-		for &track in playlist.tracks {
-			if track.played do played_track_paths[norm.path_nfc(track.path)] = true
-		}
-	}
-
-	settings := SoundSettings {
-		use_house_music    = sound_settings.use_house_music,
-		fade_in_time       = sound_settings.fade_in_time,
-		fade_out_time      = sound_settings.fade_out_time,
-		start_next_time    = sound_settings.start_next_time,
-		shuffle            = sound_settings.shuffle,
-		loop               = sound_settings.loop,
-		normalize_volume   = sound_settings.normalize_volume,
-		target_loudness    = sound_settings.target_loudness,
-		music_track_bounds = sound_settings.music_track_bounds,
-		played_track_paths = played_track_paths,
-	}
-
-	settings_json, json_err := json.marshal(
-		settings,
-		json.Marshal_Options {
-			spec = .Bitsquid,
-			pretty = true,
-			use_spaces = true,
-			spaces = 2,
-			mjson_keys_use_equal_sign = true,
-			mjson_keys_use_quotes = true,
-			sort_maps_by_key = true,
-		},
-		context.temp_allocator,
-	)
-	// In the future, we may want to gracefully fail here to keep the show running.
-	log.ensuref(json_err == nil, "Error unmarshaling json from settings file: %v", json_err)
-
-	filename := sound_settings_filename()
-	write_err := os.write_entire_file(filename, settings_json)
-	log.ensuref(write_err == nil, "Error writing settings file: %v", write_err)
-	sound_settings.settings_save_time_left = 0
-}
-
 sound_settings_init :: proc() -> ^SoundSettings {
 	tracks_data_load()
 	sound_settings = new(SoundSettings)
@@ -1087,7 +1032,7 @@ sound_update :: proc(dt: f32) {
 			sound_settings.settings_save_time_left - dt,
 			0,
 		)
-		if sound_settings.settings_save_time_left == 0 do sound_settings_save()
+		if sound_settings.settings_save_time_left == 0 do settings_save()
 	}
 
 	music_playback_ended: [MUSIC_PLAYBACK_COUNT]bool
@@ -1178,7 +1123,7 @@ sound_hot_reloaded :: proc(settings: ^SoundSettings) {
 }
 
 sound_shutdown :: proc() {
-	if sound_settings.settings_save_time_left > 0 do sound_settings_save()
+	if sound_settings.settings_save_time_left > 0 do settings_save()
 	wave_editor_preview_stop()
 	for &voice in sound_settings.current_sounds {
 		if mixer.TrackPlaying(voice.mixer_track) do ensure(mixer.StopTrack(voice.mixer_track, 0))

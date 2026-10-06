@@ -772,7 +772,7 @@ controls_draw :: proc() {
 							}
 						}
 					}
-					sound_settings_save()
+					settings_save()
 				}
 				imgui.SameLine(spacing = 16)
 
@@ -791,7 +791,7 @@ controls_draw :: proc() {
 					if primary != nil && primary.mixer_track != nil {
 						music_playback_volume_set(primary, {{0, gm.sound_settings.music_volume}})
 					}
-					sound_settings_save()
+					settings_save()
 				}
 				imgui.PopItemWidth()
 			}

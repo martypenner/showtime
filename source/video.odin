@@ -23,8 +23,8 @@ import sdl "vendor:sdl3"
 // the render thread uploads complete frames at the video's frame rate.
 //
 // Videos live at assets/videos/<id>.mp4; the playback mode is stored in
-// video.sjson keyed by the filename, so re-exporting under the same name
-// keeps its settings.
+// settings.sjson under video_pages, keyed by the filename. Re-exporting under
+// the same name keeps its settings.
 
 video_state: ^VideoState
 
@@ -45,7 +45,8 @@ video_init :: proc() -> ^VideoState {
 	state.pages = make([dynamic]VideoPage, 0, 8)
 	state.retired = make([dynamic]^VideoPlayback, 0, 2)
 
-	state.settings = video_settings_load(VIDEO_SETTINGS_FILENAME)
+	state.settings.pages = make(map[string]VideoPlaybackMode)
+	settings_load(&state.settings)
 
 	video_pages_load(state)
 	video_state = state
@@ -66,7 +67,7 @@ video_shutdown :: proc() {
 		video_update()
 		time.sleep(time.Millisecond)
 	}
-	video_settings_save(VIDEO_SETTINGS_FILENAME, video_state.settings)
+	settings_save()
 	video_state = nil
 }
 
@@ -164,7 +165,7 @@ video_page_mode_set :: proc(page_id: string, mode: VideoPlaybackMode) {
 		// A running playback picks up the mode at its next loop point.
 		}
 	}
-	video_settings_save(VIDEO_SETTINGS_FILENAME, state.settings)
+	settings_save()
 }
 video_page_find :: proc(state: ^VideoState, page_id: string) -> (^VideoPage, bool) {
 	for i in 0 ..< len(state.pages) {
@@ -224,50 +225,6 @@ video_pages_load :: proc(state: ^VideoState) {
 video_page_mode :: proc(settings: VideoSettings, page_id: string) -> VideoPlaybackMode {
 	if mode, ok := settings.pages[page_id]; ok do return mode
 	return .Loop
-}
-
-video_settings_load :: proc(filename: string) -> VideoSettings {
-	settings := VideoSettings {
-		pages = make(map[string]VideoPlaybackMode),
-	}
-
-	data, err := os.read_entire_file(filename, context.temp_allocator)
-	if err != nil {
-		log.errorf("Video: cannot read settings from %s: %v", filename, err)
-		return settings
-	}
-
-	json_err := json.unmarshal(data, &settings, .Bitsquid)
-	if json_err != nil {
-		log.errorf("Video: invalid settings in %s: %v", filename, json_err)
-	}
-	return settings
-}
-
-video_settings_save :: proc(filename: string, settings: VideoSettings) {
-	settings_json, json_err := json.marshal(
-		settings,
-		json.Marshal_Options {
-			spec = .Bitsquid,
-			pretty = true,
-			use_spaces = true,
-			spaces = 2,
-			mjson_keys_use_equal_sign = true,
-			mjson_keys_use_quotes = true,
-			sort_maps_by_key = true,
-			use_enum_names = true,
-		},
-		context.temp_allocator,
-	)
-	if json_err != nil {
-		log.errorf("Video: cannot encode settings: %v", json_err)
-		return
-	}
-
-	write_err := os.write_entire_file(filename, settings_json)
-	if write_err != nil {
-		log.errorf("Video: cannot write settings to %s: %v", filename, write_err)
-	}
 }
 
 video_controls_draw :: proc(height: f32) {
@@ -896,7 +853,6 @@ video_fraction_parse :: proc(text: string) -> (num, den: i64, ok: bool) {
 }
 
 VIDEO_DIR :: "assets/videos"
-VIDEO_SETTINGS_FILENAME :: "video.sjson"
 
 VIDEO_PLAYBACK_MODES :: []VideoPlaybackMode{.Loop, .Once, .Still}
 video_mode_labels := [VideoPlaybackMode]string {
@@ -915,7 +871,7 @@ VideoPlaybackMode :: enum u8 {
 }
 
 VideoSettings :: struct {
-	pages: map[string]VideoPlaybackMode,
+	pages: map[string]VideoPlaybackMode `json:"video_pages"`,
 }
 
 VideoPage :: struct {

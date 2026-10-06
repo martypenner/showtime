@@ -50,21 +50,79 @@ video_fit_rect_letterboxes :: proc(t: ^testing.T) {
 }
 
 @(test)
-video_settings_roundtrip_preserves_modes :: proc(t: ^testing.T) {
+settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 	arena: GameTestArena
 	context.allocator = game_test_arena_init(&arena)
 	defer context.allocator = game_test_arena_destroy(&arena)
-	filename := "video_test_settings.sjson"
-	defer os.remove(filename)
-
-	settings := VideoSettings {
-		pages = map[string]VideoPlaybackMode{"opener" = .Loop, "halftime" = .Once},
+	dir, dir_err := os.make_directory_temp("", "showtime-settings-*", context.temp_allocator)
+	ensure(dir_err == nil)
+	previous_dir, cwd_err := os.get_working_directory(context.temp_allocator)
+	ensure(cwd_err == nil)
+	ensure(os.set_working_directory(dir) == nil)
+	defer {
+		os.remove(SETTINGS_FILENAME)
+		os.set_working_directory(previous_dir)
+		os.remove(dir)
 	}
-	video_settings_save(filename, settings)
+	sound_previous := sound_settings
+	video_previous := video_state
+	defer {
+		sound_settings = sound_previous
+		video_state = video_previous
+	}
+	sound := sound_settings_load_from_disk()
+	testing.expect_value(t, sound.fade_in_time, DefaultSoundSettings.fade_in_time)
+	testing.expect_value(t, sound.duck_gain, f32(1))
+	sound.use_house_music = true
+	sound.fade_in_time = 3.5
+	sound.music_track_bounds["music.mp3"] = {
+		file_hash  = "hash",
+		start_time = 2,
+		end_time   = 10,
+	}
+	append(
+		&sound.playlists,
+		Playlist{tracks = [dynamic]Track{{path = "music.mp3", played = true}}},
+	)
+	sound_settings = &sound
+	video := VideoState {
+		settings = {
+			pages = map[string]VideoPlaybackMode {
+				"opener" = .Loop,
+				"halftime" = .Once,
+				"outro" = .Still,
+			},
+		},
+	}
+	video_state = &video
+	settings_save()
 
-	loaded := video_settings_load(filename)
-	testing.expect_value(t, loaded.pages["opener"], VideoPlaybackMode.Loop)
-	testing.expect_value(t, loaded.pages["halftime"], VideoPlaybackMode.Once)
+	loaded_sound := sound_settings_load_from_disk()
+	loaded_video: VideoSettings
+	settings_load(&loaded_video)
+	testing.expect_value(t, loaded_sound.use_house_music, true)
+	testing.expect_value(t, loaded_sound.fade_in_time, f32(3.5))
+	testing.expect_value(t, loaded_sound.music_track_bounds["music.mp3"].file_hash, "hash")
+	testing.expect_value(t, loaded_sound.music_track_bounds["music.mp3"].start_time, f32(2))
+	testing.expect_value(t, loaded_sound.music_track_bounds["music.mp3"].end_time, f32(10))
+	testing.expect_value(t, loaded_sound.played_track_paths["music.mp3"], true)
+	testing.expect_value(t, loaded_video.pages["opener"], VideoPlaybackMode.Loop)
+	testing.expect_value(t, loaded_video.pages["halftime"], VideoPlaybackMode.Once)
+	testing.expect_value(t, loaded_video.pages["outro"], VideoPlaybackMode.Still)
+
+	sound.fade_in_time = 6
+	sound.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
+	video.settings.pages["opener"] = .Still
+	settings_save()
+	loaded_sound = sound_settings_load_from_disk()
+	loaded_video = {}
+	settings_load(&loaded_video)
+	testing.expect_value(t, loaded_sound.fade_in_time, f32(6))
+	testing.expect_value(t, loaded_sound.played_track_paths["music.mp3"], true)
+	testing.expect_value(t, loaded_video.pages["opener"], VideoPlaybackMode.Still)
+	testing.expect_value(t, loaded_video.pages["halftime"], VideoPlaybackMode.Once)
+	testing.expect_value(t, loaded_video.pages["outro"], VideoPlaybackMode.Still)
+	testing.expect_value(t, sound.settings_save_time_left, f32(0))
 }
 
 @(test)
@@ -76,7 +134,7 @@ video_page_mode_owns_filename_and_updates_playback :: proc(t: ^testing.T) {
 	ensure(cwd_err == nil)
 	ensure(os.set_working_directory(dir) == nil)
 	defer {
-		os.remove(VIDEO_SETTINGS_FILENAME)
+		os.remove(SETTINGS_FILENAME)
 		os.set_working_directory(previous_dir)
 		os.remove(dir)
 	}
@@ -91,6 +149,11 @@ video_page_mode_owns_filename_and_updates_playback :: proc(t: ^testing.T) {
 	}
 	state_previous := video_state
 	defer video_state = state_previous
+	sound_previous := sound_settings
+	defer sound_settings = sound_previous
+	sound := DefaultSoundSettings
+	sound.target_loudness = -10
+	sound_settings = &sound
 	borrowed := []u8{'o', 'p', 'e', 'n', 'e', 'r'}
 	playback := VideoPlayback {
 		page_id = string(borrowed),
@@ -107,9 +170,11 @@ video_page_mode_owns_filename_and_updates_playback :: proc(t: ^testing.T) {
 	for &byte in borrowed do byte = '#'
 	testing.expect_value(t, state.settings.pages["opener"], VideoPlaybackMode.Once)
 	testing.expect_value(t, playback.mode, VideoPlaybackMode.Once)
-	video_settings_save(VIDEO_SETTINGS_FILENAME, state.settings)
-	loaded := video_settings_load(VIDEO_SETTINGS_FILENAME)
+	loaded: VideoSettings
+	settings_load(&loaded)
 	testing.expect_value(t, loaded.pages["opener"], VideoPlaybackMode.Once)
+	loaded_sound := sound_settings_load_from_disk()
+	testing.expect_value(t, loaded_sound.target_loudness, f32(-10))
 }
 
 @(test)
