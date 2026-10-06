@@ -51,17 +51,18 @@ video_fit_rect_letterboxes :: proc(t: ^testing.T) {
 
 @(test)
 video_settings_roundtrip_preserves_modes :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
 	filename := "video_test_settings.sjson"
 	defer os.remove(filename)
 
 	settings := VideoSettings {
 		pages = map[string]VideoPlaybackMode{"opener" = .Loop, "halftime" = .Once},
 	}
-	defer delete(settings.pages)
 	video_settings_save(filename, settings)
 
 	loaded := video_settings_load(filename)
-	defer delete(loaded.pages)
 	testing.expect_value(t, loaded.pages["opener"], VideoPlaybackMode.Loop)
 	testing.expect_value(t, loaded.pages["halftime"], VideoPlaybackMode.Once)
 }

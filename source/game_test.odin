@@ -3,6 +3,25 @@ package game
 import "core:mem"
 import "core:testing"
 
+GameTestArena :: struct {
+	arena:              mem.Dynamic_Arena,
+	allocator_previous: mem.Allocator,
+	memory_previous:    ^GameMemory,
+}
+
+game_test_arena_init :: proc(arena: ^GameTestArena) -> mem.Allocator {
+	arena.allocator_previous = context.allocator
+	arena.memory_previous = gm
+	mem.dynamic_arena_init(&arena.arena)
+	return mem.dynamic_arena_allocator(&arena.arena)
+}
+
+game_test_arena_destroy :: proc(arena: ^GameTestArena) -> mem.Allocator {
+	gm = arena.memory_previous
+	mem.dynamic_arena_destroy(&arena.arena)
+	return arena.allocator_previous
+}
+
 @(test)
 game_memory_arena_owns_memory_and_returns_backing_allocations :: proc(t: ^testing.T) {
 	backing_allocator := context.allocator

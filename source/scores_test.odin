@@ -116,10 +116,12 @@ score_seeds_three_boards :: proc(t: ^testing.T) {
 
 @(test)
 score_playing_timer_hides_presentation :: proc(t: ^testing.T) {
-	state := score_test_begin()
-	defer score_test_end(state)
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	state := score_init()
+	defer score_shutdown()
 	gm = game_memory_make()
-	defer free(gm)
 
 	testing.expect(t, timers_add("test", 30), "timer add should succeed")
 

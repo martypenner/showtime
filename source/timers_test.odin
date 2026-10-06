@@ -5,6 +5,9 @@ import sdl "vendor:sdl3"
 
 @(test)
 timers_add_is_paused_until_started :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
 	testing.expect(t, timers_add("test", 30))
@@ -35,6 +38,9 @@ timers_add_is_paused_until_started :: proc(t: ^testing.T) {
 
 @(test)
 timers_cap_at_max_and_reuse_done :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
 	for _ in 0 ..< MAX_TIMERS {
@@ -57,6 +63,9 @@ timers_cap_at_max_and_reuse_done :: proc(t: ^testing.T) {
 
 @(test)
 timers_pause_and_resume :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
 	testing.expect(t, timers_add("p", 30))
@@ -76,6 +85,9 @@ timers_pause_and_resume :: proc(t: ^testing.T) {
 
 @(test)
 timers_adjust_clamps :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
 	testing.expect(t, timers_add("a", TIMER_MAX_SECONDS))
@@ -91,6 +103,9 @@ timers_adjust_clamps :: proc(t: ^testing.T) {
 
 @(test)
 timers_mark_records_elapsed :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
 	testing.expect(t, timers_add("markme", 60))
@@ -114,6 +129,9 @@ timers_mark_records_elapsed :: proc(t: ^testing.T) {
 
 @(test)
 timers_marks_clear_empties_and_frees :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
 	testing.expect(t, timers_add("m1", 30))
@@ -132,6 +150,9 @@ timers_marks_clear_empties_and_frees :: proc(t: ^testing.T) {
 
 @(test)
 timers_marks_cap_at_max :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
 	testing.expect(t, timers_add("full", 30))
