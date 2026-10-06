@@ -14,7 +14,7 @@ import stbi "vendor:stb/image"
 // or display scale. Game and Final show the same scores; Season keeps its own.
 // A missing background leaves the projection black.
 //
-// Triggered by hand from the Score tab and shown in place of the deck pages.
+// Triggered by hand from the main controls and shown in place of the deck pages.
 // Nothing persists: the scores reset every launch.
 //
 // A playing timer owns the projection. While one runs the presentation hides

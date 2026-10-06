@@ -23,14 +23,12 @@ UI_Type :: enum u8 {
 Tab :: enum u8 {
 	Controls,
 	Music,
-	Scores,
 	All,
 }
 
 tab_labels := [Tab]cstring {
 	.Controls = "Controls",
 	.Music    = "Music editor",
-	.Scores   = "Score",
 	.All      = "All",
 }
 
@@ -1063,7 +1061,7 @@ controls_draw :: proc() {
 				controls_group_end()
 			}
 
-			ensure(video_state != nil)
+			ensure(video_state != nil && score_state != nil)
 			list_row_height := imgui.GetTextLineHeightWithSpacing()
 			list_padding := imgui.GetStyle().FramePadding.y * 2
 			list_height_min := list_row_height * 6 + list_padding
@@ -1075,12 +1073,19 @@ controls_draw :: proc() {
 				list_height_min,
 				f32(len(video_state.pages)) * list_row_height + list_padding,
 			)
-			// Reserve both section headings, padding, gaps, and the video status/mode.
+			score_height_needed :=
+				imgui.GetFrameHeightWithSpacing() * 4 +
+				list_row_height * (f32(len(score_state.scoreboards)) + 1) +
+				imgui.GetStyle().WindowPadding.y * 2 +
+				imgui.GetStyle().ItemSpacing.y * 2 +
+				1
+			// Reserve section headings, padding, gaps, video status/mode, and scores.
 			sections_height :=
 				imgui.GetFrameHeight() +
 				imgui.GetTextLineHeight() * 2 +
 				imgui.GetStyle().WindowPadding.y * 4 +
-				imgui.GetStyle().ItemSpacing.y * 4
+				imgui.GetStyle().ItemSpacing.y * 4 +
+				score_height_needed
 			if video_state.active != nil {
 				sections_height += imgui.GetFrameHeightWithSpacing()
 			}
@@ -1192,6 +1197,12 @@ controls_draw :: proc() {
 				controls_group_end()
 			}
 
+			{
+				controls_group_begin("Score slide")
+				score_controls_draw()
+				controls_group_end()
+			}
+
 			imgui.EndChild()
 			imgui.SameLine()
 			timers_draw()
@@ -1257,16 +1268,6 @@ controls_draw :: proc() {
 			wave_editor()
 
 			imgui.EndGroup()
-
-			imgui.EndTabItem()
-		}
-
-		if imgui.BeginTabItem(tab_labels[.Scores]) {
-			gm.active_tab = .Scores
-
-			controls_group_begin("Score slide")
-			score_controls_draw()
-			controls_group_end()
 
 			imgui.EndTabItem()
 		}
