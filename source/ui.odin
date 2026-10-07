@@ -1350,7 +1350,7 @@ projection_draw :: proc() {
 
 	if score_projection_shown() {
 		score_projection_draw()
-	} else {
+	} else if !video_projection_shown() {
 		imgui.PushFontFloat(nil, 500)
 		text := strings.clone_to_cstring(timers_projection_text(), context.temp_allocator)
 		text_size := imgui.CalcTextSize(text)

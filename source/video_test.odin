@@ -178,6 +178,29 @@ video_page_mode_owns_filename_and_updates_playback :: proc(t: ^testing.T) {
 }
 
 @(test)
+video_playing_timer_hides_the_deck :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	state_previous := video_state
+	defer video_state = state_previous
+	state := video_init()
+
+	testing.expect(t, state.shown, "the deck should start shown")
+
+	testing.expect(t, timers_add("test", 30), "timer add should succeed")
+	timers_start(0)
+	testing.expect(t, !state.shown, "starting a timer should hide the deck")
+	testing.expect(t, !video_projection_shown(), "a playing timer should own the projection")
+
+	// The Show on projection checkbox overrides the running timer.
+	state.shown = true
+	testing.expect(t, video_projection_shown(), "the checkbox should override the timer")
+}
+
+@(test)
 video_switch_keeps_previous_frame_until_upload :: proc(t: ^testing.T) {
 	allocator_previous := context.allocator
 	arena: mem.Dynamic_Arena

@@ -81,6 +81,10 @@ timers_start :: proc(index: int) {
 	timer.done = false
 	timer.running = true
 	timer.start_tick = sdl.GetTicks()
+	// A playing timer owns the projection; hide the presentation until the
+	// Show on projection checkboxes or a page cue bring it back.
+	score_projection_hide()
+	video_projection_hide()
 }
 
 timers_stop :: proc(index: int) {
@@ -159,8 +163,7 @@ timers_submit_input :: proc() {
 	timer_seconds_input = DEFAULT_TIMER_SECONDS
 }
 
-// Any timer currently counting down. A playing timer owns the projection;
-// the score slide only shows when none is running.
+// Any timer currently counting down.
 timers_any_running :: proc() -> bool {
 	for i in 0 ..< MAX_TIMERS {
 		timer := &gm.timers[i]

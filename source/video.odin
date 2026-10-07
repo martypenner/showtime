@@ -30,6 +30,7 @@ video_state: ^VideoState
 
 // GameMemory only holds a pointer to this, so it survives hot reloads.
 VideoState :: struct {
+	shown:    bool,
 	settings: VideoSettings,
 	pages:    [dynamic]VideoPage,
 	active:   ^VideoPlayback,
@@ -49,6 +50,7 @@ video_init :: proc() -> ^VideoState {
 	settings_load(&state.settings)
 
 	video_pages_load(state)
+	state.shown = true
 	video_state = state
 	return state
 }
@@ -120,7 +122,18 @@ video_page_show :: proc(state: ^VideoState, page_id: string) -> bool {
 	playback := video_playback_make(page^, fmt.tprintf("%s/%s.mp4", VIDEO_DIR, page.page_id))
 	state.active = playback
 	video_ffprobe_spawn(playback)
+	state.shown = playback.state != .Failed
 	return playback.state != .Failed
+}
+
+// A playing timer owns the projection until the Show on projection checkbox or
+// a page cue brings the deck back.
+video_projection_shown :: proc() -> bool {
+	return video_state != nil && video_state.shown
+}
+
+video_projection_hide :: proc() {
+	if video_state != nil do video_state.shown = false
 }
 
 video_page_clear :: proc() {
@@ -244,6 +257,10 @@ video_controls_draw :: proc(height: f32) {
 		}
 	}
 	imgui.EndChild()
+
+	if imgui.Checkbox("Show on projection", &state.shown) && state.shown {
+		score_projection_hide()
+	}
 
 	playback := state.active
 	if playback == nil {

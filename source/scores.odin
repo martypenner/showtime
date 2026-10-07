@@ -17,8 +17,8 @@ import stbi "vendor:stb/image"
 // Triggered by hand from the main controls and shown in place of the deck pages.
 // Nothing persists: the scores reset every launch.
 //
-// A playing timer owns the projection. While one runs the presentation hides
-// and stays hidden until it is triggered again.
+// A playing timer owns the projection. Starting one hides the slide; the Show
+// on projection checkbox brings it back over the timer.
 
 score_state: ^ScoreState
 
@@ -112,17 +112,14 @@ score_shutdown :: proc() {
 	score_state = nil
 }
 
-// Runs once per frame, after timers_update. A playing timer kicks the
-// presentation off the projection.
-score_update :: proc() {
-	if score_state == nil do return
-	if score_state.shown && timers_any_running() {
-		score_state.shown = false
-	}
+// The Show on projection checkbox is a direct override: it wins even while a
+// timer is running.
+score_projection_shown :: proc() -> bool {
+	return score_state != nil && score_state.shown
 }
 
-score_projection_shown :: proc() -> bool {
-	return score_state != nil && score_state.shown && !timers_any_running()
+score_projection_hide :: proc() {
+	if score_state != nil do score_state.shown = false
 }
 
 score_active :: proc(state: ^ScoreState) -> ^Scoreboard {
@@ -168,7 +165,9 @@ score_controls_draw :: proc() {
 	state := score_state
 	if state == nil do return
 
-	imgui.Checkbox("Show on projection", &state.shown)
+	if imgui.Checkbox("Show on projection", &state.shown) && state.shown {
+		video_projection_hide()
+	}
 
 	imgui.Separator()
 

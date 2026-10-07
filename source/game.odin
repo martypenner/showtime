@@ -134,7 +134,6 @@ update :: proc() {
 	sound_update(dt)
 	lighting_update()
 	timers_update(dt)
-	score_update()
 	video_update()
 }
 
@@ -166,7 +165,7 @@ draw_window :: proc(
 		sdl.SetRenderScale(renderer, 1, 1)
 		if score_projection_shown() {
 			score_projection_background_render(renderer)
-		} else {
+		} else if video_projection_shown() {
 			video_projection_render(renderer)
 		}
 	}

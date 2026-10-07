@@ -125,21 +125,15 @@ score_playing_timer_hides_presentation :: proc(t: ^testing.T) {
 
 	testing.expect(t, timers_add("test", 30), "timer add should succeed")
 
-	state.shown = true
-	testing.expect(t, state.shown, "score state should show when set")
-
 	timers_start(0)
-	score_update()
-	testing.expect(t, !state.shown, "a playing timer should hide the score state")
+	testing.expect(t, !state.shown, "starting a timer should hide the score state")
+	testing.expect(t, !score_projection_shown(), "a playing timer should own the projection")
 
-	// Re-showing while the timer runs is not enough: the projection checks
-	// the timer too.
+	// The Show on projection checkbox overrides the running timer.
 	state.shown = true
-	testing.expect(t, state.shown, "score state should show when set again")
-	testing.expect(t, !score_projection_shown(), "projection should favor the playing timer")
+	testing.expect(t, score_projection_shown(), "the checkbox should override the timer")
 
 	timers_stop_all()
-	score_update()
 	testing.expect(t, score_projection_shown(), "stopping the timer gives the projection back")
 }
 
