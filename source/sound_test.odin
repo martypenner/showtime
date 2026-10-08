@@ -591,3 +591,87 @@ sound_duck_gain_next_ramps_down_and_returns :: proc(t: ^testing.T) {
 		MUSIC_DUCK_GAIN,
 	)
 }
+
+@(test)
+music_playbacks_fade_others_spares_the_exception :: proc(t: ^testing.T) {
+	TRACKS = make(map[string]GeneratedTrack)
+	defer delete(TRACKS)
+	playback, mixer_value := music_playback_test_make({{0, 0.4}})
+	defer music_playback_test_destroy(&playback, mixer_value)
+	path := "test-fade-others"
+	path_incoming := "test-fade-others-incoming"
+	TRACKS[path] = {}
+	defer delete_key(&TRACKS, path)
+	TRACKS[path_incoming] = {}
+	defer delete_key(&TRACKS, path_incoming)
+	playback.source_path = path
+	incoming_audio := mixer.CreateSineWaveAudio(mixer_value, 440, 0.1, 30000)
+	ensure(incoming_audio != nil)
+	defer mixer.DestroyAudio(incoming_audio)
+	incoming_track := mixer.CreateTrack(mixer_value)
+	ensure(incoming_track != nil)
+	defer mixer.DestroyTrack(incoming_track)
+	incoming := MusicPlayback {
+		mixer_audio        = incoming_audio,
+		mixer_track        = incoming_track,
+		source_path        = path_incoming,
+		volume_point_count = 1,
+	}
+	incoming.volume_points[0] = {0, 0.2}
+	settings := SoundSettings{}
+	settings.music_playbacks[0] = playback
+	settings.music_playbacks[1] = incoming
+	sound_settings = &settings
+	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
+	ensure(mixer.PlayTrack(playback.mixer_track, 0))
+	ensure(mixer.SetTrackAudio(incoming_track, incoming_audio))
+	ensure(mixer.PlayTrack(incoming_track, 0))
+
+	music_playbacks_fade_others(&settings.music_playbacks[0], 2)
+	testing.expect_value(t, music_playback_volume_endpoint(&settings.music_playbacks[0]), f32(0.4))
+	testing.expect_value(t, settings.music_playbacks[1].volume_point_count, u8(2))
+	testing.expect_value(t, settings.music_playbacks[1].volume_points[1].value, f32(0))
+
+	music_playbacks_fade_all(2)
+	testing.expect_value(t, settings.music_playbacks[0].volume_point_count, u8(2))
+	testing.expect_value(t, settings.music_playbacks[0].volume_points[1].value, f32(0))
+	ensure(mixer.StopTrack(playback.mixer_track, 0))
+	ensure(mixer.StopTrack(incoming_track, 0))
+}
+
+@(test)
+music_crossfade_starts_next_and_fades_current :: proc(t: ^testing.T) {
+	music_playback_test_tone_write()
+	defer os.remove(MUSIC_PLAYBACK_TEST_TONE_PATH)
+	TRACKS = make(map[string]GeneratedTrack)
+	defer delete(TRACKS)
+	TRACKS[MUSIC_PLAYBACK_TEST_TONE_PATH] = {
+		file_hash        = "test",
+		duration_seconds = 30,
+	}
+	dummy, mixer_value := music_playback_test_make({{0, 0}})
+	settings := SoundSettings {
+		mixer = mixer_value,
+	}
+	sound_settings = &settings
+	playlist := Playlist {
+		name = "test",
+	}
+	defer delete(playlist.tracks)
+	append(
+		&playlist.tracks,
+		Track{title = "first", path = MUSIC_PLAYBACK_TEST_TONE_PATH},
+		Track{title = "second", path = MUSIC_PLAYBACK_TEST_TONE_PATH},
+	)
+
+	first := music_playback_start_playlist_track(&playlist, &playlist.tracks[0], 0.5, 0)
+	ensure(first != nil)
+	second := music_crossfade(&playlist, &playlist.tracks[1], 0.5, 0, 2)
+	testing.expect(t, sound_settings.music_playback_primary == second)
+	testing.expect_value(t, second.volume_point_count, u8(1))
+	testing.expect_value(t, first.volume_point_count, u8(2))
+	testing.expect_value(t, first.volume_points[1].value, f32(0))
+	music_playback_stop(second)
+	music_playback_stop(first)
+	music_playback_test_destroy(&dummy, mixer_value)
+}

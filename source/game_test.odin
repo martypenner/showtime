@@ -87,3 +87,16 @@ envelope_value_at_single_key_holds :: proc(t: ^testing.T) {
 	testing.expect_value(t, envelope_value_at(keys[:], 0), f32(0.7))
 	testing.expect_value(t, envelope_value_at(keys[:], 50), f32(0.7))
 }
+
+@(test)
+countdown_tick_reports_expiry_and_clamps_at_zero :: proc(t: ^testing.T) {
+	remaining := f32(1)
+	testing.expect(t, !countdown_tick(&remaining, 0.4))
+	testing.expect_value(t, remaining, f32(0.6))
+	testing.expect(t, countdown_tick(&remaining, 0.6))
+	testing.expect_value(t, remaining, f32(0))
+	testing.expect(t, countdown_tick(&remaining, 5), "ticking past zero stays expired")
+	testing.expect_value(t, remaining, f32(0))
+	zero := f32(0)
+	testing.expect(t, countdown_tick(&zero, 1), "an idle countdown reads expired")
+}

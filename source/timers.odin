@@ -36,6 +36,11 @@ Timer :: struct {
 	trigger_sound:        SoundEffectName,
 	trigger_sound_volume: f32,
 	trigger_look:         LightingLook,
+	// Projection payload carried by the Video and Score triggers. Empty
+	// page shows the current deck state; a negative scoreboard leaves the
+	// selection alone.
+	trigger_video_page:   string,
+	trigger_scoreboard:   int,
 }
 
 // What a timer carries.
@@ -232,9 +237,20 @@ timer_fire :: proc(index: int) {
 		lighting_look_activate(timer.trigger_look)
 	}
 	if .Video in fire && video_state != nil {
-		video_state.shown = true
+		if len(timer.trigger_video_page) > 0 {
+			// Fall back to the current deck state when the cued page is gone.
+			if !video_page_show(video_state, timer.trigger_video_page) {
+				video_state.shown = true
+			}
+		} else {
+			video_state.shown = true
+		}
 	}
 	if .Score in fire && score_state != nil {
+		if timer.trigger_scoreboard >= 0 &&
+		   timer.trigger_scoreboard < len(score_state.scoreboards) {
+			score_state.active = timer.trigger_scoreboard
+		}
 		score_state.shown = true
 	}
 }
@@ -254,15 +270,17 @@ timers_arm_lighting :: proc(index: int, look: LightingLook) {
 	timer.trigger_look = look
 }
 
-timers_arm_projection :: proc(index: int, video, score: bool) {
+timers_arm_projection :: proc(index: int, video, score: bool, video_page := "", scoreboard := -1) {
 	timer := &gm.timers[index]
 	if video {
 		timer.caps += {.Has_Video}
 		timer.triggers += {.Video}
+		timer.trigger_video_page = strings.clone(video_page)
 	}
 	if score {
 		timer.caps += {.Has_Score}
 		timer.triggers += {.Score}
+		timer.trigger_scoreboard = scoreboard
 	}
 }
 
@@ -271,9 +289,7 @@ timers_update :: proc(dt: f32) {
 		timer := &gm.timers[i]
 		if timer.label == "" do continue
 
-		if timer.flash_remaining_s > 0 {
-			timer.flash_remaining_s = max(timer.flash_remaining_s - dt, 0)
-		}
+		countdown_tick(&timer.flash_remaining_s, dt)
 		if !timer.running || timer.done do continue
 
 		timer.remaining_s -= dt
@@ -285,12 +301,8 @@ timers_update :: proc(dt: f32) {
 		}
 	}
 
-	if timers_overflow_hint_seconds > 0 {
-		timers_overflow_hint_seconds = max(timers_overflow_hint_seconds - dt, 0)
-	}
-	if timers_marks_overflow_hint_seconds > 0 {
-		timers_marks_overflow_hint_seconds = max(timers_marks_overflow_hint_seconds - dt, 0)
-	}
+	countdown_tick(&timers_overflow_hint_seconds, dt)
+	countdown_tick(&timers_marks_overflow_hint_seconds, dt)
 }
 
 timers_draw :: proc() {

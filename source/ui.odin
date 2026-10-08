@@ -114,20 +114,13 @@ show_pre_show :: proc() {
 	track := playlist_pick_random_track(playlist)
 	ensure(track != nil, "Couldn't pick track for Pre_Show")
 
-	new_playback := music_playback_start_playlist_track(
+	music_crossfade(
 		playlist,
 		track,
 		0.3,
 		gm.sound_settings.fade_in_time,
+		gm.sound_settings.fade_out_time,
 	)
-	for &playback in gm.sound_settings.music_playbacks {
-		if playback.mixer_track == nil || &playback == new_playback do continue
-		audible := music_playback_volume_at(
-			&playback,
-			mixer.GetTrackPlaybackPosition(playback.mixer_track),
-		)
-		music_playback_volume_set(&playback, {{0, audible}, {gm.sound_settings.fade_out_time, 0}})
-	}
 
 	lighting_fx_deactivate_all()
 	lighting_look_activate(.House)
@@ -140,20 +133,13 @@ show_arena_pre_show :: proc() {
 	track := playlist_pick_random_track(playlist)
 	ensure(track != nil, "Couldn't pick track for Arena_Pre_Show")
 
-	new_playback := music_playback_start_playlist_track(
+	music_crossfade(
 		playlist,
 		track,
 		0.2,
 		gm.sound_settings.fade_in_time,
+		gm.sound_settings.fade_out_time,
 	)
-	for &playback in gm.sound_settings.music_playbacks {
-		if playback.mixer_track == nil || &playback == new_playback do continue
-		audible := music_playback_volume_at(
-			&playback,
-			mixer.GetTrackPlaybackPosition(playback.mixer_track),
-		)
-		music_playback_volume_set(&playback, {{0, audible}, {gm.sound_settings.fade_out_time, 0}})
-	}
 
 	lighting_fx_deactivate_all()
 	lighting_look_activate(.House)
@@ -166,15 +152,7 @@ show_start :: proc() {
 	track := playlist_pick_random_track(playlist)
 	ensure(track != nil, "Couldn't pick track for Show_Start")
 
-	new_playback := music_playback_start_playlist_track(playlist, track, 0.7, 0.5)
-	for &playback in gm.sound_settings.music_playbacks {
-		if playback.mixer_track == nil || &playback == new_playback do continue
-		audible := music_playback_volume_at(
-			&playback,
-			mixer.GetTrackPlaybackPosition(playback.mixer_track),
-		)
-		music_playback_volume_set(&playback, {{0, audible}, {gm.sound_settings.fade_out_time, 0}})
-	}
+	music_crossfade(playlist, track, 0.7, 0.5, gm.sound_settings.fade_out_time)
 }
 
 show_post_show :: proc() {
@@ -184,20 +162,13 @@ show_post_show :: proc() {
 	track := playlist_pick_random_track(playlist)
 	ensure(track != nil, "Couldn't pick track for Post_Show")
 
-	new_playback := music_playback_start_playlist_track(
+	music_crossfade(
 		playlist,
 		track,
 		0.7,
 		gm.sound_settings.fade_in_time,
+		gm.sound_settings.fade_out_time,
 	)
-	for &playback in gm.sound_settings.music_playbacks {
-		if playback.mixer_track == nil || &playback == new_playback do continue
-		audible := music_playback_volume_at(
-			&playback,
-			mixer.GetTrackPlaybackPosition(playback.mixer_track),
-		)
-		music_playback_volume_set(&playback, {{0, audible}, {gm.sound_settings.fade_out_time, 0}})
-	}
 
 	lighting_fx_deactivate_all()
 	lighting_look_activate(.House)
@@ -211,35 +182,15 @@ show_to_house :: proc() {
 		track := playlist_pick_random_track(playlist)
 		ensure(track != nil, "Couldn't pick track for To_House")
 
-		new_playback := music_playback_start_playlist_track(
+		music_crossfade(
 			playlist,
 			track,
 			0.05,
 			gm.sound_settings.fade_in_time,
+			gm.sound_settings.fade_out_time,
 		)
-		for &playback in gm.sound_settings.music_playbacks {
-			if playback.mixer_track == nil || &playback == new_playback do continue
-			audible := music_playback_volume_at(
-				&playback,
-				mixer.GetTrackPlaybackPosition(playback.mixer_track),
-			)
-			music_playback_volume_set(
-				&playback,
-				{{0, audible}, {gm.sound_settings.fade_out_time, 0}},
-			)
-		}
 	} else {
-		for &playback in gm.sound_settings.music_playbacks {
-			if playback.mixer_track == nil do continue
-			audible := music_playback_volume_at(
-				&playback,
-				mixer.GetTrackPlaybackPosition(playback.mixer_track),
-			)
-			music_playback_volume_set(
-				&playback,
-				{{0, audible}, {gm.sound_settings.fade_out_time, 0}},
-			)
-		}
+		music_playbacks_fade_all(gm.sound_settings.fade_out_time)
 	}
 
 	lighting_fx_deactivate_all()
@@ -272,14 +223,7 @@ show_scene_ramp :: proc() {
 }
 
 show_scene_fade :: proc() {
-	for &playback in gm.sound_settings.music_playbacks {
-		if playback.mixer_track == nil do continue
-		audible := music_playback_volume_at(
-			&playback,
-			mixer.GetTrackPlaybackPosition(playback.mixer_track),
-		)
-		music_playback_volume_set(&playback, {{0, audible}, {2, 0}})
-	}
+	music_playbacks_fade_all(2)
 
 	lighting_fx_deactivate_all()
 	lighting_look_activate(.SceneWithFullFade)
@@ -313,20 +257,7 @@ show_ave_maria :: proc() {
 		track := playlist_pick_random_track(playlist)
 		ensure(track != nil, "Couldn't pick track for AveMaria")
 
-		new_playback := music_playback_start_playlist_track(
-			playlist,
-			track,
-			0.8,
-			gm.sound_settings.fade_in_time,
-		)
-		for &playback in gm.sound_settings.music_playbacks {
-			if playback.mixer_track == nil || &playback == new_playback do continue
-			audible := music_playback_volume_at(
-				&playback,
-				mixer.GetTrackPlaybackPosition(playback.mixer_track),
-			)
-			music_playback_volume_set(&playback, {{0, audible}, {0.3, 0}})
-		}
+		music_crossfade(playlist, track, 0.8, gm.sound_settings.fade_in_time, 0.3)
 	}
 
 	fx := gm.lighting.fx[.Blackout]
@@ -343,14 +274,7 @@ show_ave_maria :: proc() {
 }
 
 music_fade_out :: proc() {
-	for &playback in gm.sound_settings.music_playbacks {
-		if playback.mixer_track == nil do continue
-		audible := music_playback_volume_at(
-			&playback,
-			mixer.GetTrackPlaybackPosition(playback.mixer_track),
-		)
-		music_playback_volume_set(&playback, {{0, audible}, {gm.sound_settings.fade_out_time, 0}})
-	}
+	music_playbacks_fade_all(gm.sound_settings.fade_out_time)
 }
 
 game_innuendo :: proc() {
@@ -358,35 +282,18 @@ game_innuendo :: proc() {
 	ensure(playlist != nil, "Couldn't find playlist for Innuendo")
 
 	if playlist_is_current(.Sex_With_Me) {
-		for &playback in gm.sound_settings.music_playbacks {
-			if playback.mixer_track == nil do continue
-			audible := music_playback_volume_at(
-				&playback,
-				mixer.GetTrackPlaybackPosition(playback.mixer_track),
-			)
-			music_playback_volume_set(&playback, {{0, audible}, {2, 0}})
-		}
+		music_playbacks_fade_all(2)
 	} else {
 		track := playlist_pick_random_track(playlist)
 		ensure(track != nil, "Couldn't pick track for Innuendo")
 
-		new_playback := music_playback_start_playlist_track(
+		music_crossfade(
 			playlist,
 			track,
 			0.6,
 			gm.sound_settings.fade_in_time,
+			gm.sound_settings.fade_out_time,
 		)
-		for &playback in gm.sound_settings.music_playbacks {
-			if playback.mixer_track == nil || &playback == new_playback do continue
-			audible := music_playback_volume_at(
-				&playback,
-				mixer.GetTrackPlaybackPosition(playback.mixer_track),
-			)
-			music_playback_volume_set(
-				&playback,
-				{{0, audible}, {gm.sound_settings.fade_out_time, 0}},
-			)
-		}
 	}
 
 	// Toggle: head for the opposite of wherever the last envelope
@@ -407,14 +314,7 @@ game_oscar_moment :: proc() {
 		current_playback.playlist == playlist &&
 		!current_playback.stopping
 
-	for &playback in gm.sound_settings.music_playbacks {
-		if playback.mixer_track == nil do continue
-		audible := music_playback_volume_at(
-			&playback,
-			mixer.GetTrackPlaybackPosition(playback.mixer_track),
-		)
-		music_playback_volume_set(&playback, {{0, audible}, {gm.sound_settings.fade_out_time, 0}})
-	}
+	music_playbacks_fade_all(gm.sound_settings.fade_out_time)
 
 	if oscar_moment_playing {
 		lighting_look_activate(.Scene)
@@ -452,33 +352,13 @@ game_sounds_like_a_song :: proc() {
 		!current_playback.stopping
 
 	if playlist_playing {
-		for &playback in gm.sound_settings.music_playbacks {
-			if playback.mixer_track == nil do continue
-			audible := music_playback_volume_at(
-				&playback,
-				mixer.GetTrackPlaybackPosition(playback.mixer_track),
-			)
-			music_playback_volume_set(
-				&playback,
-				{{0, audible}, {gm.sound_settings.fade_out_time, 0}},
-			)
-		}
+		music_playbacks_fade_all(gm.sound_settings.fade_out_time)
 		sounds_like_a_song_playlist_retained = nil
 	} else {
 		playlist := playlist_find_by_name(.Sounds_Like_a_Song)
 		ensure(playlist != nil, "Couldn't find playlist for Sounds_Like_a_Song")
 
-		for &playback in gm.sound_settings.music_playbacks {
-			if playback.mixer_track == nil do continue
-			audible := music_playback_volume_at(
-				&playback,
-				mixer.GetTrackPlaybackPosition(playback.mixer_track),
-			)
-			music_playback_volume_set(
-				&playback,
-				{{0, audible}, {gm.sound_settings.fade_out_time, 0}},
-			)
-		}
+		music_playbacks_fade_all(gm.sound_settings.fade_out_time)
 
 		track := playlist_pick_random_track(playlist)
 		ensure(track != nil, "Couldn't pick track for Sounds_Like_a_Song")
@@ -751,23 +631,13 @@ controls_draw :: proc() {
 							track := playlist_pick_random_track(playlist)
 							ensure(track != nil, "Couldn't pick track for Use_House_Music")
 
-							new_playback := music_playback_start_playlist_track(
+							music_crossfade(
 								playlist,
 								track,
 								0.2,
 								gm.sound_settings.fade_in_time,
+								gm.sound_settings.fade_out_time,
 							)
-							for &playback in gm.sound_settings.music_playbacks {
-								if playback.mixer_track == nil || &playback == new_playback do continue
-								audible := music_playback_volume_at(
-									&playback,
-									mixer.GetTrackPlaybackPosition(playback.mixer_track),
-								)
-								music_playback_volume_set(
-									&playback,
-									{{0, audible}, {gm.sound_settings.fade_out_time, 0}},
-								)
-							}
 						}
 					}
 					settings_save()
@@ -1120,14 +990,7 @@ controls_draw :: proc() {
 						imgui.PushStyleColorImVec4(.ButtonHovered, style.hovered)
 						imgui.PushStyleColorImVec4(.ButtonActive, style.active)
 						if imgui.Button("Fade out (.)", {0, 0}) {
-							for &playback in gm.sound_settings.music_playbacks {
-								if playback.mixer_track == nil do continue
-								audible := music_playback_volume_at(
-									&playback,
-									mixer.GetTrackPlaybackPosition(playback.mixer_track),
-								)
-								music_playback_volume_set(&playback, {{0, audible}, {2, 0}})
-							}
+							music_playbacks_fade_all(2)
 						}
 						imgui.PopStyleColor(3)
 						imgui.PopStyleVar(1)
@@ -1151,35 +1014,18 @@ controls_draw :: proc() {
 
 							primary := gm.sound_settings.music_playback_primary
 							if primary != nil && primary.playlist == &playlist {
-								for &playback in gm.sound_settings.music_playbacks {
-									if playback.mixer_track == nil do continue
-									audible := music_playback_volume_at(
-										&playback,
-										mixer.GetTrackPlaybackPosition(playback.mixer_track),
-									)
-									music_playback_volume_set(&playback, {{0, audible}, {2, 0}})
-								}
+								music_playbacks_fade_all(2)
 							} else {
 								track := playlist_pick_random_track(&playlist)
 								ensure(track != nil, "Couldn't pick track for playlist")
 
-								new_playback := music_playback_start_playlist_track(
+								music_crossfade(
 									&playlist,
 									track,
 									0.3,
 									gm.sound_settings.fade_in_time,
+									gm.sound_settings.fade_out_time,
 								)
-								for &playback in gm.sound_settings.music_playbacks {
-									if playback.mixer_track == nil || &playback == new_playback do continue
-									audible := music_playback_volume_at(
-										&playback,
-										mixer.GetTrackPlaybackPosition(playback.mixer_track),
-									)
-									music_playback_volume_set(
-										&playback,
-										{{0, audible}, {gm.sound_settings.fade_out_time, 0}},
-									)
-								}
 							}
 						}
 					}

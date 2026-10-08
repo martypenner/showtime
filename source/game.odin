@@ -107,6 +107,15 @@ envelope_value_at :: proc(keys: []Envelope_Point, elapsed_seconds: f32) -> f32 {
 	return previous.value
 }
 
+// Ticks a seconds-remaining countdown toward zero, reporting expiry.
+// Sticks at zero once expired, so idle countdowns read expired.
+countdown_tick :: proc(remaining: ^f32, dt: f32) -> bool {
+	ensure(remaining != nil)
+	if remaining^ <= 0 do return true
+	remaining^ = max(remaining^ - dt, 0)
+	return remaining^ <= 0
+}
+
 controls_window: ^sdl.Window
 controls_renderer: ^sdl.Renderer
 projection_window: ^sdl.Window

@@ -197,6 +197,12 @@ timer_expiry_dispatches_several_triggers_at_once :: proc(t: ^testing.T) {
 	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
+	// Dispatch skips missing subsystems, so clear the globals and assert
+	// the recorded trigger set only.
+	sound_settings = nil
+	video_state = nil
+	score_state = nil
+
 	testing.expect(t, timers_add("multi", 10))
 	gm.timers[0].caps = {.Has_Sound, .Has_Lighting, .Has_Video, .Has_Score}
 	gm.timers[0].triggers = {.Sound, .Lighting, .Video, .Score}
@@ -242,4 +248,44 @@ timers_arm_helpers_set_caps_triggers_and_payload :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, gm.timers[0].trigger_sound_volume, f32(0.7))
 	testing.expect(t, gm.timers[0].trigger_look == .Scene)
+}
+
+@(test)
+timer_expiry_applies_video_and_score_payloads :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	video_previous := video_state
+	video_state = new(VideoState)
+	defer video_state = video_previous
+	score_previous := score_state
+	score_state = new(ScoreState)
+	defer score_state = score_previous
+
+	testing.expect(t, timers_add("cued", 5))
+	timers_arm_projection(0, true, true, "missing-page", 2)
+	testing.expect_value(t, gm.timers[0].trigger_video_page, "missing-page")
+	testing.expect_value(t, gm.timers[0].trigger_scoreboard, 2)
+	timers_start(0)
+	timers_update(6)
+	testing.expect(t, gm.timers[0].done)
+	testing.expect(t, gm.timers[0].fired == Timer_Triggers{.Video, .Score})
+	// A cued page that no longer exists falls back to the deck state.
+	testing.expect(t, video_state.shown)
+	testing.expect(t, score_state.shown)
+	testing.expect_value(t, score_state.active, 2)
+
+	testing.expect(t, timers_add("plain", 5))
+	timers_arm_projection(1, true, true)
+	timers_start(1)
+	timers_update(6)
+	testing.expect(t, video_state.shown)
+	testing.expect(t, score_state.shown)
+	testing.expect(
+		t,
+		score_state.active == 2,
+		"an uncued score trigger leaves the selection alone",
+	)
 }

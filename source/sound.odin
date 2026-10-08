@@ -780,6 +780,41 @@ music_playback_start_playlist_track :: proc(
 	return playback
 }
 
+// Fade every playback except one from its audible level to silence. A nil
+// exception fades everything.
+music_playbacks_fade_others :: proc(except: ^MusicPlayback, fade_out_s: f32) {
+	for &playback in sound_settings.music_playbacks {
+		if playback.mixer_track == nil || &playback == except do continue
+		audible := music_playback_volume_at(
+			&playback,
+			mixer.GetTrackPlaybackPosition(playback.mixer_track),
+		)
+		music_playback_volume_set(&playback, {{0, audible}, {fade_out_s, 0}})
+	}
+}
+
+music_playbacks_fade_all :: proc(fade_out_s: f32) {
+	music_playbacks_fade_others(nil, fade_out_s)
+}
+
+// Start a track and fade everything else out. Callers pass the outgoing
+// fade explicitly because show cues use fixed stings (2s, 0.3s) while
+// ordinary transitions use the fade_out_time setting.
+music_crossfade :: proc(
+	playlist: ^Playlist,
+	track: ^Track,
+	volume_endpoint, fade_in_s, fade_out_s: f32,
+) -> ^MusicPlayback {
+	new_playback := music_playback_start_playlist_track(
+		playlist,
+		track,
+		volume_endpoint,
+		fade_in_s,
+	)
+	music_playbacks_fade_others(new_playback, fade_out_s)
+	return new_playback
+}
+
 music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 	ensure(playback.mixer_track != nil)
 	playing := mixer.TrackPlaying(playback.mixer_track)
@@ -980,8 +1015,7 @@ sound_update :: proc(dt: f32) {
 	pending_index := 0
 	for pending_index < len(sound_settings.pending_sounds) {
 		pending := &sound_settings.pending_sounds[pending_index]
-		pending.remaining_s -= dt
-		if pending.remaining_s > 0 {
+		if !countdown_tick(&pending.remaining_s, dt) {
 			pending_index += 1
 			continue
 		}
@@ -1018,12 +1052,9 @@ sound_update :: proc(dt: f32) {
 	}
 	sound_settings.duck_gain = sound_duck_gain_next(sound_settings.duck_gain, remaining_min, dt)
 
-	if sound_settings.settings_save_time_left > 0 {
-		sound_settings.settings_save_time_left = max(
-			sound_settings.settings_save_time_left - dt,
-			0,
-		)
-		if sound_settings.settings_save_time_left == 0 do settings_save()
+	if sound_settings.settings_save_time_left > 0 &&
+	   countdown_tick(&sound_settings.settings_save_time_left, dt) {
+		settings_save()
 	}
 
 	music_playback_ended: [MUSIC_PLAYBACK_COUNT]bool
@@ -1079,18 +1110,11 @@ sound_update :: proc(dt: f32) {
 						break
 					}
 				}
-				for &playback in sound_settings.music_playbacks {
-					if playback.mixer_track == nil || &playback == new_playback do continue
-					audible := music_playback_volume_at(
-						&playback,
-						mixer.GetTrackPlaybackPosition(playback.mixer_track),
-					)
-					if sound_settings.fade_out_time > 0 {
-						music_playback_volume_set(
-							&playback,
-							{{0, audible}, {sound_settings.fade_out_time, 0}},
-						)
-					} else {
+				if sound_settings.fade_out_time > 0 {
+					music_playbacks_fade_others(new_playback, sound_settings.fade_out_time)
+				} else {
+					for &playback in sound_settings.music_playbacks {
+						if playback.mixer_track == nil || &playback == new_playback do continue
 						ensure(mixer.StopTrack(playback.mixer_track, 0))
 						playback.stopping = true
 					}
