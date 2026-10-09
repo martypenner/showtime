@@ -392,7 +392,7 @@ game_innuendo :: proc() {
 	// Toggle: head for the opposite of wherever the last envelope
 	// was going, starting from the current weight.
 	fx := gm.lighting.fx[.Innuendo]
-	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].weight : 0
+	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].value : 0
 	lighting_fx_run(.Innuendo, {{0, fx.weight_current}, {2, 1 - target_prev}})
 }
 
@@ -539,7 +539,7 @@ lighting_innuendo_toggle :: proc() {
 	// Toggle: head for the opposite of wherever the last envelope
 	// was going, starting from the current weight.
 	fx := gm.lighting.fx[.Innuendo]
-	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].weight : 0
+	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].value : 0
 	lighting_fx_run(.Innuendo, {{0, fx.weight_current}, {2, 1 - target_prev}})
 	lighting_look_activate(.Scene)
 }
@@ -548,7 +548,7 @@ lighting_rainbow_sting_toggle :: proc() {
 	// Toggle: head for the opposite of wherever the last envelope
 	// was going, starting from the current weight.
 	fx := gm.lighting.fx[.RainbowSting]
-	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].weight : 0
+	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].value : 0
 	lighting_fx_run(.RainbowSting, {{0, fx.weight_current}, {2, 1 - target_prev}})
 }
 
@@ -905,7 +905,7 @@ controls_draw :: proc() {
 					target_prev: f32
 					if fx.weight_current > 0 {
 						text = "Cancel Innuendo"
-						target_prev = fx.keys[fx.key_count - 1].weight
+						target_prev = fx.keys[fx.key_count - 1].value
 					}
 					if controls_button(
 						strings.clone_to_cstring(
@@ -925,7 +925,7 @@ controls_draw :: proc() {
 					target_prev: f32
 					if fx.weight_current > 0 {
 						text = "    Cancel\n Rainbow Sting"
-						target_prev = fx.keys[fx.key_count - 1].weight
+						target_prev = fx.keys[fx.key_count - 1].value
 					}
 					if controls_button(
 						strings.clone_to_cstring(

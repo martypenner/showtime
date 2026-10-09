@@ -59,11 +59,6 @@ SoundSettings :: struct {
 // playbacks is the most we need.
 MUSIC_PLAYBACK_COUNT :: 2
 
-MusicVolumePoint :: struct {
-	at_seconds: f32,
-	volume:     f32,
-}
-
 MusicPlayback :: struct {
 	mixer_audio:                ^mixer.Audio,
 	mixer_track:                ^mixer.Track,
@@ -72,7 +67,7 @@ MusicPlayback :: struct {
 	track:                      ^Track,
 	bounds_start_seconds:       f32,
 	bounds_end_seconds:         f32,
-	volume_points:              [8]MusicVolumePoint,
+	volume_points:              [ENVELOPE_KEYS_MAX]Envelope_Point,
 	volume_point_count:         u8,
 	volume_point_next:          u8,
 	volume_frame_start:         i64,
@@ -496,43 +491,33 @@ music_playback_volume_at :: proc(playback: ^MusicPlayback, frame: i64) -> f32 {
 			),
 		) /
 		1000
-	previous := playback.volume_points[0]
-	for point_index := 1; point_index < int(playback.volume_point_count); point_index += 1 {
-		point := playback.volume_points[point_index]
-		if elapsed_seconds <= point.at_seconds {
-			fraction := math.clamp(
-				(elapsed_seconds - previous.at_seconds) / (point.at_seconds - previous.at_seconds),
-				0,
-				1,
-			)
-			return previous.volume + (point.volume - previous.volume) * fraction
-		}
-		previous = point
-	}
-	return previous.volume
+	return envelope_value_at(
+		playback.volume_points[:int(playback.volume_point_count)],
+		elapsed_seconds,
+	)
 }
 
 music_playback_volume_endpoint :: proc(playback: ^MusicPlayback) -> f32 {
 	ensure(playback != nil && playback.volume_point_count > 0)
 	for point_index := int(playback.volume_point_count) - 1; point_index >= 0; point_index -= 1 {
-		if playback.volume_points[point_index].volume != 0 {
-			return playback.volume_points[point_index].volume
+		if playback.volume_points[point_index].value != 0 {
+			return playback.volume_points[point_index].value
 		}
 	}
 	return 0
 }
 
-music_playback_volume_set :: proc(playback: ^MusicPlayback, points: []MusicVolumePoint) {
+music_playback_volume_set :: proc(playback: ^MusicPlayback, points: []Envelope_Point) {
 	ensure(playback != nil && playback.mixer_track != nil)
 	ensure(len(points) > 0 && len(points) <= len(playback.volume_points))
 	ensure(points[0].at_seconds == 0)
 	for point, point_index in points {
-		ensure(point.at_seconds >= 0 && point.volume >= 0)
-		if point.volume == 0 do ensure(point_index == 0 || point_index == len(points) - 1)
+		ensure(point.at_seconds >= 0 && point.value >= 0)
+		if point.value == 0 do ensure(point_index == 0 || point_index == len(points) - 1)
 		if point_index > 0 {
 			previous := points[point_index - 1]
 			ensure(point.at_seconds > previous.at_seconds)
-			if point.volume != 0 do ensure(point.volume >= previous.volume)
+			if point.value != 0 do ensure(point.value >= previous.value)
 		}
 	}
 
@@ -555,15 +540,15 @@ music_playback_volume_set :: proc(playback: ^MusicPlayback, points: []MusicVolum
 		ensure(
 			mixer.SetTrackGain(
 				playback.mixer_track,
-				first.volume * gain_multiplier * sound_settings.duck_gain,
+				first.value * gain_multiplier * sound_settings.duck_gain,
 			),
 		)
 		return
 	}
 
 	second := points[1]
-	if second.volume > first.volume {
-		destination_volume := second.volume * gain_multiplier
+	if second.value > first.value {
+		destination_volume := second.value * gain_multiplier
 		start_fraction := f32(0)
 		if destination_volume > 0 do start_fraction = math.clamp(audible_volume * gain_multiplier / destination_volume, 0, 1)
 		ensure(
@@ -580,7 +565,7 @@ music_playback_volume_set :: proc(playback: ^MusicPlayback, points: []MusicVolum
 		)
 		defer sdl.DestroyProperties(props)
 		ensure(mixer.PlayTrack(playback.mixer_track, props))
-	} else if second.volume == 0 {
+	} else if second.value == 0 {
 		ensure(
 			mixer.SetTrackGain(
 				playback.mixer_track,
@@ -595,7 +580,7 @@ music_playback_volume_set :: proc(playback: ^MusicPlayback, points: []MusicVolum
 		)
 		playback.stopping = true
 	} else {
-		ensure(second.volume == first.volume)
+		ensure(second.value == first.value)
 	}
 }
 
@@ -816,11 +801,11 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 		if int(playback.volume_point_next) >= int(playback.volume_point_count) do break
 		previous := playback.volume_points[playback.volume_point_next - 1]
 		next := playback.volume_points[playback.volume_point_next]
-		if next.volume > previous.volume && mixer.TrackPlaying(playback.mixer_track) {
+		if next.value > previous.value && mixer.TrackPlaying(playback.mixer_track) {
 			generated_track, ok := TRACKS[norm.path_nfc(playback.source_path)]
 			log.ensuref(ok, "Missing generated track metadata for %s", playback.source_path)
 			gain_multiplier := track_volume_multiplier(generated_track.active_rms)
-			destination_volume := next.volume * gain_multiplier
+			destination_volume := next.value * gain_multiplier
 			destination_gain := destination_volume * sound_settings.duck_gain
 			ensure(mixer.SetTrackGain(playback.mixer_track, destination_gain))
 			props := sound_play_options(
@@ -833,11 +818,11 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 					playback.mixer_audio,
 					i64(max(next.at_seconds - elapsed_seconds, 0) * 1000),
 				),
-				math.clamp(previous.volume * gain_multiplier / destination_volume, 0, 1),
+				math.clamp(previous.value * gain_multiplier / destination_volume, 0, 1),
 			)
 			defer sdl.DestroyProperties(props)
 			ensure(mixer.PlayTrack(playback.mixer_track, props))
-		} else if next.volume == 0 && mixer.TrackPlaying(playback.mixer_track) {
+		} else if next.value == 0 && mixer.TrackPlaying(playback.mixer_track) {
 			generated_track, ok := TRACKS[norm.path_nfc(playback.source_path)]
 			log.ensuref(ok, "Missing generated track metadata for %s", playback.source_path)
 			gain_multiplier := track_volume_multiplier(generated_track.active_rms)
@@ -866,9 +851,9 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 	if playback.stopping {
 		ensure(playback.volume_point_count >= 2)
 		terminal_index := int(playback.volume_point_count) - 1
-		ensure(playback.volume_points[terminal_index].volume == 0)
+		ensure(playback.volume_points[terminal_index].value == 0)
 		gain :=
-			playback.volume_points[terminal_index - 1].volume *
+			playback.volume_points[terminal_index - 1].value *
 			track_volume_multiplier(generated_track.active_rms) *
 			sound_settings.duck_gain
 		if mixer.GetTrackGain(playback.mixer_track) != gain {
@@ -880,7 +865,7 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 			int(playback.volume_point_count) - 1,
 		)
 		gain :=
-			playback.volume_points[destination_index].volume *
+			playback.volume_points[destination_index].value *
 			track_volume_multiplier(generated_track.active_rms) *
 			sound_settings.duck_gain
 		if mixer.GetTrackGain(playback.mixer_track) != gain {
@@ -973,6 +958,24 @@ sound_settings_init :: proc() -> ^SoundSettings {
 	return sound_settings
 }
 
+// Next duck gain multiplier for the given soonest-ending sound effect.
+// While a sound effect plays, music ducks to MUSIC_DUCK_GAIN, ramping down
+// over MUSIC_DUCK_SECONDS; the return starts in the last MUSIC_DUCK_SECONDS
+// of the effect. The return ramp samples the shared envelope, so duck
+// gain stays the same lerp as music gain and lighting weight.
+sound_duck_gain_next :: proc(current_gain, remaining_min_s, dt: f32) -> f32 {
+	if remaining_min_s > MUSIC_DUCK_SECONDS {
+		return max(
+			MUSIC_DUCK_GAIN,
+			current_gain - dt * (1 - MUSIC_DUCK_GAIN) / MUSIC_DUCK_SECONDS,
+		)
+	} else if remaining_min_s > 0 {
+		keys := [2]Envelope_Point{{0, 1}, {MUSIC_DUCK_SECONDS, MUSIC_DUCK_GAIN}}
+		return min(1, envelope_value_at(keys[:], remaining_min_s))
+	}
+	return 1
+}
+
 sound_update :: proc(dt: f32) {
 	pending_index := 0
 	for pending_index < len(sound_settings.pending_sounds) {
@@ -1013,19 +1016,7 @@ sound_update :: proc(dt: f32) {
 		remaining := max(voice.duration - elapsed, 0)
 		if remaining_min == 0 || remaining < remaining_min do remaining_min = remaining
 	}
-	if remaining_min > MUSIC_DUCK_SECONDS {
-		sound_settings.duck_gain = max(
-			MUSIC_DUCK_GAIN,
-			sound_settings.duck_gain - dt * (1 - MUSIC_DUCK_GAIN) / MUSIC_DUCK_SECONDS,
-		)
-	} else if remaining_min > 0 {
-		sound_settings.duck_gain = min(
-			1,
-			MUSIC_DUCK_GAIN + (1 - MUSIC_DUCK_GAIN) * (1 - remaining_min / MUSIC_DUCK_SECONDS),
-		)
-	} else {
-		sound_settings.duck_gain = 1
-	}
+	sound_settings.duck_gain = sound_duck_gain_next(sound_settings.duck_gain, remaining_min, dt)
 
 	if sound_settings.settings_save_time_left > 0 {
 		sound_settings.settings_save_time_left = max(
@@ -1048,7 +1039,7 @@ sound_update :: proc(dt: f32) {
 	   !primary.playlist_successor_started &&
 	   !primary.stopping &&
 	   (primary.volume_point_count == 1 ||
-			   primary.volume_points[primary.volume_point_count - 1].volume != 0) {
+			   primary.volume_points[primary.volume_point_count - 1].value != 0) {
 		primary_ended := false
 		for &playback, playback_index in sound_settings.music_playbacks {
 			if &playback == primary {

@@ -66,3 +66,24 @@ game_memory_arena_owns_memory_and_returns_backing_allocations :: proc(t: ^testin
 	testing.expect_value(t, scratch[.Blackout].key_count, u8(1))
 	testing.expect(t, len(tracking_allocator.allocation_map) > 0)
 }
+
+@(test)
+envelope_value_at_holds_endpoints_and_lerps :: proc(t: ^testing.T) {
+	keys := [4]Envelope_Point{{0, 0.25}, {2, 1}, {3, 1}, {4, 0}}
+	testing.expect_value(t, envelope_value_at(keys[:], -1), f32(0.25))
+	testing.expect_value(t, envelope_value_at(keys[:], 0), f32(0.25))
+	testing.expect_value(t, envelope_value_at(keys[:], 1), f32(0.625))
+	testing.expect_value(t, envelope_value_at(keys[:], 2), f32(1))
+	testing.expect_value(t, envelope_value_at(keys[:], 2.5), f32(1))
+	testing.expect_value(t, envelope_value_at(keys[:], 3), f32(1))
+	testing.expect_value(t, envelope_value_at(keys[:], 3.5), f32(0.5))
+	testing.expect_value(t, envelope_value_at(keys[:], 4), f32(0))
+	testing.expect_value(t, envelope_value_at(keys[:], 99), f32(0))
+}
+
+@(test)
+envelope_value_at_single_key_holds :: proc(t: ^testing.T) {
+	keys := [1]Envelope_Point{{0, 0.7}}
+	testing.expect_value(t, envelope_value_at(keys[:], 0), f32(0.7))
+	testing.expect_value(t, envelope_value_at(keys[:], 50), f32(0.7))
+}

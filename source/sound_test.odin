@@ -82,7 +82,7 @@ sound_music_current_volume_uses_maximum_live_volume :: proc(t: ^testing.T) {
 	ensure(mixer.SetTrackAudio(incoming_track, incoming_audio))
 	ensure(mixer.PlayTrack(incoming_track, 0))
 	testing.expect_value(t, sound_music_current_volume(), f32(0.4))
-	settings.music_playbacks[1].volume_points[0].volume = 0.7
+	settings.music_playbacks[1].volume_points[0].value = 0.7
 	testing.expect_value(t, sound_music_current_volume(), f32(0.7))
 	ensure(mixer.StopTrack(incoming_track, 0))
 	TRACKS[path] = {
@@ -529,7 +529,7 @@ music_playback_test_tone_write :: proc() {
 	ensure(write_entire_file(MUSIC_PLAYBACK_TEST_TONE_PATH, file_data))
 }
 
-music_playback_test_make :: proc(points: []MusicVolumePoint) -> (MusicPlayback, ^mixer.Mixer) {
+music_playback_test_make :: proc(points: []Envelope_Point) -> (MusicPlayback, ^mixer.Mixer) {
 	ensure(mixer.Init())
 	spec := sdl.AudioSpec {
 		format   = .F32,
@@ -563,5 +563,31 @@ music_playback_test_frame :: proc(playback: ^MusicPlayback, seconds: f32) -> i64
 	return(
 		playback.volume_frame_start +
 		mixer.AudioMSToFrames(playback.mixer_audio, i64(seconds * 1000)) \
+	)
+}
+
+@(test)
+sound_duck_gain_next_ramps_down_and_returns :: proc(t: ^testing.T) {
+	// Return ramp matches the previous direct formula: full gain at 0,
+	// duck floor at MUSIC_DUCK_SECONDS, linear in between.
+	testing.expect_value(t, sound_duck_gain_next(1, 0, 0.1), f32(1))
+	testing.expect(
+		t,
+		abs(sound_duck_gain_next(0.5, MUSIC_DUCK_SECONDS, 0.1) - MUSIC_DUCK_GAIN) < 1e-6,
+	)
+	testing.expect(
+		t,
+		abs(sound_duck_gain_next(1, MUSIC_DUCK_SECONDS / 2, 0.016) - 0.6) < 1e-6,
+	)
+	// Ramp down while a sound effect still has time left.
+	testing.expect(
+		t,
+		abs(sound_duck_gain_next(1, MUSIC_DUCK_SECONDS + 1, 0.1) - 0.6) < 1e-6,
+	)
+	// Never below the duck floor.
+	testing.expect_value(
+		t,
+		sound_duck_gain_next(MUSIC_DUCK_GAIN, MUSIC_DUCK_SECONDS + 10, 1),
+		MUSIC_DUCK_GAIN,
 	)
 }

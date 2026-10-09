@@ -2,7 +2,6 @@ package game
 
 import "core:fmt"
 import "core:log"
-import "core:math"
 import "core:strings"
 import "osc"
 
@@ -23,16 +22,8 @@ LightingFxKind :: enum {
 	AveMaria,
 }
 
-LIGHTING_FX_KEYS_MAX :: 8
-
-// Keys must be in ascending `at_seconds` order, starting at 0.
-LightingFxKey :: struct {
-	at_seconds: f32,
-	weight:     f32,
-}
-
 LightingFx :: struct {
-	keys:           [LIGHTING_FX_KEYS_MAX]LightingFxKey,
+	keys:           [ENVELOPE_KEYS_MAX]Envelope_Point,
 	key_count:      u8,
 	elapsed:        f32,
 	weight_current: f32,
@@ -70,13 +61,18 @@ lighting_look_activate :: proc(look: LightingLook) {
 	)
 }
 
-lighting_fx_run :: proc(kind: LightingFxKind, keys: []LightingFxKey) {
-	ensure(len(keys) > 0 && len(keys) <= LIGHTING_FX_KEYS_MAX)
+lighting_fx_run :: proc(kind: LightingFxKind, keys: []Envelope_Point) {
+	ensure(len(keys) > 0 && len(keys) <= len(gm.lighting.fx[kind].keys))
+	ensure(keys[0].at_seconds == 0)
+	for key, key_index in keys {
+		ensure(key.at_seconds >= 0 && key.value >= 0)
+		if key_index > 0 do ensure(key.at_seconds > keys[key_index - 1].at_seconds)
+	}
 	fx := &gm.lighting.fx[kind]
 	copy(fx.keys[:], keys)
 	fx.key_count = u8(len(keys))
 	fx.elapsed = 0
-	fx.weight_current = keys[0].weight
+	fx.weight_current = keys[0].value
 }
 
 lighting_fx_deactivate_all :: proc() {
@@ -92,19 +88,7 @@ lighting_update :: proc() {
 	for &fx, kind in gm.lighting.fx {
 		if fx.key_count == 0 do continue
 		fx.elapsed += dt
-		last_key := fx.keys[fx.key_count - 1]
-		weight := last_key.weight
-		if fx.elapsed < last_key.at_seconds {
-			seg := 0
-			for fx.keys[seg + 1].at_seconds <= fx.elapsed do seg += 1
-			a := fx.keys[seg]
-			b := fx.keys[seg + 1]
-			weight = math.lerp(
-				a.weight,
-				b.weight,
-				(fx.elapsed - a.at_seconds) / (b.at_seconds - a.at_seconds),
-			)
-		}
+		weight := envelope_value_at(fx.keys[:fx.key_count], fx.elapsed)
 		fx.weight_current = weight
 
 		if weight != fx.weight_sent {

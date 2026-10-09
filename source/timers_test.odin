@@ -162,3 +162,84 @@ timers_marks_cap_at_max :: proc(t: ^testing.T) {
 	testing.expect(t, !timers_mark(0), "should refuse past max")
 	testing.expect(t, timers_marks_overflow_hint_seconds > 0, "should set overflow hint")
 }
+
+@(test)
+timer_blink_alpha_maps_sine_phase_through_envelope :: proc(t: ^testing.T) {
+	testing.expect_value(t, timer_blink_alpha(0, 0), f32(1))
+	testing.expect_value(t, timer_blink_alpha(-1, 1000), f32(1))
+	// tick 0: sin(0) = 0, phase 0.5, halfway between dim and bright.
+	testing.expect(t, abs(timer_blink_alpha(1, 0) - 0.55) < 1e-6)
+	for tick in 0 ..< 10000 {
+		alpha := timer_blink_alpha(1, u64(tick))
+		testing.expect(
+			t,
+			alpha >= TIMER_BLINK_DIM && alpha <= TIMER_BLINK_BRIGHT,
+			"blink should stay inside the envelope",
+		)
+	}
+}
+
+@(test)
+timer_fire_mask_needs_capability_and_fires_several_at_once :: proc(t: ^testing.T) {
+	fire := timer_fire_mask(
+		{.Has_Sound, .Has_Lighting},
+		{.Sound, .Lighting, .Video},
+	)
+	testing.expect(t, fire == Timer_Triggers{.Sound, .Lighting})
+	testing.expect(t, timer_fire_mask(Timer_Caps{}, {.Sound}) == Timer_Triggers{})
+	testing.expect(t, timer_fire_mask({.Has_Sound}, Timer_Triggers{}) == Timer_Triggers{})
+}
+
+@(test)
+timer_expiry_dispatches_several_triggers_at_once :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	testing.expect(t, timers_add("multi", 10))
+	gm.timers[0].caps = {.Has_Sound, .Has_Lighting, .Has_Video, .Has_Score}
+	gm.timers[0].triggers = {.Sound, .Lighting, .Video, .Score}
+	timers_start(0)
+	timers_update(10.5)
+	testing.expect(t, gm.timers[0].done)
+	testing.expect(
+		t,
+		gm.timers[0].fired == Timer_Triggers{.Sound, .Lighting, .Video, .Score},
+		"one expiry should dispatch every armed trigger at once",
+	)
+
+	testing.expect(t, timers_add("inert", 5))
+	gm.timers[1].triggers = {.Sound}
+	timers_start(1)
+	timers_update(6)
+	testing.expect(t, gm.timers[1].done)
+	testing.expect(
+		t,
+		gm.timers[1].fired == Timer_Triggers{},
+		"a trigger without its capability should stay inert",
+	)
+}
+
+@(test)
+timers_arm_helpers_set_caps_triggers_and_payload :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	testing.expect(t, timers_add("armed", 30))
+	timers_arm_sound(0, .Cat_Meow, 0.7)
+	timers_arm_lighting(0, .Scene)
+	timers_arm_projection(0, true, false)
+	testing.expect(
+		t,
+		gm.timers[0].caps == Timer_Caps{.Has_Sound, .Has_Lighting, .Has_Video},
+	)
+	testing.expect(
+		t,
+		gm.timers[0].triggers == Timer_Triggers{.Sound, .Lighting, .Video},
+	)
+	testing.expect_value(t, gm.timers[0].trigger_sound_volume, f32(0.7))
+	testing.expect(t, gm.timers[0].trigger_look == .Scene)
+}

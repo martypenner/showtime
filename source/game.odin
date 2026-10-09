@@ -31,6 +31,7 @@ import imsdl3 "../vendor/odin-imgui/imgui_impl_sdl3"
 import imsdlrenderer3 "../vendor/odin-imgui/imgui_impl_sdlrenderer3"
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:net"
 import "core:strings"
 import sdl "vendor:sdl3"
@@ -75,6 +76,35 @@ GameMemory :: struct {
 		controls:   ^sdl.Renderer,
 		projection: ^sdl.Renderer,
 	},
+}
+
+// Unified envelope: at_seconds plus value. Music gain, lighting weight,
+// duck gain, and timer blink alpha all sample through envelope_value_at,
+// so the timestamped-lerp lives in one place. Points must be in ascending
+// at_seconds order, starting at 0; sampling holds the first value before
+// the first point and the last value past the last point.
+Envelope_Point :: struct {
+	at_seconds: f32,
+	value:      f32,
+}
+
+ENVELOPE_KEYS_MAX :: 8
+
+envelope_value_at :: proc(keys: []Envelope_Point, elapsed_seconds: f32) -> f32 {
+	ensure(len(keys) > 0)
+	previous := keys[0]
+	if elapsed_seconds <= previous.at_seconds do return previous.value
+	for i := 1; i < len(keys); i += 1 {
+		point := keys[i]
+		if elapsed_seconds <= point.at_seconds {
+			span := point.at_seconds - previous.at_seconds
+			fraction := f32(1)
+			if span > 0 do fraction = math.clamp((elapsed_seconds - previous.at_seconds) / span, 0, 1)
+			return previous.value + (point.value - previous.value) * fraction
+		}
+		previous = point
+	}
+	return previous.value
 }
 
 controls_window: ^sdl.Window

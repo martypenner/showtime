@@ -15,15 +15,48 @@ TIMER_STEP_SECONDS :: 1
 TIMER_MIN_SECONDS :: 0
 TIMER_MAX_SECONDS :: 3600
 DEFAULT_TIMER_SECONDS :: 30
+TIMER_BLINK_DIM :: f32(0.35)
+TIMER_BLINK_BRIGHT :: f32(0.75)
 
 Timer :: struct {
-	label:             string,
-	remaining_s:       f32,
-	running:           bool,
-	done:              bool,
-	flash_remaining_s: f32,
-	start_tick:        u64,
+	label:                string,
+	remaining_s:          f32,
+	running:              bool,
+	done:                 bool,
+	flash_remaining_s:    f32,
+	start_tick:           u64,
+	// Capability bits describe the payload the timer carries; trigger bits
+	// describe what executes when the timer expires. The two bitsets stay
+	// separate so a timer can carry a payload without firing it, and one
+	// expiry can dispatch several triggers at once.
+	caps:                 Timer_Caps,
+	triggers:             Timer_Triggers,
+	// Masked trigger set dispatched by the last expiry.
+	fired:                Timer_Triggers,
+	trigger_sound:        SoundEffectName,
+	trigger_sound_volume: f32,
+	trigger_look:         LightingLook,
 }
+
+// What a timer carries.
+Timer_Cap :: enum u8 {
+	Has_Sound,
+	Has_Lighting,
+	Has_Video,
+	Has_Score,
+}
+
+Timer_Caps :: bit_set[Timer_Cap; u8]
+
+// What executes when a timer expires. Several bits may be set at once.
+Timer_Trigger :: enum u8 {
+	Sound,
+	Lighting,
+	Video,
+	Score,
+}
+
+Timer_Triggers :: bit_set[Timer_Trigger; u8]
 
 TimerMark :: struct {
 	timer_label: string,
@@ -80,6 +113,7 @@ timers_start :: proc(index: int) {
 	timer := &gm.timers[index]
 	timer.done = false
 	timer.running = true
+	timer.fired = Timer_Triggers{}
 	timer.start_tick = sdl.GetTicks()
 	// A playing timer owns the projection; hide the presentation until the
 	// Show on projection checkboxes or a page cue bring it back.
@@ -172,6 +206,66 @@ timers_any_running :: proc() -> bool {
 	return false
 }
 
+// Intersection of what a timer wants to fire and what it carries, so one
+// expiry can dispatch several actions at once while a trigger without its
+// capability stays inert.
+timer_fire_mask :: proc(caps: Timer_Caps, triggers: Timer_Triggers) -> Timer_Triggers {
+	fire := Timer_Triggers{}
+	if .Sound in triggers && .Has_Sound in caps do fire += {.Sound}
+	if .Lighting in triggers && .Has_Lighting in caps do fire += {.Lighting}
+	if .Video in triggers && .Has_Video in caps do fire += {.Video}
+	if .Score in triggers && .Has_Score in caps do fire += {.Score}
+	return fire
+}
+
+// Dispatch a timer's expiry triggers. Records the masked trigger set on the
+// timer, then best-effort charms each subsystem: a missing subsystem skips
+// its side effect while the record still shows the dispatch.
+timer_fire :: proc(index: int) {
+	timer := &gm.timers[index]
+	fire := timer_fire_mask(timer.caps, timer.triggers)
+	timer.fired += fire
+	if .Sound in fire && sound_settings != nil {
+		sound_play(timer.trigger_sound, timer.trigger_sound_volume)
+	}
+	if .Lighting in fire && gm.lighting.socket != nil {
+		lighting_look_activate(timer.trigger_look)
+	}
+	if .Video in fire && video_state != nil {
+		video_state.shown = true
+	}
+	if .Score in fire && score_state != nil {
+		score_state.shown = true
+	}
+}
+
+timers_arm_sound :: proc(index: int, name: SoundEffectName, volume: f32) {
+	timer := &gm.timers[index]
+	timer.caps += {.Has_Sound}
+	timer.triggers += {.Sound}
+	timer.trigger_sound = name
+	timer.trigger_sound_volume = volume
+}
+
+timers_arm_lighting :: proc(index: int, look: LightingLook) {
+	timer := &gm.timers[index]
+	timer.caps += {.Has_Lighting}
+	timer.triggers += {.Lighting}
+	timer.trigger_look = look
+}
+
+timers_arm_projection :: proc(index: int, video, score: bool) {
+	timer := &gm.timers[index]
+	if video {
+		timer.caps += {.Has_Video}
+		timer.triggers += {.Video}
+	}
+	if score {
+		timer.caps += {.Has_Score}
+		timer.triggers += {.Score}
+	}
+}
+
 timers_update :: proc(dt: f32) {
 	for i in 0 ..< MAX_TIMERS {
 		timer := &gm.timers[i]
@@ -187,6 +281,7 @@ timers_update :: proc(dt: f32) {
 			timer.remaining_s = 0
 			timer.done = true
 			timer.flash_remaining_s = TIMER_BLINK_SECONDS
+			timer_fire(i)
 		}
 	}
 
@@ -284,6 +379,15 @@ timers_draw :: proc() {
 	}
 }
 
+// Done-row blink alpha. The sine phase maps through the shared envelope,
+// so the blink is the same lerp as music gain and lighting weight.
+timer_blink_alpha :: proc(flash_remaining_s: f32, tick_ms: u64) -> f32 {
+	if !(flash_remaining_s > 0) do return 1
+	phase := (math.sin(f64(tick_ms) * 0.012) + 1) / 2
+	keys := [2]Envelope_Point{{0, TIMER_BLINK_DIM}, {1, TIMER_BLINK_BRIGHT}}
+	return envelope_value_at(keys[:], f32(phase))
+}
+
 timers_timer_row_draw :: proc(index: int) {
 	timer := &gm.timers[index]
 	if timer.label == "" do return
@@ -296,10 +400,7 @@ timers_timer_row_draw :: proc(index: int) {
 		done_prefix_width := imgui.CalcTextSize("Done  ").x
 		label_cstr := timers_text_clipped(timer.label, label_budget - done_prefix_width)
 
-		blink_alpha := f32(1)
-		if timer.flash_remaining_s > 0 {
-			blink_alpha = f32(0.35 + 0.4 * (math.sin(f64(sdl.GetTicks()) * 0.012) + 1) / 2)
-		}
+		blink_alpha := timer_blink_alpha(timer.flash_remaining_s, sdl.GetTicks())
 		blink_color := imgui.Vec4{0.85, 0.08, 0.08, blink_alpha}
 		imgui.PushStyleColorImVec4(.Button, blink_color)
 		imgui.PushStyleColorImVec4(.ButtonHovered, blink_color)
