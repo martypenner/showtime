@@ -28,7 +28,10 @@ import sdl "vendor:sdl3"
 
 // GameMemory only holds a pointer to this, so it survives hot reloads.
 VideoState :: struct {
-	shown:    bool,
+	shown: bool,
+	// Selected slide. Selection never starts playback; video_page_show is the
+	// explicit Show path that also syncs this.
+	selected: string,
 	settings: VideoSettings,
 	pages:    [dynamic]VideoPage,
 	active:   ^VideoPlayback,
@@ -99,6 +102,7 @@ video_update :: proc() {
 video_page_show :: proc(state: ^VideoState, page_id: string) -> bool {
 	page, ok := video_page_find(state, page_id)
 	if !ok do return false
+	state.selected = page.page_id
 
 	if playback := state.active;
 	   playback != nil && playback.frames > 0 && playback.texture != nil {
@@ -119,14 +123,25 @@ video_page_show :: proc(state: ^VideoState, page_id: string) -> bool {
 	return playback.state != .Failed
 }
 
-// A playing timer owns the projection until the Show on projection checkbox or
-// a page cue brings the deck back.
-video_projection_shown :: proc() -> bool {
-	return gm.video != nil && gm.video.shown
+// Selection only changes the highlight. Showing needs video_page_show.
+video_page_select :: proc(state: ^VideoState, page_id: string) -> bool {
+	page, ok := video_page_find(state, page_id)
+	if !ok do return false
+	state.selected = page.page_id
+	return true
 }
 
+// Effective visibility: an active timer owns the projection.
+video_projection_shown :: proc() -> bool {
+	return gm.video != nil && gm.video.shown && !timers_any_running()
+}
+
+// Hiding releases the playback and the last frame, so a later show starts
+// blank and no stale slide can reappear.
 video_projection_hide :: proc() {
-	if gm.video != nil do gm.video.shown = false
+	if gm.video == nil do return
+	gm.video.shown = false
+	video_page_clear()
 }
 
 video_page_clear :: proc() {
@@ -239,20 +254,35 @@ video_controls_draw :: proc(height: f32) {
 
 	if controls_list_begin("Videos##ControlList", height) {
 		for &page, index in state.pages {
-			selected := state.active != nil && state.active.page_id == page.page_id
+			is_selected := page.page_id == state.selected
 			label := fmt.tprintf("%s##video_page_%d", page.page_id, index)
 			if imgui.Selectable(
 				strings.clone_to_cstring(label, context.temp_allocator),
-				selected,
+				is_selected,
 			) {
-				video_page_show(state, page.page_id)
+				// Selection only writes selected. When the deck is already
+				// shown, the new selection takes the single active slot.
+				if video_page_select(state, page.page_id) && state.shown {
+					if video_page_show(state, state.selected) {
+						score_projection_hide()
+					}
+				}
 			}
 		}
 	}
 	imgui.EndChild()
 
-	if imgui.Checkbox("Show on projection", &state.shown) && state.shown {
-		score_projection_hide()
+	// The sole show/hide control. Checking shows the selected slide.
+	// Unchecking releases the deck so no stale frame can reappear.
+	if imgui.Checkbox("Show on projection", &state.shown) {
+		if state.shown {
+			showed := len(state.selected) == 0 || video_page_show(state, state.selected)
+			if showed {
+				score_projection_hide()
+			}
+		} else {
+			video_projection_hide()
+		}
 	}
 
 	playback := state.active

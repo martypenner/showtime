@@ -17,8 +17,8 @@ import stbi "vendor:stb/image"
 // Triggered by hand from the main controls and shown in place of the deck pages.
 // Nothing persists: the scores reset every launch.
 //
-// A playing timer owns the projection. Starting one hides the slide; the Show
-// on projection checkbox brings it back over the timer.
+// An active timer owns the projection through projection_source_resolve; the
+// flags stay armed for when it ends.
 
 ScoreState :: struct {
 	shown:       bool,
@@ -105,10 +105,9 @@ score_shutdown :: proc() {
 	gm.scores = nil
 }
 
-// The Show on projection checkbox is a direct override: it wins even while a
-// timer is running.
+// Effective visibility: an active timer owns the projection.
 score_projection_shown :: proc() -> bool {
-	return gm.scores != nil && gm.scores.shown
+	return gm.scores != nil && gm.scores.shown && !timers_any_running()
 }
 
 score_projection_hide :: proc() {

@@ -127,10 +127,8 @@ timers_start :: proc(index: int) {
 	timer.running = true
 	timer.cue.fired = Cue_Triggers{}
 	timer.start_tick = sdl.GetTicks()
-	// A playing timer owns the projection; hide the presentation until the
-	// Show on projection checkboxes or a page cue bring it back.
-	score_projection_hide()
-	video_projection_hide()
+	// A playing timer owns the projection through projection_source_resolve;
+	// presentation flags stay armed for when it ends.
 }
 
 timers_stop :: proc(index: int) {

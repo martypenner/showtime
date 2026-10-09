@@ -186,8 +186,7 @@ draw :: proc() {
 	draw_display(.Controls, controls_draw)
 }
 
-// Score wins over video; the timer layer shows whenever neither
-// presentation is up.
+// Active timers own the projection; score wins over video when idle.
 ProjectionSource :: enum u8 {
 	Timer,
 	Video,
@@ -195,6 +194,7 @@ ProjectionSource :: enum u8 {
 }
 
 projection_source_resolve :: proc() -> ProjectionSource {
+	if timers_any_running() do return .Timer
 	if score_projection_shown() do return .Score
 	if video_projection_shown() do return .Video
 	return .Timer

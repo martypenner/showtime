@@ -118,7 +118,7 @@ score_seeds_three_boards :: proc(t: ^testing.T) {
 }
 
 @(test)
-score_playing_timer_hides_presentation :: proc(t: ^testing.T) {
+score_playing_timer_owns_projection :: proc(t: ^testing.T) {
 	arena: GameTestArena
 	context.allocator = game_test_arena_init(&arena)
 	defer context.allocator = game_test_arena_destroy(&arena)
@@ -127,15 +127,18 @@ score_playing_timer_hides_presentation :: proc(t: ^testing.T) {
 	gm.scores = state
 	defer score_shutdown()
 
+	state.shown = true
 	testing.expect(t, timers_add("test", 30), "timer add should succeed")
 
 	timers_start(0)
-	testing.expect(t, !state.shown, "starting a timer should hide the score state")
+	testing.expect(t, state.shown, "starting a timer should leave the slide armed")
 	testing.expect(t, !score_projection_shown(), "a playing timer should own the projection")
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
 
-	// The Show on projection checkbox overrides the running timer.
+	// The Show flag stays armed but never overrides a running timer.
 	state.shown = true
-	testing.expect(t, score_projection_shown(), "the checkbox should override the timer")
+	testing.expect(t, !score_projection_shown(), "the flag should not override the timer")
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
 
 	timers_stop_all()
 	testing.expect(t, score_projection_shown(), "stopping the timer gives the projection back")

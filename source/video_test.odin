@@ -173,7 +173,7 @@ video_page_mode_owns_filename_and_updates_playback :: proc(t: ^testing.T) {
 }
 
 @(test)
-video_playing_timer_hides_the_deck :: proc(t: ^testing.T) {
+video_playing_timer_owns_projection :: proc(t: ^testing.T) {
 	arena: GameTestArena
 	context.allocator = game_test_arena_init(&arena)
 	defer context.allocator = game_test_arena_destroy(&arena)
@@ -186,12 +186,165 @@ video_playing_timer_hides_the_deck :: proc(t: ^testing.T) {
 
 	testing.expect(t, timers_add("test", 30), "timer add should succeed")
 	timers_start(0)
-	testing.expect(t, !state.shown, "starting a timer should hide the deck")
+	testing.expect(t, state.shown, "starting a timer should leave the deck armed")
 	testing.expect(t, !video_projection_shown(), "a playing timer should own the projection")
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
 
-	// The Show on projection checkbox overrides the running timer.
+	// The Show flag stays armed but never overrides a running timer.
 	state.shown = true
-	testing.expect(t, video_projection_shown(), "the checkbox should override the timer")
+	testing.expect(t, !video_projection_shown(), "the flag should not override the timer")
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
+
+	timers_stop_all()
+	testing.expect(t, video_projection_shown(), "stopping the timer gives the projection back")
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Video)
+}
+
+@(test)
+video_select_only_changes_selection :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	state := new(VideoState)
+	state.pages = make([dynamic]VideoPage, 0, 2)
+	append(&state.pages, VideoPage{page_id = "opener", mode = .Loop})
+	append(&state.pages, VideoPage{page_id = "closer", mode = .Loop})
+	gm.video = state
+
+	testing.expect(t, video_page_select(state, "opener"))
+	testing.expect_value(t, state.selected, "opener")
+	testing.expect(t, state.active == nil, "selection should not start playback")
+	testing.expect(t, !state.shown, "selection should not show")
+
+	testing.expect(t, video_page_select(state, "closer"))
+	testing.expect_value(t, state.selected, "closer")
+	testing.expect(t, state.active == nil, "selection should not start playback")
+	testing.expect(t, !state.shown, "selection should not show")
+
+	testing.expect(t, !video_page_select(state, "missing"), "missing select should fail")
+	testing.expect_value(t, state.selected, "closer")
+	testing.expect(t, state.active == nil, "failed select should not start playback")
+}
+
+@(test)
+video_checkbox_shows_selected_and_select_replaces_while_shown :: proc(t: ^testing.T) {
+	allocator_previous := context.allocator
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	context.allocator = mem.dynamic_arena_allocator(&arena)
+	defer {
+		context.allocator = allocator_previous
+		mem.dynamic_arena_destroy(&arena)
+	}
+	projection := video_test_projection_make(t)
+	defer video_test_projection_destroy(t, projection)
+	state := projection.state
+	state.shown = false
+	state.selected = ""
+
+	// Selecting while hidden only writes the selection.
+	testing.expect(t, video_page_select(state, "next"))
+	testing.expect_value(t, state.selected, "next")
+	testing.expect_value(t, state.active.page_id, "previous")
+	testing.expect(t, !state.shown, "selection should not show")
+
+	// Checking the box shows the selected slide.
+	state.shown = true
+	ensure(video_page_show(state, state.selected))
+	testing.expect_value(t, state.selected, "next")
+	testing.expect_value(t, state.active.page_id, "next")
+	testing.expect(t, state.shown)
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Video)
+
+	// Selecting while shown takes the single active slot.
+	testing.expect(t, video_page_select(state, "missing"))
+	ensure(video_page_show(state, state.selected))
+	testing.expect_value(t, state.selected, "missing")
+	testing.expect_value(t, state.active.page_id, "missing")
+
+	// Unchecking hides and releases the deck; nothing stale can reappear.
+	state.shown = false
+	video_projection_hide()
+	testing.expect(t, !video_projection_shown(), "unchecking should hide the deck")
+	testing.expect(t, state.active == nil, "unchecking should stop the playback")
+	testing.expect(t, state.previous.texture == nil, "unchecking should drop the last frame")
+	testing.expect_value(t, video_test_projection_pixel(projection), [3]u8{})
+
+	// A timer overrides without clearing the checkbox state.
+	state.shown = true
+	ensure(video_page_show(state, "next"))
+	testing.expect(t, timers_add("test", 30))
+	timers_start(0)
+	testing.expect(t, state.shown, "starting a timer should not clear the checkbox")
+	testing.expect(t, !video_projection_shown(), "a playing timer should own the projection")
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
+	timers_stop_all()
+	testing.expect(t, video_projection_shown(), "stopping the timer gives the deck back")
+}
+
+@(test)
+video_recheck_never_renders_stale_slide :: proc(t: ^testing.T) {
+	allocator_previous := context.allocator
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	context.allocator = mem.dynamic_arena_allocator(&arena)
+	defer {
+		context.allocator = allocator_previous
+		mem.dynamic_arena_destroy(&arena)
+	}
+	projection := video_test_projection_make(t)
+	defer video_test_projection_destroy(t, projection)
+	state := projection.state
+	state.shown = false
+	state.selected = ""
+
+	// Show slide A and wait for a real frame.
+	testing.expect(t, video_page_select(state, "next"))
+	state.shown = true
+	ensure(video_page_show(state, state.selected))
+	deadline := time.time_add(time.now(), time.Second * 3)
+	for state.active.frames == 0 && time.diff(time.now(), deadline) > 0 {
+		video_update()
+		time.sleep(time.Millisecond * 5)
+	}
+	ensure(state.active.frames > 0)
+	frame_a := video_test_projection_pixel(projection)
+	testing.expect(t, frame_a != [3]u8{}, "premise: slide A must render")
+
+	// Unchecking releases everything the deck held.
+	state.shown = false
+	video_projection_hide()
+	testing.expect(t, state.active == nil, "unchecking should stop slide A")
+	testing.expect(t, state.previous.texture == nil, "unchecking should drop slide A")
+
+	// Selecting slide B while hidden only moves the selection.
+	testing.expect(t, video_page_select(state, "missing"))
+	testing.expect_value(t, state.selected, "missing")
+	testing.expect(t, state.active == nil, "hidden select must not prepare a slide")
+
+	// Rechecking stays blank until B is ready. B never produces a frame,
+	// so every sample must stay blank and A must never reappear.
+	state.shown = true
+	ensure(video_page_show(state, state.selected))
+	{
+		// The missing-file error is expected here.
+		logger_previous := context.logger
+		context.logger = log.nil_logger()
+		defer context.logger = logger_previous
+		deadline = time.time_add(time.now(), time.Second * 3)
+		for state.active.state != .Failed && time.diff(time.now(), deadline) > 0 {
+			video_update()
+			pixel := video_test_projection_pixel(projection)
+			testing.expect_value(t, pixel, [3]u8{})
+			testing.expect(t, pixel != frame_a, "stale slide A must never reappear")
+			time.sleep(time.Millisecond * 5)
+		}
+	}
+	testing.expect_value(t, state.active.state, VideoPlaybackState.Failed)
+	testing.expect_value(t, state.selected, "missing")
+	testing.expect_value(t, video_test_projection_pixel(projection), [3]u8{})
 }
 
 @(test)

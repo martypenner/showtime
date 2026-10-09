@@ -113,3 +113,34 @@ countdown_tick_reports_expiry_and_clamps_at_zero :: proc(t: ^testing.T) {
 	zero := f32(0)
 	testing.expect(t, countdown_tick(&zero, 1), "an idle countdown reads expired")
 }
+
+@(test)
+projection_source_timer_overrides_video_and_score :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	gm.video = new(VideoState)
+	gm.video.shown = true
+	gm.scores = new(ScoreState)
+	gm.scores.scoreboards = SCOREBOARDS
+	gm.scores.active = 1
+	gm.scores.shown = true
+
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Score)
+
+	gm.scores.shown = false
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Video)
+
+	testing.expect(t, timers_add("timer", 30))
+	timers_start(0)
+	gm.video.shown = true
+	gm.scores.shown = true
+	testing.expect(t, !video_projection_shown(), "timer should hide video")
+	testing.expect(t, !score_projection_shown(), "timer should hide score")
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
+
+	timers_stop_all()
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Score)
+}
