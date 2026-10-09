@@ -62,8 +62,6 @@ lighting_fx_labels := [LightingFxKind]cstring {
 	.AveMaria     = "Ave Maria",
 }
 
-sounds_like_a_song_playlist_retained: ^Playlist
-
 controls_button :: proc(label: cstring, kind: UI_Type, width: f32) -> bool {
 	style := button_styles[kind]
 	colored := kind != .SoundAndLighting
@@ -92,109 +90,94 @@ controls_list_begin :: proc(label: cstring, height: f32) -> bool {
 
 music_browser_playlist_selected :: proc() -> ^Playlist {
 	ensure(
-		sound_settings.music_browser_playlist_index >= 0 &&
-		sound_settings.music_browser_playlist_index < i32(len(sound_settings.playlists)),
+		gm.sound_settings.music_browser_playlist_index >= 0 &&
+		gm.sound_settings.music_browser_playlist_index < i32(len(gm.sound_settings.playlists)),
 	)
-	return &sound_settings.playlists[sound_settings.music_browser_playlist_index]
+	return &gm.sound_settings.playlists[gm.sound_settings.music_browser_playlist_index]
 }
 
 music_browser_track_selected :: proc() -> ^Track {
 	playlist := music_browser_playlist_selected()
 	ensure(
-		sound_settings.music_browser_track_index >= 0 &&
-		sound_settings.music_browser_track_index < i32(len(playlist.tracks)),
+		gm.sound_settings.music_browser_track_index >= 0 &&
+		gm.sound_settings.music_browser_track_index < i32(len(playlist.tracks)),
 	)
-	return &playlist.tracks[sound_settings.music_browser_track_index]
+	return &playlist.tracks[gm.sound_settings.music_browser_track_index]
 }
 
 show_pre_show :: proc() {
-	playlist := playlist_find_by_name(.Kids_on_Bikes_80s_Explore)
-	ensure(playlist != nil, "Couldn't find playlist for Pre_Show")
-
-	track := playlist_pick_random_track(playlist)
-	ensure(track != nil, "Couldn't pick track for Pre_Show")
-
-	music_crossfade(
-		playlist,
-		track,
-		0.3,
-		gm.sound_settings.fade_in_time,
-		gm.sound_settings.fade_out_time,
-	)
-
-	lighting_fx_deactivate_all()
-	lighting_look_activate(.House)
+	cue := Cue {
+		caps              = {.Has_Music, .Has_Lighting},
+		triggers          = {.Music, .Lighting},
+		playlist          = .Kids_on_Bikes_80s_Explore,
+		music_volume      = 0.3,
+		fade_in_s         = gm.sound_settings.fade_in_time,
+		fade_out_s        = gm.sound_settings.fade_out_time,
+		look              = .House,
+		lighting_fx_reset = true,
+	}
+	cue_dispatch(&cue)
 }
 
 show_arena_pre_show :: proc() {
-	playlist := playlist_find_by_name(.Arena_Pre_show)
-	ensure(playlist != nil, "Couldn't find playlist for Arena_Pre_Show")
-
-	track := playlist_pick_random_track(playlist)
-	ensure(track != nil, "Couldn't pick track for Arena_Pre_Show")
-
-	music_crossfade(
-		playlist,
-		track,
-		0.2,
-		gm.sound_settings.fade_in_time,
-		gm.sound_settings.fade_out_time,
-	)
-
-	lighting_fx_deactivate_all()
-	lighting_look_activate(.House)
+	cue := Cue {
+		caps              = {.Has_Music, .Has_Lighting},
+		triggers          = {.Music, .Lighting},
+		playlist          = .Arena_Pre_show,
+		music_volume      = 0.2,
+		fade_in_s         = gm.sound_settings.fade_in_time,
+		fade_out_s        = gm.sound_settings.fade_out_time,
+		look              = .House,
+		lighting_fx_reset = true,
+	}
+	cue_dispatch(&cue)
 }
 
 show_start :: proc() {
-	playlist := playlist_find_by_name(.Show_Starters)
-	ensure(playlist != nil, "Couldn't find playlist for Show_Start")
-
-	track := playlist_pick_random_track(playlist)
-	ensure(track != nil, "Couldn't pick track for Show_Start")
-
-	music_crossfade(playlist, track, 0.7, 0.5, gm.sound_settings.fade_out_time)
+	cue := Cue {
+		caps         = {.Has_Music},
+		triggers     = {.Music},
+		playlist     = .Show_Starters,
+		music_volume = 0.7,
+		fade_in_s    = 0.5,
+		fade_out_s   = gm.sound_settings.fade_out_time,
+	}
+	cue_dispatch(&cue)
 }
 
 show_post_show :: proc() {
-	playlist := playlist_find_by_name(.Kids_on_Bikes_80s_Explore)
-	ensure(playlist != nil, "Couldn't find playlist for Post_Show")
-
-	track := playlist_pick_random_track(playlist)
-	ensure(track != nil, "Couldn't pick track for Post_Show")
-
-	music_crossfade(
-		playlist,
-		track,
-		0.7,
-		gm.sound_settings.fade_in_time,
-		gm.sound_settings.fade_out_time,
-	)
-
-	lighting_fx_deactivate_all()
-	lighting_look_activate(.House)
+	cue := Cue {
+		caps              = {.Has_Music, .Has_Lighting},
+		triggers          = {.Music, .Lighting},
+		playlist          = .Kids_on_Bikes_80s_Explore,
+		music_volume      = 0.7,
+		fade_in_s         = gm.sound_settings.fade_in_time,
+		fade_out_s        = gm.sound_settings.fade_out_time,
+		look              = .House,
+		lighting_fx_reset = true,
+	}
+	cue_dispatch(&cue)
 }
 
 show_to_house :: proc() {
+	cue := Cue {
+		caps              = {.Has_Lighting},
+		triggers          = {.Lighting},
+		look              = .House,
+		lighting_fx_reset = true,
+	}
 	if gm.sound_settings.use_house_music {
-		playlist := playlist_find_by_name(.Kids_on_Bikes_80s_Explore)
-		ensure(playlist != nil, "Couldn't find playlist for To_House")
-
-		track := playlist_pick_random_track(playlist)
-		ensure(track != nil, "Couldn't pick track for To_House")
-
-		music_crossfade(
-			playlist,
-			track,
-			0.05,
-			gm.sound_settings.fade_in_time,
-			gm.sound_settings.fade_out_time,
-		)
+		cue.caps += {.Has_Music}
+		cue.triggers += {.Music}
+		cue.playlist = .Kids_on_Bikes_80s_Explore
+		cue.music_volume = 0.05
+		cue.fade_in_s = gm.sound_settings.fade_in_time
+		cue.fade_out_s = gm.sound_settings.fade_out_time
+		cue_dispatch(&cue)
 	} else {
 		music_playbacks_fade_all(gm.sound_settings.fade_out_time)
+		cue_dispatch(&cue)
 	}
-
-	lighting_fx_deactivate_all()
-	lighting_look_activate(.House)
 }
 
 show_scene_ramp :: proc() {
@@ -225,8 +208,13 @@ show_scene_ramp :: proc() {
 show_scene_fade :: proc() {
 	music_playbacks_fade_all(2)
 
-	lighting_fx_deactivate_all()
-	lighting_look_activate(.SceneWithFullFade)
+	cue := Cue {
+		caps              = {.Has_Lighting},
+		triggers          = {.Lighting},
+		look              = .SceneWithFullFade,
+		lighting_fx_reset = true,
+	}
+	cue_dispatch(&cue)
 }
 
 show_drop_needle :: proc() {
@@ -246,18 +234,20 @@ show_drop_needle :: proc() {
 }
 
 show_ave_maria :: proc() {
-	playlist := playlist_find_by_name(.Ave_Maria)
-	ensure(playlist != nil)
-
 	if playlist_is_current(.Ave_Maria) {
 		for &playback in gm.sound_settings.music_playbacks {
 			music_playback_stop(&playback)
 		}
 	} else {
-		track := playlist_pick_random_track(playlist)
-		ensure(track != nil, "Couldn't pick track for AveMaria")
-
-		music_crossfade(playlist, track, 0.8, gm.sound_settings.fade_in_time, 0.3)
+		cue := Cue {
+			caps         = {.Has_Music},
+			triggers     = {.Music},
+			playlist     = .Ave_Maria,
+			music_volume = 0.8,
+			fade_in_s    = gm.sound_settings.fade_in_time,
+			fade_out_s   = 0.3,
+		}
+		cue_dispatch(&cue)
 	}
 
 	fx := gm.lighting.fx[.Blackout]
@@ -278,22 +268,18 @@ music_fade_out :: proc() {
 }
 
 game_innuendo :: proc() {
-	playlist := playlist_find_by_name(.Sex_With_Me)
-	ensure(playlist != nil, "Couldn't find playlist for Innuendo")
-
 	if playlist_is_current(.Sex_With_Me) {
 		music_playbacks_fade_all(2)
 	} else {
-		track := playlist_pick_random_track(playlist)
-		ensure(track != nil, "Couldn't pick track for Innuendo")
-
-		music_crossfade(
-			playlist,
-			track,
-			0.6,
-			gm.sound_settings.fade_in_time,
-			gm.sound_settings.fade_out_time,
-		)
+		cue := Cue {
+			caps         = {.Has_Music},
+			triggers     = {.Music},
+			playlist     = .Sex_With_Me,
+			music_volume = 0.6,
+			fade_in_s    = gm.sound_settings.fade_in_time,
+			fade_out_s   = gm.sound_settings.fade_out_time,
+		}
+		cue_dispatch(&cue)
 	}
 
 	// Toggle: head for the opposite of wherever the last envelope
@@ -345,15 +331,15 @@ game_oscar_moment :: proc() {
 game_sounds_like_a_song :: proc() {
 	current_playback := gm.sound_settings.music_playback_primary
 	playlist_playing :=
-		sounds_like_a_song_playlist_retained != nil &&
+		gm.game_mode.sounds_like_a_song_playlist != nil &&
 		current_playback != nil &&
 		current_playback.mixer_track != nil &&
-		current_playback.playlist == sounds_like_a_song_playlist_retained &&
+		current_playback.playlist == gm.game_mode.sounds_like_a_song_playlist &&
 		!current_playback.stopping
 
 	if playlist_playing {
 		music_playbacks_fade_all(gm.sound_settings.fade_out_time)
-		sounds_like_a_song_playlist_retained = nil
+		gm.game_mode.sounds_like_a_song_playlist = nil
 	} else {
 		playlist := playlist_find_by_name(.Sounds_Like_a_Song)
 		ensure(playlist != nil, "Couldn't find playlist for Sounds_Like_a_Song")
@@ -371,7 +357,7 @@ game_sounds_like_a_song :: proc() {
 		)
 		ensure(new_playback != nil, "Couldn't start Sounds_Like_a_Song playback")
 		music_playback_volume_set(new_playback, {{0, 0}, {gm.sound_settings.fade_in_time, 0.5}})
-		sounds_like_a_song_playlist_retained = playlist
+		gm.game_mode.sounds_like_a_song_playlist = playlist
 	}
 }
 
@@ -381,23 +367,44 @@ game_challenge :: proc() {
 }
 
 game_final_showdown :: proc() {
-	sound_play(._810166_Long_Brass_Stab, 1.0)
-	lighting_look_activate(.FinalShowdown)
+	cue := Cue {
+		caps         = {.Has_Sound, .Has_Lighting},
+		triggers     = {.Sound, .Lighting},
+		sound        = ._810166_Long_Brass_Stab,
+		sound_volume = 1,
+		look         = .FinalShowdown,
+	}
+	cue_dispatch(&cue)
 }
 
 lighting_house :: proc() {
-	lighting_fx_deactivate_all()
-	lighting_look_activate(.House)
+	cue := Cue {
+		caps              = {.Has_Lighting},
+		triggers          = {.Lighting},
+		look              = .House,
+		lighting_fx_reset = true,
+	}
+	cue_dispatch(&cue)
 }
 
 lighting_scene :: proc() {
-	lighting_fx_deactivate_all()
-	lighting_look_activate(.Scene)
+	cue := Cue {
+		caps              = {.Has_Lighting},
+		triggers          = {.Lighting},
+		look              = .Scene,
+		lighting_fx_reset = true,
+	}
+	cue_dispatch(&cue)
 }
 
 lighting_scene_fade :: proc() {
-	lighting_fx_deactivate_all()
-	lighting_look_activate(.SceneWithFullFade)
+	cue := Cue {
+		caps              = {.Has_Lighting},
+		triggers          = {.Lighting},
+		look              = .SceneWithFullFade,
+		lighting_fx_reset = true,
+	}
+	cue_dispatch(&cue)
 }
 
 lighting_fade_to_black :: proc() {
@@ -411,8 +418,13 @@ lighting_cut_to_black :: proc() {
 }
 
 lighting_center_focus :: proc() {
-	lighting_fx_deactivate_all()
-	lighting_look_activate(.CenterFocus)
+	cue := Cue {
+		caps              = {.Has_Lighting},
+		triggers          = {.Lighting},
+		look              = .CenterFocus,
+		lighting_fx_reset = true,
+	}
+	cue_dispatch(&cue)
 }
 
 lighting_innuendo_toggle :: proc() {
@@ -433,75 +445,183 @@ lighting_rainbow_sting_toggle :: proc() {
 }
 
 sound_play_break_glass :: proc() {
-	sound_play(.Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY, 0.9)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY,
+		sound_volume = 0.9,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_gunshot :: proc() {
-	sound_play(.Single_Gunshot_54_40780, 0.7)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Single_Gunshot_54_40780,
+		sound_volume = 0.7,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_scream_lady :: proc() {
-	sound_play(.Woman_Screaming_Sfx_Screaming_Sound_Effect_320169, 0.7)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Woman_Screaming_Sfx_Screaming_Sound_Effect_320169,
+		sound_volume = 0.7,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_fireworks :: proc() {
-	sound_play(.Fireworks_13_419033, 0.4)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Fireworks_13_419033,
+		sound_volume = 0.4,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_train_horn :: proc() {
-	sound_play(.Train_Horn_337875, 0.9)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Train_Horn_337875,
+		sound_volume = 0.9,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_tick_tick_ding :: proc() {
-	sound_play(.Ticktickding, 1.0)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Ticktickding,
+		sound_volume = 1.0,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_ding :: proc() {
-	sound_play(.Ding_126626, 1.0)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Ding_126626,
+		sound_volume = 1.0,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_lightning :: proc() {
-	sound_play(.Lightning_237994, 0.8)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Lightning_237994,
+		sound_volume = 0.8,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_rain :: proc() {
-	sound_play(.Calming_Rain_257596, 0.3)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Calming_Rain_257596,
+		sound_volume = 0.3,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_meow :: proc() {
-	sound_play(.Cat_Meow, 0.7)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Cat_Meow,
+		sound_volume = 0.7,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_yeeeaaahhh :: proc() {
-	sound_play(.Yeeeeaaaaaaaahh, 1)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Yeeeeaaaaaaaahh,
+		sound_volume = 1,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_buzzer :: proc() {
-	sound_play(._244932_Kwahmah_02_Short_Buzzer, 0.3)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = ._244932_Kwahmah_02_Short_Buzzer,
+		sound_volume = 0.3,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_whistle :: proc() {
-	sound_play(._495367_Kirkpatricklive_Coach_Whistle_35_Long, 0.4)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = ._495367_Kirkpatricklive_Coach_Whistle_35_Long,
+		sound_volume = 0.4,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_rimshot :: proc() {
-	sound_play(._276687_Comedy_Rimshot, 1.2)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = ._276687_Comedy_Rimshot,
+		sound_volume = 1.2,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_orchestral_hits :: proc() {
-	sound_play(.Double_Orchestral_Hits_C, 1.0)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Double_Orchestral_Hits_C,
+		sound_volume = 1.0,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_game_show_sting :: proc() {
-	sound_play(._502152_Game_Show_Brass_Intro_Sting, 0.4)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = ._502152_Game_Show_Brass_Intro_Sting,
+		sound_volume = 0.4,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_dun_dun_dun :: proc() {
-	sound_play(.Dun_Dun_Dun, 1.0)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = .Dun_Dun_Dun,
+		sound_volume = 1.0,
+	}
+	cue_dispatch(&cue)
 }
 
 sound_play_brass_stab :: proc() {
-	sound_play(._810166_Long_Brass_Stab, 1.0)
+	cue := Cue {
+		caps         = {.Has_Sound},
+		triggers     = {.Sound},
+		sound        = ._810166_Long_Brass_Stab,
+		sound_volume = 1.0,
+	}
+	cue_dispatch(&cue)
 }
 
 hotkeys_handle_key :: proc(key: sdl.Keycode) {
@@ -575,7 +695,6 @@ hotkeys_handle_key :: proc(key: sdl.Keycode) {
 	}
 }
 
-color := [3]f32{1, 1, 1}
 controls_draw :: proc() {
 	// imgui.ShowDemoWindow()
 
@@ -830,14 +949,14 @@ controls_draw :: proc() {
 						draw_list,
 						{origin.x + w / 2, origin.y + w / 2},
 						r,
-						imgui.GetColorU32ImVec4({color[0], color[1], color[2], 1}),
+						imgui.GetColorU32ImVec4({gm.lighting.color[0], gm.lighting.color[1], gm.lighting.color[2], 1}),
 					)
 
 					picker_button_w: f32 = 20
 					imgui.SetCursorScreenPos({origin.x + w - picker_button_w, origin.y})
 					if imgui.ColorButton(
 						"colorpicker",
-						{color[0], color[1], color[2], 1},
+						{gm.lighting.color[0], gm.lighting.color[1], gm.lighting.color[2], 1},
 						size = {picker_button_w, picker_button_w},
 					) {
 						imgui.OpenPopup("##lights-color")
@@ -847,7 +966,7 @@ controls_draw :: proc() {
 						imgui.PushItemWidth(imgui.GetFrameHeight() * 8)
 						imgui.ColorPicker3(
 							"##lights-color-value",
-							&color,
+							&gm.lighting.color,
 							{.NoSidePreview, .PickerHueWheel},
 						)
 						imgui.PopItemWidth()
@@ -931,21 +1050,21 @@ controls_draw :: proc() {
 				controls_group_end()
 			}
 
-			ensure(video_state != nil && score_state != nil)
+			ensure(gm.video != nil && gm.scores != nil)
 			list_row_height := imgui.GetTextLineHeightWithSpacing()
 			list_padding := imgui.GetStyle().FramePadding.y * 2
 			list_height_min := list_row_height * 6 + list_padding
 			music_height_needed := max(
 				list_height_min,
-				f32(len(sound_settings.playlists)) * list_row_height + list_padding,
+				f32(len(gm.sound_settings.playlists)) * list_row_height + list_padding,
 			)
 			video_height_needed := max(
 				list_height_min,
-				f32(len(video_state.pages)) * list_row_height + list_padding,
+				f32(len(gm.video.pages)) * list_row_height + list_padding,
 			)
 			score_height_needed :=
 				imgui.GetFrameHeightWithSpacing() * 4 +
-				list_row_height * (f32(len(score_state.scoreboards)) + 1) +
+				list_row_height * (f32(len(gm.scores.scoreboards)) + 1) +
 				imgui.GetStyle().WindowPadding.y * 2 +
 				imgui.GetStyle().ItemSpacing.y * 2 +
 				1
@@ -956,7 +1075,7 @@ controls_draw :: proc() {
 				imgui.GetStyle().WindowPadding.y * 4 +
 				imgui.GetStyle().ItemSpacing.y * 4 +
 				score_height_needed
-			if video_state.active != nil {
+			if gm.video.active != nil {
 				sections_height += imgui.GetFrameHeightWithSpacing()
 			}
 			list_height_extra := max(
@@ -1001,15 +1120,15 @@ controls_draw :: proc() {
 					"Playlists##ControlList",
 					list_height_min + music_height_extra,
 				) {
-					for &playlist, index in sound_settings.playlists {
+					for &playlist, index in gm.sound_settings.playlists {
 						if imgui.Selectable(
 							strings.clone_to_cstring(playlist.name, context.temp_allocator),
-							sound_settings.music_playback_primary != nil &&
-							sound_settings.music_playback_primary.playlist == &playlist,
+							gm.sound_settings.music_playback_primary != nil &&
+							gm.sound_settings.music_playback_primary.playlist == &playlist,
 						) {
 							ensure(len(playlist.tracks) > 0)
-							sound_settings.music_browser_playlist_index = i32(index)
-							sound_settings.music_browser_track_index = 0
+							gm.sound_settings.music_browser_playlist_index = i32(index)
+							gm.sound_settings.music_browser_track_index = 0
 							wave_editor_track_select(&playlist.tracks[0])
 
 							primary := gm.sound_settings.music_playback_primary
@@ -1063,14 +1182,14 @@ controls_draw :: proc() {
 			imgui.BeginGroup()
 			imgui.Text("Playlist")
 			if imgui.BeginChild("Playlist##List", {300, 0}, {.FrameStyle}) {
-				for &candidate, index in sound_settings.playlists {
+				for &candidate, index in gm.sound_settings.playlists {
 					if imgui.Selectable(
 						strings.clone_to_cstring(candidate.name, context.temp_allocator),
-						i32(index) == sound_settings.music_browser_playlist_index,
+						i32(index) == gm.sound_settings.music_browser_playlist_index,
 					) {
 						ensure(len(candidate.tracks) > 0)
-						sound_settings.music_browser_playlist_index = i32(index)
-						sound_settings.music_browser_track_index = 0
+						gm.sound_settings.music_browser_playlist_index = i32(index)
+						gm.sound_settings.music_browser_track_index = 0
 						wave_editor_track_select(&candidate.tracks[0])
 					}
 				}
@@ -1097,9 +1216,9 @@ controls_draw :: proc() {
 				for &candidate, index in playlist.tracks {
 					if imgui.Selectable(
 						strings.clone_to_cstring(candidate.title, context.temp_allocator),
-						i32(index) == sound_settings.music_browser_track_index,
+						i32(index) == gm.sound_settings.music_browser_track_index,
 					) {
-						sound_settings.music_browser_track_index = i32(index)
+						gm.sound_settings.music_browser_track_index = i32(index)
 						wave_editor_track_select(&candidate)
 					}
 				}
@@ -1194,9 +1313,10 @@ projection_draw :: proc() {
 	)
 	imgui.PopStyleVar(3)
 
-	if score_projection_shown() {
+	switch projection_source_resolve() {
+	case .Score:
 		score_projection_draw()
-	} else if !video_projection_shown() {
+	case .Timer:
 		imgui.PushFontFloat(nil, 500)
 		text := strings.clone_to_cstring(timers_projection_text(), context.temp_allocator)
 		text_size := imgui.CalcTextSize(text)
@@ -1205,6 +1325,8 @@ projection_draw :: proc() {
 		)
 		imgui.TextColored({0.85, 0.25, 0.25, 1}, text)
 		imgui.PopFont()
+	case .Video:
+	// The video texture is the background; nothing imgui to add.
 	}
 
 	imgui.End()

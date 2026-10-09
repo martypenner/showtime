@@ -52,10 +52,23 @@ game_memory_arena_owns_memory_and_returns_backing_allocations :: proc(t: ^testin
 	memory := game_memory_make()
 	arena_start := uintptr(game_memory_arena.current_block)
 	memory_address := uintptr(memory)
+	memory_in_arena :=
+		arena_start <= memory_address &&
+		memory_address < arena_start + uintptr(game_memory_arena.block_size)
+	if !memory_in_arena {
+		// Larger roots live in dedicated arena blocks.
+		for block in game_memory_arena.out_band_allocations {
+			block_start := uintptr(block)
+			if block_start <= memory_address &&
+			   memory_address < block_start + uintptr(size_of(GameMemory)) {
+				memory_in_arena = true
+				break
+			}
+		}
+	}
 	testing.expect(
 		t,
-		arena_start <= memory_address &&
-		memory_address < arena_start + uintptr(game_memory_arena.block_size),
+		memory_in_arena,
 		"GameMemory should be allocated inside the app arena",
 	)
 

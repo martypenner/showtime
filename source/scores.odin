@@ -20,8 +20,6 @@ import stbi "vendor:stb/image"
 // A playing timer owns the projection. Starting one hides the slide; the Show
 // on projection checkbox brings it back over the timer.
 
-score_state: ^ScoreState
-
 ScoreState :: struct {
 	shown:       bool,
 	active:      int,
@@ -78,13 +76,12 @@ SCOREBOARDS :: [3]Scoreboard {
 score_init :: proc() -> ^ScoreState {
 	state := new(ScoreState)
 	state.scoreboards = SCOREBOARDS
-	score_state = state
 	return state
 }
 
 // Call with the projection imgui context current, before its first NewFrame.
 score_font_load :: proc() {
-	if score_state == nil do return
+	if gm.scores == nil do return
 
 	font := imgui.FontAtlas_AddFontFromFileTTF(
 		imgui.GetIO().Fonts,
@@ -94,32 +91,28 @@ score_font_load :: proc() {
 	if font == nil {
 		log.errorf("Score: no font at %s; scores use the default font", SCORE_FONT_FILENAME)
 	}
-	score_state.font = font
-}
-
-score_hot_reloaded :: proc(state: ^ScoreState) {
-	score_state = state
+	gm.scores.font = font
 }
 
 score_shutdown :: proc() {
-	if score_state == nil do return
-	for &board in score_state.scoreboards {
+	if gm == nil || gm.scores == nil do return
+	for &board in gm.scores.scoreboards {
 		if board.background.texture != nil {
 			sdl.DestroyTexture(board.background.texture)
 			board.background.texture = nil
 		}
 	}
-	score_state = nil
+	gm.scores = nil
 }
 
 // The Show on projection checkbox is a direct override: it wins even while a
 // timer is running.
 score_projection_shown :: proc() -> bool {
-	return score_state != nil && score_state.shown
+	return gm.scores != nil && gm.scores.shown
 }
 
 score_projection_hide :: proc() {
-	if score_state != nil do score_state.shown = false
+	if gm.scores != nil do gm.scores.shown = false
 }
 
 score_active :: proc(state: ^ScoreState) -> ^Scoreboard {
@@ -127,8 +120,8 @@ score_active :: proc(state: ^ScoreState) -> ^Scoreboard {
 }
 
 score_value_set :: proc(team: Score_Team, value: i64) {
-	if score_state == nil do return
-	board := score_active(score_state)
+	if gm.scores == nil do return
+	board := score_active(gm.scores)
 	clamped := u16(clamp(value, 0, SCORE_MAX))
 	switch team {
 	case .Red:
@@ -137,9 +130,9 @@ score_value_set :: proc(team: Score_Team, value: i64) {
 		board.blue = clamped
 	}
 	// Game and Final show the same scores.
-	if score_state.active < 2 {
-		game := &score_state.scoreboards[0]
-		final := &score_state.scoreboards[1]
+	if gm.scores.active < 2 {
+		game := &gm.scores.scoreboards[0]
+		final := &gm.scores.scoreboards[1]
 		game.red, game.blue = board.red, board.blue
 		final.red, final.blue = board.red, board.blue
 	}
@@ -162,7 +155,7 @@ score_reset :: proc() {
 }
 
 score_controls_draw :: proc() {
-	state := score_state
+	state := gm.scores
 	if state == nil do return
 
 	if imgui.Checkbox("Show on projection", &state.shown) && state.shown {
@@ -193,7 +186,7 @@ score_controls_draw :: proc() {
 // Letterboxed the same way page videos are; a missing background leaves the
 // window black.
 score_projection_background_render :: proc(renderer: ^sdl.Renderer) {
-	state := score_state
+	state := gm.scores
 	if state == nil do return
 	board := score_active(state)
 	if board.background.missing do return
@@ -262,12 +255,12 @@ score_background_load :: proc(board: ^Scoreboard, renderer: ^sdl.Renderer) {
 // The regions are fractions of the fitted background, so the scores track the
 // art at any window size or display scale.
 score_projection_draw :: proc() {
-	state := score_state
+	state := gm.scores
 	if state == nil do return
 	board := score_active(state)
 
 	width, height: c.int
-	if !sdl.GetCurrentRenderOutputSize(projection_renderer, &width, &height) do return
+	if !sdl.GetCurrentRenderOutputSize(gm.displays[.Projection].renderer, &width, &height) do return
 
 	// The fit rect is in framebuffer pixels; imgui works in points.
 	fit := video_fit_rect(
@@ -276,7 +269,7 @@ score_projection_draw :: proc() {
 		int(width),
 		int(height),
 	)
-	dpi := projection_io.DisplayFramebufferScale
+	dpi := gm.displays[.Projection].io.DisplayFramebufferScale
 	ensure(dpi.x > 0 && dpi.y > 0)
 	fit.x /= dpi.x
 	fit.y /= dpi.y

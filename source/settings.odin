@@ -21,15 +21,15 @@ settings_load :: proc(settings: ^$T) {
 }
 
 settings_save :: proc() {
-	ensure(sound_settings != nil && video_state != nil)
-	sound := sound_settings^
+	ensure(gm.sound_settings != nil && gm.video != nil)
+	sound := gm.sound_settings^
 	sound.played_track_paths = make(map[string]bool, context.temp_allocator)
 	for &playlist in sound.playlists {
 		for &track in playlist.tracks {
 			if track.played do sound.played_track_paths[norm.path_nfc(track.path)] = true
 		}
 	}
-	settings := SettingsFile{sound, video_state.settings.pages}
+	settings := SettingsFile{sound, gm.video.settings.pages}
 	data, json_err := json.marshal(
 		settings,
 		json.Marshal_Options {
@@ -47,5 +47,5 @@ settings_save :: proc() {
 	log.ensuref(json_err == nil, "Error marshaling settings file: %v", json_err)
 	write_err := os.write_entire_file(SETTINGS_FILENAME, data)
 	log.ensuref(write_err == nil, "Error writing settings file: %v", write_err)
-	sound_settings.settings_save_time_left = 0
+	gm.sound_settings.settings_save_time_left = 0
 }

@@ -6,7 +6,12 @@ import sdl "vendor:sdl3"
 import mixer "vendor:sdl3/mixer"
 
 @(test)
-sound_hot_reload_restores_persistent_music_state :: proc(t: ^testing.T) {
+sound_state_owned_by_root_survives_reload_pointer :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
 	playback := MusicPlayback {
 		stopping = true,
 	}
@@ -14,12 +19,15 @@ sound_hot_reload_restores_persistent_music_state :: proc(t: ^testing.T) {
 		music_volume           = 0.5,
 		music_playback_primary = &playback,
 	}
-	sound_settings = nil
-	sound_hot_reloaded(&settings)
-	testing.expect(t, sound_settings == &settings)
-	testing.expect_value(t, sound_settings.music_volume, f32(0.5))
-	testing.expect(t, sound_settings.music_playback_primary == &playback)
-	testing.expect(t, sound_settings.music_playback_primary.stopping)
+	gm.sound_settings = &settings
+
+	reloaded := gm
+	gm = nil
+	gm = reloaded
+	testing.expect(t, gm.sound_settings == &settings)
+	testing.expect_value(t, gm.sound_settings.music_volume, f32(0.5))
+	testing.expect(t, gm.sound_settings.music_playback_primary == &playback)
+	testing.expect(t, gm.sound_settings.music_playback_primary.stopping)
 }
 
 @(test)
@@ -32,11 +40,16 @@ sound_retrigger_fade_requires_same_playing_long_effect :: proc(t: ^testing.T) {
 
 @(test)
 music_normalization_is_attenuation_only :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
 	settings := SoundSettings {
 		normalize_volume = true,
 		target_loudness  = -12,
 	}
-	sound_settings = &settings
+	gm.sound_settings = &settings
 	testing.expect_value(t, track_volume_multiplier(0), f32(1))
 	testing.expect_value(t, track_volume_multiplier(0.01), f32(1))
 	testing.expect(t, track_volume_multiplier(1) >= MUSIC_MIN_NORMALIZED_GAIN)
@@ -45,16 +58,21 @@ music_normalization_is_attenuation_only :: proc(t: ^testing.T) {
 
 @(test)
 sound_music_current_volume_uses_maximum_live_volume :: proc(t: ^testing.T) {
-	TRACKS = make(map[string]GeneratedTrack)
-	defer delete(TRACKS)
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	gm.tracks = make(map[string]GeneratedTrack)
+	defer delete(gm.tracks)
 	playback, mixer_value := music_playback_test_make({{0, 0.4}})
 	defer music_playback_test_destroy(&playback, mixer_value)
 	path := "test-current-volume"
 	path_incoming := "test-current-volume-incoming"
-	TRACKS[path] = {}
-	defer delete_key(&TRACKS, path)
-	TRACKS[path_incoming] = {}
-	defer delete_key(&TRACKS, path_incoming)
+	gm.tracks[path] = {}
+	defer delete_key(&gm.tracks, path)
+	gm.tracks[path_incoming] = {}
+	defer delete_key(&gm.tracks, path_incoming)
 	playback.source_path = path
 	incoming_audio := mixer.CreateSineWaveAudio(mixer_value, 440, 0.1, 30000)
 	ensure(incoming_audio != nil)
@@ -76,7 +94,7 @@ sound_music_current_volume_uses_maximum_live_volume :: proc(t: ^testing.T) {
 	settings.music_playbacks[0] = playback
 	settings.music_playbacks[1] = incoming
 	settings.music_playback_primary = &settings.music_playbacks[0]
-	sound_settings = &settings
+	gm.sound_settings = &settings
 	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
 	ensure(mixer.PlayTrack(playback.mixer_track, 0))
 	ensure(mixer.SetTrackAudio(incoming_track, incoming_audio))
@@ -85,7 +103,7 @@ sound_music_current_volume_uses_maximum_live_volume :: proc(t: ^testing.T) {
 	settings.music_playbacks[1].volume_points[0].value = 0.7
 	testing.expect_value(t, sound_music_current_volume(), f32(0.7))
 	ensure(mixer.StopTrack(incoming_track, 0))
-	TRACKS[path] = {
+	gm.tracks[path] = {
 		active_rms = 1,
 	}
 	settings.normalize_volume = true
@@ -97,20 +115,25 @@ sound_music_current_volume_uses_maximum_live_volume :: proc(t: ^testing.T) {
 
 @(test)
 music_playback_explicit_endpoints_ignore_settings_volume :: proc(t: ^testing.T) {
-	TRACKS = make(map[string]GeneratedTrack)
-	defer delete(TRACKS)
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	gm.tracks = make(map[string]GeneratedTrack)
+	defer delete(gm.tracks)
 	playback, mixer_value := music_playback_test_make({{0, 0}})
 	defer music_playback_test_destroy(&playback, mixer_value)
 	path := "test-explicit-endpoints"
-	TRACKS[path] = {}
-	defer delete_key(&TRACKS, path)
+	gm.tracks[path] = {}
+	defer delete_key(&gm.tracks, path)
 	playback.source_path = path
 	playback.bounds_end_seconds = 30
 	settings := SoundSettings {
 		music_volume = 0.9,
 		duck_gain    = 1,
 	}
-	sound_settings = &settings
+	gm.sound_settings = &settings
 	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
 	ensure(mixer.PlayTrack(playback.mixer_track, 0))
 	music_playback_volume_set(&playback, {{0, 0}, {2, 0.3}})
@@ -149,13 +172,18 @@ music_playback_successor_endpoint_uses_final_nonzero_point :: proc(t: ^testing.T
 
 @(test)
 music_playback_stopping_gain_tracks_normalization :: proc(t: ^testing.T) {
-	TRACKS = make(map[string]GeneratedTrack)
-	defer delete(TRACKS)
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	gm.tracks = make(map[string]GeneratedTrack)
+	defer delete(gm.tracks)
 	playback, mixer_value := music_playback_test_make({{0, 0.4}, {10, 0}})
 	defer music_playback_test_destroy(&playback, mixer_value)
 	path := "test-stopping-gain"
-	TRACKS[path] = {}
-	defer delete_key(&TRACKS, path)
+	gm.tracks[path] = {}
+	defer delete_key(&gm.tracks, path)
 	playback.source_path = path
 	playback.volume_point_next = 1
 	playback.stopping = true
@@ -167,9 +195,9 @@ music_playback_stopping_gain_tracks_normalization :: proc(t: ^testing.T) {
 		normalize_volume = false,
 		duck_gain        = 1,
 	}
-	sound_settings = &settings
+	gm.sound_settings = &settings
 	points := playback.volume_points
-	TRACKS[path] = {
+	gm.tracks[path] = {
 		active_rms = 1,
 	}
 	settings.normalize_volume = true
@@ -296,13 +324,18 @@ music_playback_volume_scene_points :: proc(t: ^testing.T) {
 
 @(test)
 music_playback_volume_set_one_point_is_ongoing :: proc(t: ^testing.T) {
-	TRACKS = make(map[string]GeneratedTrack)
-	defer delete(TRACKS)
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	gm.tracks = make(map[string]GeneratedTrack)
+	defer delete(gm.tracks)
 	volumes := [?]f32{0.4, 0}
 	for volume in volumes {
 		playback, mixer_value := music_playback_test_make({{0, 0.2}, {10, 0}})
 		path := volume == 0 ? "test-constant-zero" : "test-constant-nonzero"
-		TRACKS[path] = {}
+		gm.tracks[path] = {}
 		playback.source_path = path
 		playback.bounds_end_seconds = 30
 		ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
@@ -312,13 +345,13 @@ music_playback_volume_set_one_point_is_ongoing :: proc(t: ^testing.T) {
 			normalize_volume = false,
 			duck_gain        = 1,
 		}
-		sound_settings = &settings
+		gm.sound_settings = &settings
 		music_playback_volume_set(&playback, {{0, volume}})
 		testing.expect(t, mixer.TrackPlaying(playback.mixer_track))
 		testing.expect(t, !playback.stopping)
 		testing.expect_value(t, playback.volume_point_count, u8(1))
 		testing.expect_value(t, mixer.GetTrackGain(playback.mixer_track), volume)
-		delete_key(&TRACKS, path)
+		delete_key(&gm.tracks, path)
 		music_playback_test_destroy(&playback, mixer_value)
 	}
 }
@@ -352,6 +385,11 @@ music_playback_volume_oscar_points :: proc(t: ^testing.T) {
 
 @(test)
 music_playback_zero_final_volume_suppresses_automatic_next :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
 	playback, mixer_value := music_playback_test_make({{0, 1}, {1, 0}})
 	playlist := Playlist {
 		name = "test",
@@ -363,7 +401,7 @@ music_playback_zero_final_volume_suppresses_automatic_next :: proc(t: ^testing.T
 	}
 	settings.music_playbacks[0] = playback
 	settings.music_playback_primary = &settings.music_playbacks[0]
-	sound_settings = &settings
+	gm.sound_settings = &settings
 	sound_update(0)
 	testing.expect(t, !settings.music_playbacks[0].playlist_successor_started)
 	mixer.DestroyMixer(mixer_value)
@@ -372,11 +410,16 @@ music_playback_zero_final_volume_suppresses_automatic_next :: proc(t: ^testing.T
 
 @(test)
 music_playback_one_point_zero_starts_silent_automatic_next :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
 	music_playback_test_tone_write()
 	defer os.remove(MUSIC_PLAYBACK_TEST_TONE_PATH)
-	TRACKS = make(map[string]GeneratedTrack)
-	defer delete(TRACKS)
-	TRACKS[MUSIC_PLAYBACK_TEST_TONE_PATH] = {
+	gm.tracks = make(map[string]GeneratedTrack)
+	defer delete(gm.tracks)
+	gm.tracks[MUSIC_PLAYBACK_TEST_TONE_PATH] = {
 		file_hash        = "test",
 		duration_seconds = 30,
 	}
@@ -395,7 +438,7 @@ music_playback_one_point_zero_starts_silent_automatic_next :: proc(t: ^testing.T
 	}
 	settings.music_playbacks[0] = playback
 	settings.music_playback_primary = &settings.music_playbacks[0]
-	sound_settings = &settings
+	gm.sound_settings = &settings
 	sound_update(0)
 	successor := settings.music_playback_primary
 	testing.expect(t, successor != &settings.music_playbacks[0])
@@ -410,10 +453,15 @@ music_playback_one_point_zero_starts_silent_automatic_next :: proc(t: ^testing.T
 
 @(test)
 playlist_selection_preserves_order_and_avoids_last :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
 	settings := SoundSettings {
 		shuffle = false,
 	}
-	sound_settings = &settings
+	gm.sound_settings = &settings
 	playlist := Playlist {
 		name = "test",
 	}
@@ -428,11 +476,16 @@ playlist_selection_preserves_order_and_avoids_last :: proc(t: ^testing.T) {
 
 @(test)
 playlist_reset_avoids_just_started_track :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
 	music_playback_test_tone_write()
 	defer os.remove(MUSIC_PLAYBACK_TEST_TONE_PATH)
-	TRACKS = make(map[string]GeneratedTrack)
-	defer delete(TRACKS)
-	TRACKS[MUSIC_PLAYBACK_TEST_TONE_PATH] = {
+	gm.tracks = make(map[string]GeneratedTrack)
+	defer delete(gm.tracks)
+	gm.tracks[MUSIC_PLAYBACK_TEST_TONE_PATH] = {
 		file_hash        = "test",
 		duration_seconds = 0.5,
 	}
@@ -442,7 +495,7 @@ playlist_reset_avoids_just_started_track :: proc(t: ^testing.T) {
 		shuffle = true,
 		loop    = true,
 	}
-	sound_settings = &settings
+	gm.sound_settings = &settings
 	playlist := Playlist {
 		name = "test",
 	}
@@ -594,16 +647,21 @@ sound_duck_gain_next_ramps_down_and_returns :: proc(t: ^testing.T) {
 
 @(test)
 music_playbacks_fade_others_spares_the_exception :: proc(t: ^testing.T) {
-	TRACKS = make(map[string]GeneratedTrack)
-	defer delete(TRACKS)
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	gm.tracks = make(map[string]GeneratedTrack)
+	defer delete(gm.tracks)
 	playback, mixer_value := music_playback_test_make({{0, 0.4}})
 	defer music_playback_test_destroy(&playback, mixer_value)
 	path := "test-fade-others"
 	path_incoming := "test-fade-others-incoming"
-	TRACKS[path] = {}
-	defer delete_key(&TRACKS, path)
-	TRACKS[path_incoming] = {}
-	defer delete_key(&TRACKS, path_incoming)
+	gm.tracks[path] = {}
+	defer delete_key(&gm.tracks, path)
+	gm.tracks[path_incoming] = {}
+	defer delete_key(&gm.tracks, path_incoming)
 	playback.source_path = path
 	incoming_audio := mixer.CreateSineWaveAudio(mixer_value, 440, 0.1, 30000)
 	ensure(incoming_audio != nil)
@@ -621,7 +679,7 @@ music_playbacks_fade_others_spares_the_exception :: proc(t: ^testing.T) {
 	settings := SoundSettings{}
 	settings.music_playbacks[0] = playback
 	settings.music_playbacks[1] = incoming
-	sound_settings = &settings
+	gm.sound_settings = &settings
 	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
 	ensure(mixer.PlayTrack(playback.mixer_track, 0))
 	ensure(mixer.SetTrackAudio(incoming_track, incoming_audio))
@@ -641,11 +699,16 @@ music_playbacks_fade_others_spares_the_exception :: proc(t: ^testing.T) {
 
 @(test)
 music_crossfade_starts_next_and_fades_current :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
 	music_playback_test_tone_write()
 	defer os.remove(MUSIC_PLAYBACK_TEST_TONE_PATH)
-	TRACKS = make(map[string]GeneratedTrack)
-	defer delete(TRACKS)
-	TRACKS[MUSIC_PLAYBACK_TEST_TONE_PATH] = {
+	gm.tracks = make(map[string]GeneratedTrack)
+	defer delete(gm.tracks)
+	gm.tracks[MUSIC_PLAYBACK_TEST_TONE_PATH] = {
 		file_hash        = "test",
 		duration_seconds = 30,
 	}
@@ -653,7 +716,7 @@ music_crossfade_starts_next_and_fades_current :: proc(t: ^testing.T) {
 	settings := SoundSettings {
 		mixer = mixer_value,
 	}
-	sound_settings = &settings
+	gm.sound_settings = &settings
 	playlist := Playlist {
 		name = "test",
 	}
@@ -667,7 +730,7 @@ music_crossfade_starts_next_and_fades_current :: proc(t: ^testing.T) {
 	first := music_playback_start_playlist_track(&playlist, &playlist.tracks[0], 0.5, 0)
 	ensure(first != nil)
 	second := music_crossfade(&playlist, &playlist.tracks[1], 0.5, 0, 2)
-	testing.expect(t, sound_settings.music_playback_primary == second)
+	testing.expect(t, gm.sound_settings.music_playback_primary == second)
 	testing.expect_value(t, second.volume_point_count, u8(1))
 	testing.expect_value(t, first.volume_point_count, u8(2))
 	testing.expect_value(t, first.volume_points[1].value, f32(0))

@@ -17,31 +17,29 @@ score_projection_centers_text_at_display_scales :: proc(t: ^testing.T) {
 		context.allocator = allocator_previous
 		mem.dynamic_arena_destroy(&arena)
 	}
-	state_previous := score_state
-	renderer_previous := projection_renderer
-	io_previous := projection_io
+	gm_fixture_previous := gm
+	gm = game_memory_make()
 	context_previous := imgui.GetCurrentContext()
 	defer {
-		score_state = state_previous
-		projection_renderer = renderer_previous
-		projection_io = io_previous
+		gm = gm_fixture_previous
 		imgui.SetCurrentContext(context_previous)
 	}
 
 	surface := sdl.CreateSurface(960, 640, .RGBA32)
 	ensure(surface != nil)
 	defer sdl.DestroySurface(surface)
-	projection_renderer = sdl.CreateSoftwareRenderer(surface)
-	ensure(projection_renderer != nil)
-	defer sdl.DestroyRenderer(projection_renderer)
+	gm.displays[.Projection].renderer = sdl.CreateSoftwareRenderer(surface)
+	ensure(gm.displays[.Projection].renderer != nil)
+	defer sdl.DestroyRenderer(gm.displays[.Projection].renderer)
 	imgui_context := imgui.CreateContext()
 	defer imgui.DestroyContext(imgui_context)
-	projection_io = imgui.GetIO()
-	projection_io.IniFilename = nil
-	projection_io.DeltaTime = 1.0 / 60.0
-	ensure(imsdlrenderer3.Init(projection_renderer))
+	gm.displays[.Projection].io = imgui.GetIO()
+	gm.displays[.Projection].io.IniFilename = nil
+	gm.displays[.Projection].io.DeltaTime = 1.0 / 60.0
+	ensure(imsdlrenderer3.Init(gm.displays[.Projection].renderer))
 	defer imsdlrenderer3.Shutdown()
 	state := score_init()
+	gm.scores = state
 	defer score_shutdown()
 	score_font_load()
 	ensure(state.font != nil)
@@ -51,14 +49,14 @@ score_projection_centers_text_at_display_scales :: proc(t: ^testing.T) {
 	score_value_set(.Blue, 22)
 
 	for scale in ([3]imgui.Vec2{{1, 1}, {2, 2}, {2, 1.5}}) {
-		projection_io.DisplaySize = {960 / scale.x, 640 / scale.y}
-		projection_io.DisplayFramebufferScale = scale
+		gm.displays[.Projection].io.DisplaySize = {960 / scale.x, 640 / scale.y}
+		gm.displays[.Projection].io.DisplayFramebufferScale = scale
 		for font_scale in ([2]f32{1, 1.5}) {
 			imgui.GetStyle().FontScaleDpi = font_scale
 			imsdlrenderer3.NewFrame()
 			imgui.NewFrame()
 			imgui.SetNextWindowPos({0, 0})
-			imgui.SetNextWindowSize(projection_io.DisplaySize)
+			imgui.SetNextWindowSize(gm.displays[.Projection].io.DisplaySize)
 			imgui.Begin("Score test", nil, {.NoTitleBar, .NoSavedSettings, .NoScrollbar})
 			score_projection_draw()
 			// Letterboxing adds 50 pixels above the 960x540 background.
@@ -98,6 +96,11 @@ score_projection_centers_text_at_display_scales :: proc(t: ^testing.T) {
 
 @(test)
 score_seeds_three_boards :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
 	state := score_test_begin()
 	defer score_test_end(state)
 
@@ -119,9 +122,10 @@ score_playing_timer_hides_presentation :: proc(t: ^testing.T) {
 	arena: GameTestArena
 	context.allocator = game_test_arena_init(&arena)
 	defer context.allocator = game_test_arena_destroy(&arena)
-	state := score_init()
-	defer score_shutdown()
 	gm = game_memory_make()
+	state := score_init()
+	gm.scores = state
+	defer score_shutdown()
 
 	testing.expect(t, timers_add("test", 30), "timer add should succeed")
 
@@ -139,6 +143,11 @@ score_playing_timer_hides_presentation :: proc(t: ^testing.T) {
 
 @(test)
 score_values_share_between_game_and_final :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
 	state := score_test_begin()
 	defer score_test_end(state)
 
@@ -179,7 +188,9 @@ score_values_share_between_game_and_final :: proc(t: ^testing.T) {
 
 @(private = "file")
 score_test_begin :: proc() -> ^ScoreState {
-	return score_init()
+	state := score_init()
+	if gm != nil do gm.scores = state
+	return state
 }
 
 @(private = "file")

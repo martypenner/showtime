@@ -19,33 +19,20 @@ TIMER_BLINK_DIM :: f32(0.35)
 TIMER_BLINK_BRIGHT :: f32(0.75)
 
 Timer :: struct {
-	label:                string,
-	remaining_s:          f32,
-	running:              bool,
-	done:                 bool,
-	flash_remaining_s:    f32,
-	start_tick:           u64,
-	// Capability bits describe the payload the timer carries; cue bits
-	// describe what executes when the timer expires. The two bitsets stay
-	// separate so a timer can carry a payload without firing it, and one
-	// expiry can dispatch several cues at once.
-	cue_caps:             Cue_Caps,
-	cue_triggers:         Cue_Triggers,
-	// Masked cue set dispatched by the last expiry.
-	cue_fired:            Cue_Triggers,
-	cue_sound:            SoundEffectName,
-	cue_sound_volume:     f32,
-	cue_look:             LightingLook,
-	// Projection payload carried by the Video and Score cues. Empty
-	// page shows the current deck state; a negative scoreboard leaves the
-	// selection alone.
-	cue_video_page:       string,
-	cue_scoreboard:       int,
+	label:             string,
+	remaining_s:       f32,
+	running:           bool,
+	done:              bool,
+	flash_remaining_s: f32,
+	start_tick:        u64,
+	// Expiry payload fired when the timer runs out.
+	cue:               Cue,
 }
 
 // What a cue carries.
 Cue_Cap :: enum u8 {
 	Has_Sound,
+	Has_Music,
 	Has_Lighting,
 	Has_Video,
 	Has_Score,
@@ -56,6 +43,7 @@ Cue_Caps :: bit_set[Cue_Cap; u8]
 // What executes when a cue fires. Several bits may be set at once.
 Cue_Trigger :: enum u8 {
 	Sound,
+	Music,
 	Lighting,
 	Video,
 	Score,
@@ -63,15 +51,34 @@ Cue_Trigger :: enum u8 {
 
 Cue_Triggers :: bit_set[Cue_Trigger; u8]
 
+// Sound, music, lighting, video, and score payloads side by side.
+// Capability bits describe the payload carried; trigger bits describe what
+// executes on dispatch. The two bitsets stay separate so a cue can carry a
+// payload without firing it, and one dispatch can run several actions at once.
+Cue :: struct {
+	caps:              Cue_Caps,
+	triggers:          Cue_Triggers,
+	// Masked trigger set from the last dispatch.
+	fired:             Cue_Triggers,
+	sound:             SoundEffectName,
+	sound_volume:      f32,
+	playlist:          PlaylistName,
+	music_volume:      f32,
+	fade_in_s:         f32,
+	fade_out_s:        f32,
+	look:              LightingLook,
+	// Reset running lighting effects before applying the look.
+	lighting_fx_reset: bool,
+	// Projection payload. Empty page shows the current deck state; a negative
+	// scoreboard leaves the selection alone.
+	video_page:        string,
+	scoreboard:        int,
+}
+
 TimerMark :: struct {
 	timer_label: string,
 	elapsed_s:   f32,
 }
-
-timers_overflow_hint_seconds: f32
-timers_marks_overflow_hint_seconds: f32
-timer_label_input: [64]u8
-timer_seconds_input: f32 = DEFAULT_TIMER_SECONDS
 
 // Add a timer paused: it sits at its full duration until the row's start
 // button is pressed.
@@ -100,7 +107,7 @@ timers_add :: proc(label: string, duration_s_in: f32) -> bool {
 		return true
 	}
 
-	timers_overflow_hint_seconds = 2
+	gm.timer_ui.overflow_hint_seconds = 2
 	return false
 }
 
@@ -118,7 +125,7 @@ timers_start :: proc(index: int) {
 	timer := &gm.timers[index]
 	timer.done = false
 	timer.running = true
-	timer.cue_fired = Cue_Triggers{}
+	timer.cue.fired = Cue_Triggers{}
 	timer.start_tick = sdl.GetTicks()
 	// A playing timer owns the projection; hide the presentation until the
 	// Show on projection checkboxes or a page cue bring it back.
@@ -173,7 +180,7 @@ timers_mark :: proc(index: int) -> bool {
 	timer := &gm.timers[index]
 	if timer.label == "" || timer.done || timer.start_tick == 0 do return false
 	if gm.timer_marks_count >= MAX_TIMER_MARKS {
-		timers_marks_overflow_hint_seconds = 2
+		gm.timer_ui.marks_overflow_hint_seconds = 2
 		return false
 	}
 
@@ -191,15 +198,15 @@ timers_marks_clear :: proc() {
 }
 
 timers_submit_input :: proc() {
-	label := strings.trim_space(string(cstring(&timer_label_input[0])))
+	label := strings.trim_space(string(cstring(&gm.timer_ui.label_input[0])))
 	if len(label) == 0 do label = "Timer"
 	gm.timer_serial_next += 1
-	if !timers_add(fmt.tprintf("%d. %s", gm.timer_serial_next, label), timer_seconds_input) {
+	if !timers_add(fmt.tprintf("%d. %s", gm.timer_serial_next, label), gm.timer_ui.seconds_input) {
 		gm.timer_serial_next -= 1
 		return
 	}
-	timer_label_input[0] = 0
-	timer_seconds_input = DEFAULT_TIMER_SECONDS
+	gm.timer_ui.label_input[0] = 0
+	gm.timer_ui.seconds_input = DEFAULT_TIMER_SECONDS
 }
 
 // Any timer currently counting down.
@@ -212,75 +219,109 @@ timers_any_running :: proc() -> bool {
 }
 
 // Intersection of what a cue wants to fire and what it carries, so one
-// expiry can dispatch several actions at once while a cue without its
+// dispatch can run several actions at once while a cue without its
 // capability stays inert.
 cue_fire_mask :: proc(cue_caps: Cue_Caps, cue_triggers: Cue_Triggers) -> Cue_Triggers {
 	fire := Cue_Triggers{}
 	if .Sound in cue_triggers && .Has_Sound in cue_caps do fire += {.Sound}
+	if .Music in cue_triggers && .Has_Music in cue_caps do fire += {.Music}
 	if .Lighting in cue_triggers && .Has_Lighting in cue_caps do fire += {.Lighting}
 	if .Video in cue_triggers && .Has_Video in cue_caps do fire += {.Video}
 	if .Score in cue_triggers && .Has_Score in cue_caps do fire += {.Score}
 	return fire
 }
 
-// Dispatch a timer's cue. Records the masked cue set on the
-// timer, then best-effort signals each subsystem: a missing subsystem skips
-// its side effect while the record still shows the dispatch.
-cue_fire :: proc(index: int) {
-	timer := &gm.timers[index]
-	fire := cue_fire_mask(timer.cue_caps, timer.cue_triggers)
-	timer.cue_fired += fire
-	if .Sound in fire && sound_settings != nil {
-		sound_play(timer.cue_sound, timer.cue_sound_volume)
+// Fire one cue through every armed action at once, recording the masked set.
+// Missing subsystems skip their side effect while the record still shows the
+// dispatch.
+cue_dispatch :: proc(cue: ^Cue) -> Cue_Triggers {
+	ensure(cue != nil)
+	fire := cue_fire_mask(cue.caps, cue.triggers)
+	cue.fired += fire
+	if .Sound in fire && gm.sound_settings != nil {
+		sound_play(cue.sound, cue.sound_volume)
+	}
+	if .Music in fire && gm.sound_settings != nil {
+		cue_music_fire(cue)
 	}
 	if .Lighting in fire && gm.lighting.socket != nil {
-		lighting_look_activate(timer.cue_look)
+		if cue.lighting_fx_reset do lighting_fx_deactivate_all()
+		lighting_look_activate(cue.look)
 	}
-	if .Video in fire && video_state != nil {
-		if len(timer.cue_video_page) > 0 {
+	if .Video in fire && gm.video != nil {
+		if len(cue.video_page) > 0 {
 			// Fall back to the current deck state when the cued page is gone.
-			if !video_page_show(video_state, timer.cue_video_page) {
-				video_state.shown = true
+			if !video_page_show(gm.video, cue.video_page) {
+				gm.video.shown = true
 			}
 		} else {
-			video_state.shown = true
+			gm.video.shown = true
 		}
 	}
-	if .Score in fire && score_state != nil {
-		if timer.cue_scoreboard >= 0 &&
-		   timer.cue_scoreboard < len(score_state.scoreboards) {
-			score_state.active = timer.cue_scoreboard
+	if .Score in fire && gm.scores != nil {
+		if cue.scoreboard >= 0 && cue.scoreboard < len(gm.scores.scoreboards) {
+			gm.scores.active = cue.scoreboard
 		}
-		score_state.shown = true
+		gm.scores.shown = true
 	}
+	return fire
+}
+
+// Resolve one random track from the cue's playlist and crossfade into it.
+// A missing playlist or an empty pick is a programming error.
+cue_music_fire :: proc(cue: ^Cue) {
+	playlist := playlist_find_by_name(cue.playlist)
+	ensure(playlist != nil)
+	track := playlist_pick_random_track(playlist)
+	ensure(track != nil)
+	music_crossfade(playlist, track, cue.music_volume, cue.fade_in_s, cue.fade_out_s)
+}
+
+cue_fire :: proc(index: int) {
+	cue_dispatch(&gm.timers[index].cue)
 }
 
 timers_cue_arm_sound :: proc(index: int, name: SoundEffectName, volume: f32) {
 	timer := &gm.timers[index]
-	timer.cue_caps += {.Has_Sound}
-	timer.cue_triggers += {.Sound}
-	timer.cue_sound = name
-	timer.cue_sound_volume = volume
+	timer.cue.caps += {.Has_Sound}
+	timer.cue.triggers += {.Sound}
+	timer.cue.sound = name
+	timer.cue.sound_volume = volume
 }
 
-timers_cue_arm_lighting :: proc(index: int, look: LightingLook) {
+timers_cue_arm_music :: proc(
+	index: int,
+	playlist: PlaylistName,
+	volume, fade_in_s, fade_out_s: f32,
+) {
 	timer := &gm.timers[index]
-	timer.cue_caps += {.Has_Lighting}
-	timer.cue_triggers += {.Lighting}
-	timer.cue_look = look
+	timer.cue.caps += {.Has_Music}
+	timer.cue.triggers += {.Music}
+	timer.cue.playlist = playlist
+	timer.cue.music_volume = volume
+	timer.cue.fade_in_s = fade_in_s
+	timer.cue.fade_out_s = fade_out_s
+}
+
+timers_cue_arm_lighting :: proc(index: int, look: LightingLook, fx_reset := false) {
+	timer := &gm.timers[index]
+	timer.cue.caps += {.Has_Lighting}
+	timer.cue.triggers += {.Lighting}
+	timer.cue.look = look
+	timer.cue.lighting_fx_reset = fx_reset
 }
 
 timers_cue_arm_projection :: proc(index: int, video, score: bool, video_page := "", scoreboard := -1) {
 	timer := &gm.timers[index]
 	if video {
-		timer.cue_caps += {.Has_Video}
-		timer.cue_triggers += {.Video}
-		timer.cue_video_page = strings.clone(video_page)
+		timer.cue.caps += {.Has_Video}
+		timer.cue.triggers += {.Video}
+		timer.cue.video_page = strings.clone(video_page)
 	}
 	if score {
-		timer.cue_caps += {.Has_Score}
-		timer.cue_triggers += {.Score}
-		timer.cue_scoreboard = scoreboard
+		timer.cue.caps += {.Has_Score}
+		timer.cue.triggers += {.Score}
+		timer.cue.scoreboard = scoreboard
 	}
 }
 
@@ -292,17 +333,15 @@ timers_update :: proc(dt: f32) {
 		countdown_tick(&timer.flash_remaining_s, dt)
 		if !timer.running || timer.done do continue
 
-		timer.remaining_s -= dt
-		if timer.remaining_s <= 0 {
-			timer.remaining_s = 0
+		if countdown_tick(&timer.remaining_s, dt) {
 			timer.done = true
 			timer.flash_remaining_s = TIMER_BLINK_SECONDS
 			cue_fire(i)
 		}
 	}
 
-	countdown_tick(&timers_overflow_hint_seconds, dt)
-	countdown_tick(&timers_marks_overflow_hint_seconds, dt)
+	countdown_tick(&gm.timer_ui.overflow_hint_seconds, dt)
+	countdown_tick(&gm.timer_ui.marks_overflow_hint_seconds, dt)
 }
 
 timers_draw :: proc() {
@@ -327,16 +366,16 @@ timers_draw :: proc() {
 	submitted := false
 	if imgui.InputText(
 		"##TimerLabelInput",
-		cstring(&timer_label_input[0]),
-		uint(len(timer_label_input)),
+		cstring(&gm.timer_ui.label_input[0]),
+		uint(len(gm.timer_ui.label_input)),
 		{.EnterReturnsTrue},
 	) {
 		submitted = true
 	}
 
 	imgui.SetNextItemWidth(imgui.GetContentRegionAvail().x - imgui.GetFrameHeight() * 4.5)
-	imgui.InputFloat("##TimerSecondsInput", &timer_seconds_input, 5, 60, "%.0f s")
-	timer_seconds_input = max(timer_seconds_input, 0)
+	imgui.InputFloat("##TimerSecondsInput", &gm.timer_ui.seconds_input, 5, 60, "%.0f s")
+	gm.timer_ui.seconds_input = max(gm.timer_ui.seconds_input, 0)
 	imgui.SameLine()
 	if imgui.Button("+ Add") do submitted = true
 	if submitted do timers_submit_input()
@@ -354,7 +393,7 @@ timers_draw :: proc() {
 			timers_timer_row_draw(i)
 		}
 
-		if timers_overflow_hint_seconds > 0 {
+		if gm.timer_ui.overflow_hint_seconds > 0 {
 			imgui.TextColored({1, 0.2, 0.2, 1}, "Max 24 timers")
 		}
 	}
@@ -385,7 +424,7 @@ timers_draw :: proc() {
 			)
 		}
 
-		if timers_marks_overflow_hint_seconds > 0 {
+		if gm.timer_ui.marks_overflow_hint_seconds > 0 {
 			imgui.TextColored({1, 0.2, 0.2, 1}, "Max %d marks", MAX_TIMER_MARKS)
 		}
 	}

@@ -54,6 +54,8 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 	arena: GameTestArena
 	context.allocator = game_test_arena_init(&arena)
 	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
 	dir, dir_err := os.make_directory_temp("", "showtime-settings-*", context.temp_allocator)
 	ensure(dir_err == nil)
 	previous_dir, cwd_err := os.get_working_directory(context.temp_allocator)
@@ -63,12 +65,6 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 		os.remove(SETTINGS_FILENAME)
 		os.set_working_directory(previous_dir)
 		os.remove(dir)
-	}
-	sound_previous := sound_settings
-	video_previous := video_state
-	defer {
-		sound_settings = sound_previous
-		video_state = video_previous
 	}
 	sound := sound_settings_load_from_disk()
 	testing.expect_value(t, sound.fade_in_time, DefaultSoundSettings.fade_in_time)
@@ -84,7 +80,7 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 		&sound.playlists,
 		Playlist{tracks = [dynamic]Track{{path = "music.mp3", played = true}}},
 	)
-	sound_settings = &sound
+	gm.sound_settings = &sound
 	video := VideoState {
 		settings = {
 			pages = map[string]VideoPlaybackMode {
@@ -94,7 +90,7 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 			},
 		},
 	}
-	video_state = &video
+	gm.video = &video
 	settings_save()
 
 	loaded_sound := sound_settings_load_from_disk()
@@ -143,17 +139,16 @@ video_page_mode_owns_filename_and_updates_playback :: proc(t: ^testing.T) {
 	arena: mem.Dynamic_Arena
 	mem.dynamic_arena_init(&arena)
 	context.allocator = mem.dynamic_arena_allocator(&arena)
+	gm_previous := gm
+	gm = game_memory_make()
 	defer {
+		gm = gm_previous
 		context.allocator = allocator_previous
 		mem.dynamic_arena_destroy(&arena)
 	}
-	state_previous := video_state
-	defer video_state = state_previous
-	sound_previous := sound_settings
-	defer sound_settings = sound_previous
 	sound := DefaultSoundSettings
 	sound.target_loudness = -10
-	sound_settings = &sound
+	gm.sound_settings = &sound
 	borrowed := []u8{'o', 'p', 'e', 'n', 'e', 'r'}
 	playback := VideoPlayback {
 		page_id = string(borrowed),
@@ -165,7 +160,7 @@ video_page_mode_owns_filename_and_updates_playback :: proc(t: ^testing.T) {
 		pages = [dynamic]VideoPage{{page_id = "opener", mode = .Loop}},
 		active = &playback,
 	}
-	video_state = &state
+	gm.video = &state
 	video_page_mode_set(playback.page_id, .Once)
 	for &byte in borrowed do byte = '#'
 	testing.expect_value(t, state.settings.pages["opener"], VideoPlaybackMode.Once)
@@ -184,9 +179,8 @@ video_playing_timer_hides_the_deck :: proc(t: ^testing.T) {
 	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
-	state_previous := video_state
-	defer video_state = state_previous
 	state := video_init()
+	gm.video = state
 
 	testing.expect(t, state.shown, "the deck should start shown")
 
@@ -290,6 +284,7 @@ VideoTestProjection :: struct {
 	surface:            ^sdl.Surface,
 	renderer_previous:  ^sdl.Renderer,
 	state_previous:     ^VideoState,
+	gm_previous:        ^GameMemory,
 	directory:          string,
 	directory_previous: string,
 }
@@ -297,8 +292,10 @@ VideoTestProjection :: struct {
 @(private = "file")
 video_test_projection_make :: proc(t: ^testing.T) -> VideoTestProjection {
 	projection: VideoTestProjection
-	projection.state_previous = video_state
-	projection.renderer_previous = projection_renderer
+	projection.gm_previous = gm
+	gm = game_memory_make()
+	projection.state_previous = gm.video
+	projection.renderer_previous = gm.displays[.Projection].renderer
 	err: os.Error
 	projection.directory_previous, err = os.get_working_directory(context.allocator)
 	ensure(err == nil)
@@ -314,8 +311,8 @@ video_test_projection_make :: proc(t: ^testing.T) -> VideoTestProjection {
 	ensure(os.rename(path, VIDEO_DIR + "/next.mp4") == nil)
 	projection.surface = sdl.CreateSurface(64, 64, .RGBA32)
 	ensure(projection.surface != nil)
-	projection_renderer = sdl.CreateSoftwareRenderer(projection.surface)
-	ensure(projection_renderer != nil)
+	gm.displays[.Projection].renderer = sdl.CreateSoftwareRenderer(projection.surface)
+	ensure(gm.displays[.Projection].renderer != nil)
 	state := new(VideoState)
 	state.pages = [dynamic]VideoPage {
 		{page_id = "next", mode = .Still},
@@ -326,7 +323,13 @@ video_test_projection_make :: proc(t: ^testing.T) -> VideoTestProjection {
 	state.active.width = 64
 	state.active.height = 32
 	state.active.frames = 1
-	state.active.texture = sdl.CreateTexture(projection_renderer, .BGRA32, .STREAMING, 64, 32)
+	state.active.texture = sdl.CreateTexture(
+		gm.displays[.Projection].renderer,
+		.BGRA32,
+		.STREAMING,
+		64,
+		32,
+	)
 	ensure(state.active.texture != nil)
 	pixels: [64 * 32 * 4]u8
 	for offset := 0; offset < len(pixels); offset += 4 {
@@ -335,16 +338,16 @@ video_test_projection_make :: proc(t: ^testing.T) -> VideoTestProjection {
 	}
 	ensure(sdl.UpdateTexture(state.active.texture, nil, &pixels[0], 64 * 4))
 	projection.state = state
-	video_state = state
+	gm.video = state
 	return projection
 }
 
 @(private = "file")
 video_test_projection_pixel :: proc(projection: VideoTestProjection, y: i32 = 32) -> [3]u8 {
-	ensure(sdl.SetRenderDrawColor(projection_renderer, 0, 0, 0, 255))
-	ensure(sdl.RenderClear(projection_renderer))
-	video_projection_render(projection_renderer)
-	ensure(sdl.RenderPresent(projection_renderer))
+	ensure(sdl.SetRenderDrawColor(gm.displays[.Projection].renderer, 0, 0, 0, 255))
+	ensure(sdl.RenderClear(gm.displays[.Projection].renderer))
+	video_projection_render(gm.displays[.Projection].renderer)
+	ensure(sdl.RenderPresent(gm.displays[.Projection].renderer))
 	color: [3]u8
 	alpha: u8
 	ensure(
@@ -362,10 +365,11 @@ video_test_projection_destroy :: proc(t: ^testing.T, projection: VideoTestProjec
 		time.sleep(time.Millisecond * 5)
 	}
 	testing.expect_value(t, len(projection.state.retired), 0)
-	sdl.DestroyRenderer(projection_renderer)
+	sdl.DestroyRenderer(gm.displays[.Projection].renderer)
 	sdl.DestroySurface(projection.surface)
-	projection_renderer = projection.renderer_previous
-	video_state = projection.state_previous
+	gm.displays[.Projection].renderer = projection.renderer_previous
+	gm.video = projection.state_previous
+	gm = projection.gm_previous
 	ensure(os.set_working_directory(projection.directory_previous) == nil)
 	ensure(os.remove_all(projection.directory) == nil)
 }
@@ -522,19 +526,20 @@ video_test_playback_start :: proc(t: ^testing.T, mode: VideoPlaybackMode) -> ^Vi
 // playback, reap its child, then free it.
 @(private = "file")
 video_test_playback_stop :: proc(t: ^testing.T, playback: ^VideoPlayback) {
-	video_state = new(VideoState)
-	video_state.active = playback
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+	gm.video = new(VideoState)
+	gm.video.active = playback
 	video_page_clear()
 
 	deadline := time.time_add(time.now(), time.Second * 5)
-	for len(video_state.retired) > 0 && time.diff(time.now(), deadline) > 0 {
+	for len(gm.video.retired) > 0 && time.diff(time.now(), deadline) > 0 {
 		video_update()
 		time.sleep(time.Millisecond * 5)
 	}
-	testing.expect(t, len(video_state.retired) == 0, "retired playback should be reaped and freed")
-	delete(video_state.retired)
-	free(video_state)
-	video_state = nil
+	testing.expect(t, len(gm.video.retired) == 0, "retired playback should be reaped and freed")
 }
 
 // Pump the state machine until one of the wanted states is reached or the

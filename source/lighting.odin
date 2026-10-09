@@ -81,7 +81,7 @@ lighting_fx_deactivate_all :: proc() {
 	}
 }
 
-lighting_update :: proc() {
+lighting_update :: proc(dt: f32) {
 	socket, socket_ok := gm.lighting.socket.?
 	ensure(socket_ok)
 

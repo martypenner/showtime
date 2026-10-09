@@ -26,8 +26,6 @@ import sdl "vendor:sdl3"
 // settings.sjson under video_pages, keyed by the filename. Re-exporting under
 // the same name keeps its settings.
 
-video_state: ^VideoState
-
 // GameMemory only holds a pointer to this, so it survives hot reloads.
 VideoState :: struct {
 	shown:    bool,
@@ -51,31 +49,26 @@ video_init :: proc() -> ^VideoState {
 
 	video_pages_load(state)
 	state.shown = true
-	video_state = state
 	return state
 }
 
-video_hot_reloaded :: proc(state: ^VideoState) {
-	video_state = state
-}
-
 video_shutdown :: proc() {
-	if video_state == nil do return
+	if gm == nil || gm.video == nil do return
 	video_page_clear()
 	// The child was asked to die; give it a moment to be reaped. Anything
 	// still alive after this leaks on purpose: the process is exiting.
 	deadline := time.time_add(time.now(), time.Second * 3)
-	for len(video_state.retired) > 0 && time.diff(time.now(), deadline) > 0 {
+	for len(gm.video.retired) > 0 && time.diff(time.now(), deadline) > 0 {
 		video_update()
 		time.sleep(time.Millisecond)
 	}
 	settings_save()
-	video_state = nil
+	gm.video = nil
 }
 
 // Runs once per frame on the render thread.
 video_update :: proc() {
-	state := video_state
+	state := gm.video
 	if state == nil do return
 
 	if playback := state.active; playback != nil {
@@ -129,19 +122,19 @@ video_page_show :: proc(state: ^VideoState, page_id: string) -> bool {
 // A playing timer owns the projection until the Show on projection checkbox or
 // a page cue brings the deck back.
 video_projection_shown :: proc() -> bool {
-	return video_state != nil && video_state.shown
+	return gm.video != nil && gm.video.shown
 }
 
 video_projection_hide :: proc() {
-	if video_state != nil do video_state.shown = false
+	if gm.video != nil do gm.video.shown = false
 }
 
 video_page_clear :: proc() {
-	if video_state == nil do return
-	video_playback_stop(video_state)
-	if video_state.previous.texture != nil {
-		sdl.DestroyTexture(video_state.previous.texture)
-		video_state.previous = {}
+	if gm.video == nil do return
+	video_playback_stop(gm.video)
+	if gm.video.previous.texture != nil {
+		sdl.DestroyTexture(gm.video.previous.texture)
+		gm.video.previous = {}
 	}
 }
 
@@ -151,7 +144,7 @@ video_page_mode_cycle :: proc(state: ^VideoState) {
 }
 
 video_page_mode_set :: proc(page_id: string, mode: VideoPlaybackMode) {
-	state := video_state
+	state := gm.video
 	ensure(state != nil)
 	page, ok := video_page_find(state, page_id)
 	ensure(ok)
@@ -241,7 +234,7 @@ video_page_mode :: proc(settings: VideoSettings, page_id: string) -> VideoPlayba
 }
 
 video_controls_draw :: proc(height: f32) {
-	state := video_state
+	state := gm.video
 	if state == nil do return
 
 	if controls_list_begin("Videos##ControlList", height) {
@@ -299,7 +292,7 @@ video_controls_draw :: proc(height: f32) {
 
 // A Holding playback keeps drawing its last frame.
 video_projection_render :: proc(renderer: ^sdl.Renderer) {
-	state := video_state
+	state := gm.video
 	if state == nil do return
 	frame := state.previous
 	if playback := state.active;
@@ -743,9 +736,11 @@ video_playback_probe_parse :: proc(playback: ^VideoPlayback) -> bool {
 	delete(playback.output_buf)
 	playback.output_buf = nil
 
-	if projection_renderer != nil {
+	// No renderer in headless tests: keep the CPU frame and let the next
+	// update upload it once a display exists.
+	if gm != nil && gm.displays[.Projection].renderer != nil {
 		texture := sdl.CreateTexture(
-			projection_renderer,
+			gm.displays[.Projection].renderer,
 			sdl.PixelFormat.BGRA32,
 			.STREAMING,
 			c.int(playback.width),

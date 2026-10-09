@@ -160,7 +160,7 @@ timers_marks_cap_at_max :: proc(t: ^testing.T) {
 
 	gm.timer_marks_count = MAX_TIMER_MARKS
 	testing.expect(t, !timers_mark(0), "should refuse past max")
-	testing.expect(t, timers_marks_overflow_hint_seconds > 0, "should set overflow hint")
+	testing.expect(t, gm.timer_ui.marks_overflow_hint_seconds > 0, "should set overflow hint")
 }
 
 @(test)
@@ -182,10 +182,10 @@ timer_blink_alpha_maps_sine_phase_through_envelope :: proc(t: ^testing.T) {
 @(test)
 cue_fire_mask_needs_capability_and_fires_several_at_once :: proc(t: ^testing.T) {
 	fire := cue_fire_mask(
-		{.Has_Sound, .Has_Lighting},
-		{.Sound, .Lighting, .Video},
+		{.Has_Sound, .Has_Music, .Has_Lighting},
+		{.Sound, .Music, .Lighting, .Video},
 	)
-	testing.expect(t, fire == Cue_Triggers{.Sound, .Lighting})
+	testing.expect(t, fire == Cue_Triggers{.Sound, .Music, .Lighting})
 	testing.expect(t, cue_fire_mask(Cue_Caps{}, {.Sound}) == Cue_Triggers{})
 	testing.expect(t, cue_fire_mask({.Has_Sound}, Cue_Triggers{}) == Cue_Triggers{})
 }
@@ -197,32 +197,31 @@ timer_expiry_dispatches_several_cues_at_once :: proc(t: ^testing.T) {
 	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
-	// Dispatch skips missing subsystems, so clear the globals and assert
-	// the recorded cue set only.
-	sound_settings = nil
-	video_state = nil
-	score_state = nil
+	// Missing subsystems skip side effects; assert the recorded set only.
+	gm.sound_settings = nil
+	gm.video = nil
+	gm.scores = nil
 
 	testing.expect(t, timers_add("multi", 10))
-	gm.timers[0].cue_caps = {.Has_Sound, .Has_Lighting, .Has_Video, .Has_Score}
-	gm.timers[0].cue_triggers = {.Sound, .Lighting, .Video, .Score}
+	gm.timers[0].cue.caps = {.Has_Sound, .Has_Music, .Has_Lighting, .Has_Video, .Has_Score}
+	gm.timers[0].cue.triggers = {.Sound, .Music, .Lighting, .Video, .Score}
 	timers_start(0)
 	timers_update(10.5)
 	testing.expect(t, gm.timers[0].done)
 	testing.expect(
 		t,
-		gm.timers[0].cue_fired == Cue_Triggers{.Sound, .Lighting, .Video, .Score},
+		gm.timers[0].cue.fired == Cue_Triggers{.Sound, .Music, .Lighting, .Video, .Score},
 		"one expiry should dispatch every armed cue at once",
 	)
 
 	testing.expect(t, timers_add("inert", 5))
-	gm.timers[1].cue_triggers = {.Sound}
+	gm.timers[1].cue.triggers = {.Sound}
 	timers_start(1)
 	timers_update(6)
 	testing.expect(t, gm.timers[1].done)
 	testing.expect(
 		t,
-		gm.timers[1].cue_fired == Cue_Triggers{},
+		gm.timers[1].cue.fired == Cue_Triggers{},
 		"a cue without its capability should stay inert",
 	)
 }
@@ -236,18 +235,24 @@ timers_cue_arm_helpers_set_caps_cues_and_payload :: proc(t: ^testing.T) {
 
 	testing.expect(t, timers_add("armed", 30))
 	timers_cue_arm_sound(0, .Cat_Meow, 0.7)
+	timers_cue_arm_music(0, .Show_Starters, 0.5, 1, 2)
 	timers_cue_arm_lighting(0, .Scene)
 	timers_cue_arm_projection(0, true, false)
 	testing.expect(
 		t,
-		gm.timers[0].cue_caps == Cue_Caps{.Has_Sound, .Has_Lighting, .Has_Video},
+		gm.timers[0].cue.caps ==
+			Cue_Caps{.Has_Sound, .Has_Music, .Has_Lighting, .Has_Video},
 	)
 	testing.expect(
 		t,
-		gm.timers[0].cue_triggers == Cue_Triggers{.Sound, .Lighting, .Video},
+		gm.timers[0].cue.triggers ==
+			Cue_Triggers{.Sound, .Music, .Lighting, .Video},
 	)
-	testing.expect_value(t, gm.timers[0].cue_sound_volume, f32(0.7))
-	testing.expect(t, gm.timers[0].cue_look == .Scene)
+	testing.expect_value(t, gm.timers[0].cue.sound_volume, f32(0.7))
+	testing.expect_value(t, gm.timers[0].cue.playlist, PlaylistName.Show_Starters)
+	testing.expect_value(t, gm.timers[0].cue.music_volume, f32(0.5))
+	testing.expect(t, gm.timers[0].cue.look == .Scene)
+	testing.expect(t, !gm.timers[0].cue.lighting_fx_reset)
 }
 
 @(test)
@@ -257,35 +262,35 @@ timer_expiry_applies_video_and_score_payloads :: proc(t: ^testing.T) {
 	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
-	video_previous := video_state
-	video_state = new(VideoState)
-	defer video_state = video_previous
-	score_previous := score_state
-	score_state = new(ScoreState)
-	defer score_state = score_previous
+	video_previous := gm.video
+	gm.video = new(VideoState)
+	defer gm.video = video_previous
+	score_previous := gm.scores
+	gm.scores = new(ScoreState)
+	defer gm.scores = score_previous
 
 	testing.expect(t, timers_add("cued", 5))
 	timers_cue_arm_projection(0, true, true, "missing-page", 2)
-	testing.expect_value(t, gm.timers[0].cue_video_page, "missing-page")
-	testing.expect_value(t, gm.timers[0].cue_scoreboard, 2)
+	testing.expect_value(t, gm.timers[0].cue.video_page, "missing-page")
+	testing.expect_value(t, gm.timers[0].cue.scoreboard, 2)
 	timers_start(0)
 	timers_update(6)
 	testing.expect(t, gm.timers[0].done)
-	testing.expect(t, gm.timers[0].cue_fired == Cue_Triggers{.Video, .Score})
+	testing.expect(t, gm.timers[0].cue.fired == Cue_Triggers{.Video, .Score})
 	// A cued page that no longer exists falls back to the deck state.
-	testing.expect(t, video_state.shown)
-	testing.expect(t, score_state.shown)
-	testing.expect_value(t, score_state.active, 2)
+	testing.expect(t, gm.video.shown)
+	testing.expect(t, gm.scores.shown)
+	testing.expect_value(t, gm.scores.active, 2)
 
 	testing.expect(t, timers_add("plain", 5))
 	timers_cue_arm_projection(1, true, true)
 	timers_start(1)
 	timers_update(6)
-	testing.expect(t, video_state.shown)
-	testing.expect(t, score_state.shown)
+	testing.expect(t, gm.video.shown)
+	testing.expect(t, gm.scores.shown)
 	testing.expect(
 		t,
-		score_state.active == 2,
+		gm.scores.active == 2,
 		"an uncued score cue leaves the selection alone",
 	)
 }
