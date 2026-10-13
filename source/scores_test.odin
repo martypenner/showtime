@@ -128,7 +128,7 @@ score_playing_timer_owns_projection :: proc(t: ^testing.T) {
 	defer score_shutdown()
 
 	state.shown = true
-	testing.expect(t, timers_add("test", 30), "timer add should succeed")
+	testing.expect(t, timers_add("test", 30) != ENTITY_HANDLE_NIL, "timer add should succeed")
 
 	timers_start(0)
 	testing.expect(t, state.shown, "starting a timer should leave the slide armed")

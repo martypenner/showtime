@@ -18,80 +18,70 @@ import "core:thread"
 import "core:time"
 import sdl "vendor:sdl3"
 
-// One MP4 per deck page, shown on the projection. ffmpeg decodes the file to
-// raw BGRA frames in a child process. A worker drains its pipe continuously;
-// the render thread uploads complete frames at the video's frame rate.
-//
-// Videos live at assets/videos/<id>.mp4; the playback mode is stored in
-// settings.sjson under video_pages, keyed by the filename. Re-exporting under
-// the same name keeps its settings.
-
-// GameMemory only holds a pointer to this, so it survives hot reloads.
-VideoState :: struct {
-	shown: bool,
-	// Selected slide. Selection never starts playback; video_page_show is the
-	// explicit Show path that also syncs this.
-	selected: string,
-	settings: VideoSettings,
-	pages:    [dynamic]VideoPage,
-	active:   ^VideoPlayback,
-	// Last displayed frame, retained while the next playback loads.
-	previous: VideoProjectionFrame,
-	// Playbacks torn down while their child was still dying. video_update
-	// reaps the child and frees the playback.
-	retired:  [dynamic]^VideoPlayback,
+// The video deck lives on the sole {.Video, .Projection} entity. A nil
+// result means the video subsystem is absent: before init, after shutdown,
+// or in tests that never created it.
+video_entity_get :: proc() -> ^Entity {
+	if gm == nil || len(gm.entities.video) == 0 do return nil
+	entity, ok := entity_get(gm.entities.video[0])
+	if !ok do return nil
+	return entity
 }
 
-video_init :: proc() -> ^VideoState {
-	state := new(VideoState)
-	state.pages = make([dynamic]VideoPage, 0, 8)
-	state.retired = make([dynamic]^VideoPlayback, 0, 2)
+video_entity_ensure :: proc() -> Entity_Handle {
+	if len(gm.entities.video) > 0 {
+		if _, ok := entity_get(gm.entities.video[0]); ok do return gm.entities.video[0]
+	}
+	return entity_create({.Video, .Projection}, "Video")
+}
 
-	state.settings.pages = make(map[string]VideoPlaybackMode)
-	settings_load(&state.settings)
+video_init :: proc() {
+	entity := entity_must_get(video_entity_ensure())
+	entity.video.pages = make([dynamic]VideoPage, 0, 8)
+	entity.video.retired = make([dynamic]^VideoPlayback, 0, 2)
 
-	video_pages_load(state)
-	state.shown = true
-	return state
+	entity.video.settings.pages = make(map[string]VideoPlaybackMode)
+	settings_load(&entity.video.settings)
+
+	video_pages_load(entity)
+	entity.video.shown = true
 }
 
 video_shutdown :: proc() {
-	if gm == nil || gm.video == nil do return
+	entity := video_entity_get()
+	if entity == nil do return
 	video_page_clear()
-	// The child was asked to die; give it a moment to be reaped. Anything
-	// still alive after this leaks on purpose: the process is exiting.
 	deadline := time.time_add(time.now(), time.Second * 3)
-	for len(gm.video.retired) > 0 && time.diff(time.now(), deadline) > 0 {
+	for len(entity.video.retired) > 0 && time.diff(time.now(), deadline) > 0 {
 		video_update()
 		time.sleep(time.Millisecond)
 	}
 	settings_save()
-	gm.video = nil
+	entity_domain_clear(&gm.entities.video)
 }
 
-// Runs once per frame on the render thread.
 video_update :: proc() {
-	state := gm.video
-	if state == nil do return
+	entity := video_entity_get()
+	if entity == nil do return
 
-	if playback := state.active; playback != nil {
+	if playback := entity.video.active; playback != nil {
 		video_playback_update(playback)
 		if playback.state == .Stopped {
-			// The watchdog gave up on a child that never finished; show the
-			// page as failed.
 			playback.state = .Failed
 		}
-		if playback.frames > 0 && playback.texture != nil && state.previous.texture != nil {
-			sdl.DestroyTexture(state.previous.texture)
-			state.previous = {}
+		if playback.frames > 0 && playback.texture != nil && entity.video.previous.texture != nil {
+			sdl.DestroyTexture(entity.video.previous.texture)
+			entity.video.previous = {}
 		}
 	}
 
-	for i := 0; i < len(state.retired); {
-		playback := state.retired[i]
+	video_fade_tick(entity)
+
+	for i := 0; i < len(entity.video.retired); {
+		playback := entity.video.retired[i]
 		video_playback_update(playback)
 		if playback.state == .Stopped {
-			ordered_remove(&state.retired, i)
+			ordered_remove(&entity.video.retired, i)
 			video_playback_destroy(playback)
 		} else {
 			i += 1
@@ -99,80 +89,108 @@ video_update :: proc() {
 	}
 }
 
-video_page_show :: proc(state: ^VideoState, page_id: string) -> bool {
-	page, ok := video_page_find(state, page_id)
+video_page_show :: proc(page_id: string) -> bool {
+	entity := video_entity_get()
+	ensure(entity != nil)
+	page, ok := video_page_find(page_id)
 	if !ok do return false
-	state.selected = page.page_id
+	entity.video.selected = page.page_id
+	entity.fade = {}
 
-	if playback := state.active;
+	if playback := entity.video.active;
 	   playback != nil && playback.frames > 0 && playback.texture != nil {
-		if state.previous.texture != nil do sdl.DestroyTexture(state.previous.texture)
-		state.previous = {
+		if entity.video.previous.texture != nil do sdl.DestroyTexture(entity.video.previous.texture)
+		entity.video.previous = {
 			texture = playback.texture,
 			width   = playback.width,
 			height  = playback.height,
 		}
 		playback.texture = nil
 	}
-	video_playback_stop(state)
+	video_playback_stop(entity)
 
 	playback := video_playback_make(page^, fmt.tprintf("%s/%s.mp4", VIDEO_DIR, page.page_id))
-	state.active = playback
+	entity.video.active = playback
 	video_ffprobe_spawn(playback)
-	state.shown = playback.state != .Failed
+	entity.video.shown = playback.state != .Failed
 	return playback.state != .Failed
 }
 
-// Selection only changes the highlight. Showing needs video_page_show.
-video_page_select :: proc(state: ^VideoState, page_id: string) -> bool {
-	page, ok := video_page_find(state, page_id)
+video_page_select :: proc(page_id: string) -> bool {
+	entity := video_entity_get()
+	ensure(entity != nil)
+	page, ok := video_page_find(page_id)
 	if !ok do return false
-	state.selected = page.page_id
+	entity.video.selected = page.page_id
 	return true
 }
 
-// Effective visibility: an active timer owns the projection.
 video_projection_shown :: proc() -> bool {
-	return gm.video != nil && gm.video.shown && !timers_any_running()
+	entity := video_entity_get()
+	return entity != nil && entity.video.shown && !timers_any_running()
 }
 
-// Hiding releases the playback and the last frame, so a later show starts
-// blank and no stale slide can reappear.
 video_projection_hide :: proc() {
-	if gm.video == nil do return
-	gm.video.shown = false
+	entity := video_entity_get()
+	if entity == nil do return
+	entity.video.shown = false
 	video_page_clear()
 }
 
 video_page_clear :: proc() {
-	if gm.video == nil do return
-	video_playback_stop(gm.video)
-	if gm.video.previous.texture != nil {
-		sdl.DestroyTexture(gm.video.previous.texture)
-		gm.video.previous = {}
+	entity := video_entity_get()
+	if entity == nil do return
+	video_playback_stop(entity)
+	if entity.video.previous.texture != nil {
+		sdl.DestroyTexture(entity.video.previous.texture)
+		entity.video.previous = {}
 	}
+	entity.fade = {}
 }
 
-video_page_mode_cycle :: proc(state: ^VideoState) {
-	if state.active == nil do return
-	video_page_mode_set(state.active.page_id, video_page_mode_next(state.active.mode))
+video_fade_start :: proc(duration_s: f32) {
+	entity := video_entity_get()
+	ensure(entity != nil)
+	if duration_s <= 0 do return
+	if entity.video.active == nil && entity.video.previous.texture == nil do return
+	entity_fade_start(entity, duration_s)
+}
+
+video_fade_opacity :: proc() -> f32 {
+	entity := video_entity_get()
+	ensure(entity != nil)
+	if entity.fade.remaining_s <= 0 || entity.fade.duration_s <= 0 do return 1
+	return clamp(entity.fade.remaining_s / entity.fade.duration_s, 0, 1)
+}
+
+@(private = "file")
+video_fade_tick :: proc(entity: ^Entity) {
+	if entity.fade.remaining_s <= 0 do return
+	dt := max(gm.frame.dt, 0)
+	entity.fade.remaining_s = max(entity.fade.remaining_s - dt, 0)
+	if entity.fade.remaining_s <= 0 do video_page_clear()
+}
+
+video_page_mode_cycle :: proc() {
+	entity := video_entity_get()
+	ensure(entity != nil)
+	if entity.video.active == nil do return
+	video_page_mode_set(entity.video.active.page_id, video_page_mode_next(entity.video.active.mode))
 }
 
 video_page_mode_set :: proc(page_id: string, mode: VideoPlaybackMode) {
-	state := gm.video
-	ensure(state != nil)
-	page, ok := video_page_find(state, page_id)
+	entity := video_entity_get()
+	ensure(entity != nil)
+	page, ok := video_page_find(page_id)
 	ensure(ok)
 	page.mode = mode
-	// Settings borrow the page's arena-owned name, never a playback's heap string.
-	state.settings.pages[page.page_id] = mode
+	entity.video.settings.pages[page.page_id] = mode
 
-	playback := state.active
+	playback := entity.video.active
 	if playback != nil && playback.page_id == page_id {
 		playback.mode = mode
 		#partial switch playback.state {
 		case .Holding:
-			// A frozen Once/Still restarts when it becomes a Loop.
 			if mode == .Loop do video_playback_play(playback)
 		case .Failed:
 			if mode != .Still {
@@ -183,14 +201,15 @@ video_page_mode_set :: proc(page_id: string, mode: VideoPlaybackMode) {
 				}
 			}
 		case:
-		// A running playback picks up the mode at its next loop point.
 		}
 	}
 	settings_save()
 }
-video_page_find :: proc(state: ^VideoState, page_id: string) -> (^VideoPage, bool) {
-	for i in 0 ..< len(state.pages) {
-		if state.pages[i].page_id == page_id do return &state.pages[i], true
+video_page_find :: proc(page_id: string) -> (^VideoPage, bool) {
+	entity := video_entity_get()
+	ensure(entity != nil)
+	for i in 0 ..< len(entity.video.pages) {
+		if entity.video.pages[i].page_id == page_id do return &entity.video.pages[i], true
 	}
 	return nil, false
 }
@@ -207,8 +226,8 @@ video_page_mode_next :: proc(mode: VideoPlaybackMode) -> VideoPlaybackMode {
 	return .Loop
 }
 
-video_pages_load :: proc(state: ^VideoState) {
-	clear(&state.pages)
+video_pages_load :: proc(entity: ^Entity) {
+	clear(&entity.video.pages)
 
 	dir, dir_err := os.open(VIDEO_DIR)
 	if dir_err != nil {
@@ -236,9 +255,9 @@ video_pages_load :: proc(state: ^VideoState) {
 	for entry in entries {
 		page := VideoPage {
 			page_id = entry,
-			mode    = video_page_mode(state.settings, entry),
+			mode    = video_page_mode(entity.video.settings, entry),
 		}
-		append(&state.pages, page)
+		append(&entity.video.pages, page)
 	}
 
 }
@@ -249,12 +268,12 @@ video_page_mode :: proc(settings: VideoSettings, page_id: string) -> VideoPlayba
 }
 
 video_controls_draw :: proc(height: f32) {
-	state := gm.video
-	if state == nil do return
+	entity := video_entity_get()
+	if entity == nil do return
 
 	if controls_list_begin("Videos##ControlList", height) {
-		for &page, index in state.pages {
-			is_selected := page.page_id == state.selected
+		for &page, index in entity.video.pages {
+			is_selected := page.page_id == entity.video.selected
 			label := fmt.tprintf("%s##video_page_%d", page.page_id, index)
 			if imgui.Selectable(
 				strings.clone_to_cstring(label, context.temp_allocator),
@@ -262,10 +281,8 @@ video_controls_draw :: proc(height: f32) {
 			) {
 				// Selection only writes selected. When the deck is already
 				// shown, the new selection takes the single active slot.
-				if video_page_select(state, page.page_id) && state.shown {
-					if video_page_show(state, state.selected) {
-						score_projection_hide()
-					}
+				if video_page_select(page.page_id) && entity.video.shown {
+					video_page_show(entity.video.selected)
 				}
 			}
 		}
@@ -274,18 +291,11 @@ video_controls_draw :: proc(height: f32) {
 
 	// The sole show/hide control. Checking shows the selected slide.
 	// Unchecking releases the deck so no stale frame can reappear.
-	if imgui.Checkbox("Show on projection", &state.shown) {
-		if state.shown {
-			showed := len(state.selected) == 0 || video_page_show(state, state.selected)
-			if showed {
-				score_projection_hide()
-			}
-		} else {
-			video_projection_hide()
-		}
+	if imgui.Checkbox("Show on projection", &entity.video.shown) && entity.video.shown {
+		if len(entity.video.selected) > 0 do video_page_show(entity.video.selected)
 	}
 
-	playback := state.active
+	playback := entity.video.active
 	if playback == nil {
 		imgui.TextUnformatted("Projection: black")
 		return
@@ -322,10 +332,10 @@ video_controls_draw :: proc(height: f32) {
 
 // A Holding playback keeps drawing its last frame.
 video_projection_render :: proc(renderer: ^sdl.Renderer) {
-	state := gm.video
-	if state == nil do return
-	frame := state.previous
-	if playback := state.active;
+	entity := video_entity_get()
+	if entity == nil do return
+	frame := entity.video.previous
+	if playback := entity.video.active;
 	   playback != nil && playback.frames > 0 && playback.texture != nil {
 		frame = {
 			texture = playback.texture,
@@ -339,6 +349,16 @@ video_projection_render :: proc(renderer: ^sdl.Renderer) {
 	if !sdl.GetCurrentRenderOutputSize(renderer, &width, &height) do return
 	dest := video_fit_rect(frame.width, frame.height, int(width), int(height))
 	sdl.RenderTexture(renderer, frame.texture, nil, &dest)
+	// An armed fade darkens the frame toward black; completion clears the
+	// deck, so idle states never reach this overlay.
+	opacity := video_fade_opacity()
+	if entity.fade.remaining_s > 0 && opacity < 1 {
+		alpha := u8((1 - opacity) * 255)
+		sdl.SetRenderDrawBlendMode(renderer, sdl.BLENDMODE_BLEND)
+		sdl.SetRenderDrawColor(renderer, 0, 0, 0, alpha)
+		sdl.RenderFillRect(renderer, &dest)
+		sdl.SetRenderDrawBlendMode(renderer, sdl.BLENDMODE_NONE)
+	}
 }
 
 video_fit_rect :: proc(video_w, video_h, window_w, window_h: int) -> sdl.FRect {
@@ -817,9 +837,9 @@ video_playback_kill :: proc(playback: ^VideoPlayback) {
 // Ask the child to die, release the texture and buffers, then free the
 // playback or retire it for reaping.
 @(private = "file")
-video_playback_stop :: proc(state: ^VideoState) {
-	playback := state.active
-	state.active = nil
+video_playback_stop :: proc(entity: ^Entity) {
+	playback := entity.video.active
+	entity.video.active = nil
 	if playback == nil do return
 
 	switch playback.state {
@@ -838,7 +858,7 @@ video_playback_stop :: proc(state: ^VideoState) {
 	if playback.state == .Stopped {
 		video_playback_destroy(playback)
 	} else {
-		append(&state.retired, playback)
+		append(&entity.video.retired, playback)
 	}
 }
 

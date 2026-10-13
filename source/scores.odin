@@ -9,23 +9,10 @@ import "core:strings"
 import sdl "vendor:sdl3"
 import stbi "vendor:stb/image"
 
-// Three fixed scoreboards, Game, Final and Season. Each owns a PNG background
-// and the score regions on it, so the digits track the art at any window size
-// or display scale. Game and Final show the same scores; Season keeps its own.
-// A missing background leaves the projection black.
-//
-// Triggered by hand from the main controls and shown in place of the deck pages.
-// Nothing persists: the scores reset every launch.
-//
-// An active timer owns the projection through projection_source_resolve; the
-// flags stay armed for when it ends.
-
 ScoreState :: struct {
 	shown:       bool,
 	active:      int,
 	scoreboards: [3]Scoreboard,
-	// Font in the projection imgui atlas. nil when the font file is missing: the
-	// default font renders instead.
 	font:        ^imgui.Font,
 }
 
@@ -33,14 +20,11 @@ Scoreboard :: struct {
 	name:       string,
 	background: struct {
 		filename: string,
-		// Projection renderer texture. nil until first shown (the renderer may
-		// not exist yet at init) or when the file is missing.
 		texture:  ^sdl.Texture,
 		missing:  bool,
 		width:    int,
 		height:   int,
 	},
-	// Score positions as fractions of the background.
 	regions:    [Score_Team]Score_Region,
 	red:        u16,
 	blue:       u16,
@@ -76,10 +60,42 @@ SCOREBOARDS :: [3]Scoreboard {
 score_init :: proc() -> ^ScoreState {
 	state := new(ScoreState)
 	state.scoreboards = SCOREBOARDS
+	score_entities_ensure()
+	score_entity_sync()
 	return state
 }
 
-// Call with the projection imgui context current, before its first NewFrame.
+score_entities_ensure :: proc() {
+	boards := SCOREBOARDS
+	for i in 0 ..< len(boards) {
+		if i < len(gm.entities.score) {
+			if _, ok := entity_get(gm.entities.score[i]); ok do continue
+		}
+		entity_create({.Score, .Projection}, boards[i].name)
+	}
+}
+
+score_entity_sync :: proc() {
+	if gm == nil || gm.scores == nil do return
+	score_entities_ensure()
+	for handle, i in gm.entities.score {
+		if i >= len(gm.scores.scoreboards) do break
+		entity, ok := entity_get(handle)
+		ensure(ok)
+		board := &gm.scores.scoreboards[i]
+		entity.score.shown = gm.scores.shown
+		entity.score.active = (i == gm.scores.active)
+		entity.score.red = board.red
+		entity.score.blue = board.blue
+		entity.score.background_filename = board.background.filename
+		entity.score.background_texture = board.background.texture
+		entity.score.background_missing = board.background.missing
+		entity.score.background_width = board.background.width
+		entity.score.background_height = board.background.height
+		entity.score.regions = board.regions
+	}
+}
+
 score_font_load :: proc() {
 	if gm.scores == nil do return
 
@@ -105,13 +121,8 @@ score_shutdown :: proc() {
 	gm.scores = nil
 }
 
-// Effective visibility: an active timer owns the projection.
 score_projection_shown :: proc() -> bool {
 	return gm.scores != nil && gm.scores.shown && !timers_any_running()
-}
-
-score_projection_hide :: proc() {
-	if gm.scores != nil do gm.scores.shown = false
 }
 
 score_active :: proc(state: ^ScoreState) -> ^Scoreboard {
@@ -128,7 +139,6 @@ score_value_set :: proc(team: Score_Team, value: i64) {
 	case .Blue:
 		board.blue = clamped
 	}
-	// Game and Final show the same scores.
 	if gm.scores.active < 2 {
 		game := &gm.scores.scoreboards[0]
 		final := &gm.scores.scoreboards[1]
@@ -157,9 +167,7 @@ score_controls_draw :: proc() {
 	state := gm.scores
 	if state == nil do return
 
-	if imgui.Checkbox("Show on projection", &state.shown) && state.shown {
-		video_projection_hide()
-	}
+	imgui.Checkbox("Show on projection", &state.shown)
 
 	imgui.Separator()
 
@@ -182,8 +190,6 @@ score_controls_draw :: proc() {
 	if imgui.Button("Reset scores") {score_reset()}
 }
 
-// Letterboxed the same way page videos are; a missing background leaves the
-// window black.
 score_projection_background_render :: proc(renderer: ^sdl.Renderer) {
 	state := gm.scores
 	if state == nil do return
@@ -251,8 +257,6 @@ score_background_load :: proc(board: ^Scoreboard, renderer: ^sdl.Renderer) {
 	stbi.image_free(pixels)
 }
 
-// The regions are fractions of the fitted background, so the scores track the
-// art at any window size or display scale.
 score_projection_draw :: proc() {
 	state := gm.scores
 	if state == nil do return
@@ -261,7 +265,6 @@ score_projection_draw :: proc() {
 	width, height: c.int
 	if !sdl.GetCurrentRenderOutputSize(gm.displays[.Projection].renderer, &width, &height) do return
 
-	// The fit rect is in framebuffer pixels; imgui works in points.
 	fit := video_fit_rect(
 		board.background.width > 0 ? board.background.width : int(width),
 		board.background.height > 0 ? board.background.height : int(height),
@@ -310,7 +313,6 @@ Score_Team :: enum u8 {
 	Blue,
 }
 
-// Score positions as fractions of the background.
 Score_Region :: struct {
 	x, y, w, h: f32,
 }

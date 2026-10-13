@@ -41,6 +41,22 @@ lighting_init :: proc() {
 			sep = "",
 		)
 	}
+	lighting_entity_sync()
+}
+
+// One entity mirrors the rig. Socket and endpoint stay global.
+lighting_entity_ensure :: proc() -> Entity_Handle {
+	if len(gm.entities.lighting) > 0 {
+		if _, ok := entity_get(gm.entities.lighting[0]); ok do return gm.entities.lighting[0]
+	}
+	return entity_create({.Lighting}, "Lighting")
+}
+
+lighting_entity_sync :: proc() {
+	if gm == nil do return
+	entity := entity_must_get(lighting_entity_ensure())
+	entity.lighting.look = gm.lighting.active_look
+	entity.lighting.fx = gm.lighting.fx
 }
 
 lighting_look_activate :: proc(look: LightingLook) {

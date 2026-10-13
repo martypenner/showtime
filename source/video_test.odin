@@ -81,16 +81,12 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 		Playlist{tracks = [dynamic]Track{{path = "music.mp3", played = true}}},
 	)
 	gm.sound_settings = &sound
-	video := VideoState {
-		settings = {
-			pages = map[string]VideoPlaybackMode {
-				"opener" = .Loop,
-				"halftime" = .Once,
-				"outro" = .Still,
-			},
-		},
+	video := entity_must_get(video_entity_ensure())
+	video.video.settings.pages = map[string]VideoPlaybackMode {
+		"opener" = .Loop,
+		"halftime" = .Once,
+		"outro" = .Still,
 	}
-	gm.video = &video
 	settings_save()
 
 	loaded_sound := sound_settings_load_from_disk()
@@ -108,7 +104,7 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 
 	sound.fade_in_time = 6
 	sound.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
-	video.settings.pages["opener"] = .Still
+	video.video.settings.pages["opener"] = .Still
 	settings_save()
 	loaded_sound = sound_settings_load_from_disk()
 	loaded_video = {}
@@ -155,15 +151,13 @@ video_page_mode_owns_filename_and_updates_playback :: proc(t: ^testing.T) {
 		mode    = .Loop,
 		state   = .Holding,
 	}
-	state := VideoState {
-		settings = {pages = make(map[string]VideoPlaybackMode)},
-		pages = [dynamic]VideoPage{{page_id = "opener", mode = .Loop}},
-		active = &playback,
-	}
-	gm.video = &state
+	entity := entity_must_get(video_entity_ensure())
+	entity.video.settings.pages = make(map[string]VideoPlaybackMode)
+	entity.video.pages = [dynamic]VideoPage{{page_id = "opener", mode = .Loop}}
+	entity.video.active = &playback
 	video_page_mode_set(playback.page_id, .Once)
 	for &byte in borrowed do byte = '#'
-	testing.expect_value(t, state.settings.pages["opener"], VideoPlaybackMode.Once)
+	testing.expect_value(t, entity.video.settings.pages["opener"], VideoPlaybackMode.Once)
 	testing.expect_value(t, playback.mode, VideoPlaybackMode.Once)
 	loaded: VideoSettings
 	settings_load(&loaded)
@@ -179,19 +173,22 @@ video_playing_timer_owns_projection :: proc(t: ^testing.T) {
 	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
-	state := video_init()
-	gm.video = state
+	video_init()
 
-	testing.expect(t, state.shown, "the deck should start shown")
+	testing.expect(t, video_entity_get().video.shown, "the deck should start shown")
 
-	testing.expect(t, timers_add("test", 30), "timer add should succeed")
+	testing.expect(t, timers_add("test", 30) != ENTITY_HANDLE_NIL, "timer add should succeed")
 	timers_start(0)
-	testing.expect(t, state.shown, "starting a timer should leave the deck armed")
+	testing.expect(
+		t,
+		video_entity_get().video.shown,
+		"starting a timer should leave the deck armed",
+	)
 	testing.expect(t, !video_projection_shown(), "a playing timer should own the projection")
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
 
 	// The Show flag stays armed but never overrides a running timer.
-	state.shown = true
+	video_entity_get().video.shown = true
 	testing.expect(t, !video_projection_shown(), "the flag should not override the timer")
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
 
@@ -207,25 +204,24 @@ video_select_only_changes_selection :: proc(t: ^testing.T) {
 	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
-	state := new(VideoState)
-	state.pages = make([dynamic]VideoPage, 0, 2)
-	append(&state.pages, VideoPage{page_id = "opener", mode = .Loop})
-	append(&state.pages, VideoPage{page_id = "closer", mode = .Loop})
-	gm.video = state
+	entity := entity_must_get(video_entity_ensure())
+	entity.video.pages = make([dynamic]VideoPage, 0, 2)
+	append(&entity.video.pages, VideoPage{page_id = "opener", mode = .Loop})
+	append(&entity.video.pages, VideoPage{page_id = "closer", mode = .Loop})
 
-	testing.expect(t, video_page_select(state, "opener"))
-	testing.expect_value(t, state.selected, "opener")
-	testing.expect(t, state.active == nil, "selection should not start playback")
-	testing.expect(t, !state.shown, "selection should not show")
+	testing.expect(t, video_page_select("opener"))
+	testing.expect_value(t, entity.video.selected, "opener")
+	testing.expect(t, entity.video.active == nil, "selection should not start playback")
+	testing.expect(t, !entity.video.shown, "selection should not show")
 
-	testing.expect(t, video_page_select(state, "closer"))
-	testing.expect_value(t, state.selected, "closer")
-	testing.expect(t, state.active == nil, "selection should not start playback")
-	testing.expect(t, !state.shown, "selection should not show")
+	testing.expect(t, video_page_select("closer"))
+	testing.expect_value(t, entity.video.selected, "closer")
+	testing.expect(t, entity.video.active == nil, "selection should not start playback")
+	testing.expect(t, !entity.video.shown, "selection should not show")
 
-	testing.expect(t, !video_page_select(state, "missing"), "missing select should fail")
-	testing.expect_value(t, state.selected, "closer")
-	testing.expect(t, state.active == nil, "failed select should not start playback")
+	testing.expect(t, !video_page_select("missing"), "missing select should fail")
+	testing.expect_value(t, entity.video.selected, "closer")
+	testing.expect(t, entity.video.active == nil, "failed select should not start playback")
 }
 
 @(test)
@@ -240,44 +236,48 @@ video_checkbox_shows_selected_and_select_replaces_while_shown :: proc(t: ^testin
 	}
 	projection := video_test_projection_make(t)
 	defer video_test_projection_destroy(t, projection)
-	state := projection.state
-	state.shown = false
-	state.selected = ""
+	deck := &video_entity_get().video
+	deck.shown = false
+	deck.selected = ""
 
 	// Selecting while hidden only writes the selection.
-	testing.expect(t, video_page_select(state, "next"))
-	testing.expect_value(t, state.selected, "next")
-	testing.expect_value(t, state.active.page_id, "previous")
-	testing.expect(t, !state.shown, "selection should not show")
+	testing.expect(t, video_page_select("next"))
+	testing.expect_value(t, deck.selected, "next")
+	testing.expect_value(t, deck.active.page_id, "previous")
+	testing.expect(t, !deck.shown, "selection should not show")
 
 	// Checking the box shows the selected slide.
-	state.shown = true
-	ensure(video_page_show(state, state.selected))
-	testing.expect_value(t, state.selected, "next")
-	testing.expect_value(t, state.active.page_id, "next")
-	testing.expect(t, state.shown)
+	deck.shown = true
+	ensure(video_page_show(deck.selected))
+	testing.expect_value(t, deck.selected, "next")
+	testing.expect_value(t, deck.active.page_id, "next")
+	testing.expect(t, deck.shown)
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Video)
 
 	// Selecting while shown takes the single active slot.
-	testing.expect(t, video_page_select(state, "missing"))
-	ensure(video_page_show(state, state.selected))
-	testing.expect_value(t, state.selected, "missing")
-	testing.expect_value(t, state.active.page_id, "missing")
+	testing.expect(t, video_page_select("missing"))
+	ensure(video_page_show(deck.selected))
+	testing.expect_value(t, deck.selected, "missing")
+	testing.expect_value(t, deck.active.page_id, "missing")
 
 	// Unchecking hides and releases the deck; nothing stale can reappear.
-	state.shown = false
+	deck.shown = false
 	video_projection_hide()
 	testing.expect(t, !video_projection_shown(), "unchecking should hide the deck")
-	testing.expect(t, state.active == nil, "unchecking should stop the playback")
-	testing.expect(t, state.previous.texture == nil, "unchecking should drop the last frame")
+	testing.expect(t, deck.active == nil, "unchecking should stop the playback")
+	testing.expect(t, deck.previous.texture == nil, "unchecking should drop the last frame")
 	testing.expect_value(t, video_test_projection_pixel(projection), [3]u8{})
 
 	// A timer overrides without clearing the checkbox state.
-	state.shown = true
-	ensure(video_page_show(state, "next"))
-	testing.expect(t, timers_add("test", 30))
+	video_entity_get().video.shown = true
+	ensure(video_page_show("next"))
+	testing.expect(t, timers_add("test", 30) != ENTITY_HANDLE_NIL)
 	timers_start(0)
-	testing.expect(t, state.shown, "starting a timer should not clear the checkbox")
+	testing.expect(
+		t,
+		video_entity_get().video.shown,
+		"starting a timer should not clear the checkbox",
+	)
 	testing.expect(t, !video_projection_shown(), "a playing timer should own the projection")
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
 	timers_stop_all()
@@ -296,45 +296,45 @@ video_recheck_never_renders_stale_slide :: proc(t: ^testing.T) {
 	}
 	projection := video_test_projection_make(t)
 	defer video_test_projection_destroy(t, projection)
-	state := projection.state
-	state.shown = false
-	state.selected = ""
+	entity := video_entity_get()
+	entity.video.shown = false
+	entity.video.selected = ""
 
 	// Show slide A and wait for a real frame.
-	testing.expect(t, video_page_select(state, "next"))
-	state.shown = true
-	ensure(video_page_show(state, state.selected))
+	testing.expect(t, video_page_select("next"))
+	entity.video.shown = true
+	ensure(video_page_show(entity.video.selected))
 	deadline := time.time_add(time.now(), time.Second * 3)
-	for state.active.frames == 0 && time.diff(time.now(), deadline) > 0 {
+	for entity.video.active.frames == 0 && time.diff(time.now(), deadline) > 0 {
 		video_update()
 		time.sleep(time.Millisecond * 5)
 	}
-	ensure(state.active.frames > 0)
+	ensure(entity.video.active.frames > 0)
 	frame_a := video_test_projection_pixel(projection)
 	testing.expect(t, frame_a != [3]u8{}, "premise: slide A must render")
 
 	// Unchecking releases everything the deck held.
-	state.shown = false
+	entity.video.shown = false
 	video_projection_hide()
-	testing.expect(t, state.active == nil, "unchecking should stop slide A")
-	testing.expect(t, state.previous.texture == nil, "unchecking should drop slide A")
+	testing.expect(t, entity.video.active == nil, "unchecking should stop slide A")
+	testing.expect(t, entity.video.previous.texture == nil, "unchecking should drop slide A")
 
 	// Selecting slide B while hidden only moves the selection.
-	testing.expect(t, video_page_select(state, "missing"))
-	testing.expect_value(t, state.selected, "missing")
-	testing.expect(t, state.active == nil, "hidden select must not prepare a slide")
+	testing.expect(t, video_page_select("missing"))
+	testing.expect_value(t, entity.video.selected, "missing")
+	testing.expect(t, entity.video.active == nil, "hidden select must not prepare a slide")
 
 	// Rechecking stays blank until B is ready. B never produces a frame,
 	// so every sample must stay blank and A must never reappear.
-	state.shown = true
-	ensure(video_page_show(state, state.selected))
+	entity.video.shown = true
+	ensure(video_page_show(entity.video.selected))
 	{
 		// The missing-file error is expected here.
 		logger_previous := context.logger
 		context.logger = log.nil_logger()
 		defer context.logger = logger_previous
 		deadline = time.time_add(time.now(), time.Second * 3)
-		for state.active.state != .Failed && time.diff(time.now(), deadline) > 0 {
+		for entity.video.active.state != .Failed && time.diff(time.now(), deadline) > 0 {
 			video_update()
 			pixel := video_test_projection_pixel(projection)
 			testing.expect_value(t, pixel, [3]u8{})
@@ -342,8 +342,8 @@ video_recheck_never_renders_stale_slide :: proc(t: ^testing.T) {
 			time.sleep(time.Millisecond * 5)
 		}
 	}
-	testing.expect_value(t, state.active.state, VideoPlaybackState.Failed)
-	testing.expect_value(t, state.selected, "missing")
+	testing.expect_value(t, entity.video.active.state, VideoPlaybackState.Failed)
+	testing.expect_value(t, entity.video.selected, "missing")
 	testing.expect_value(t, video_test_projection_pixel(projection), [3]u8{})
 }
 
@@ -359,13 +359,13 @@ video_switch_keeps_previous_frame_until_upload :: proc(t: ^testing.T) {
 	}
 	projection := video_test_projection_make(t)
 	defer video_test_projection_destroy(t, projection)
-	state := projection.state
+	entity := video_entity_get()
 	red := [3]u8{255, 0, 0}
 	black := [3]u8{}
 	testing.expect_value(t, video_test_projection_pixel(projection), red)
 	testing.expect_value(t, video_test_projection_pixel(projection, 8), black)
 
-	ensure(video_page_show(state, "missing"))
+	ensure(video_page_show("missing"))
 	pixel := video_test_projection_pixel(projection)
 	testing.expect_value(t, pixel, red)
 	if pixel != red do return
@@ -375,41 +375,41 @@ video_switch_keeps_previous_frame_until_upload :: proc(t: ^testing.T) {
 		logger_previous := context.logger
 		context.logger = log.nil_logger()
 		defer context.logger = logger_previous
-		for state.active.state != .Failed && time.diff(time.now(), deadline) > 0 {
+		for entity.video.active.state != .Failed && time.diff(time.now(), deadline) > 0 {
 			video_update()
 			time.sleep(time.Millisecond * 5)
 		}
 	}
-	testing.expect_value(t, state.active.state, VideoPlaybackState.Failed)
+	testing.expect_value(t, entity.video.active.state, VideoPlaybackState.Failed)
 	testing.expect_value(t, video_test_projection_pixel(projection), red)
 
-	ensure(video_page_show(state, "next"))
+	ensure(video_page_show("next"))
 	deadline = time.time_add(time.now(), time.Second * 3)
-	for state.active.texture == nil && time.diff(time.now(), deadline) > 0 {
+	for entity.video.active.texture == nil && time.diff(time.now(), deadline) > 0 {
 		video_update()
 		time.sleep(time.Millisecond * 5)
 	}
-	testing.expect(t, state.active.texture != nil)
-	testing.expect_value(t, state.active.frames, u64(0))
+	testing.expect(t, entity.video.active.texture != nil)
+	testing.expect_value(t, entity.video.active.frames, u64(0))
 	testing.expect_value(t, video_test_projection_pixel(projection), red)
 	testing.expect_value(t, video_test_projection_pixel(projection, 8), black)
 
 	// Replace a loading slide before its first frame arrives.
-	ensure(video_page_show(state, "next"))
+	ensure(video_page_show("next"))
 	testing.expect_value(t, video_test_projection_pixel(projection), red)
 	deadline = time.time_add(time.now(), time.Second * 3)
-	for state.active.frames == 0 && time.diff(time.now(), deadline) > 0 {
+	for entity.video.active.frames == 0 && time.diff(time.now(), deadline) > 0 {
 		video_update()
-		if state.active.frames == 0 {
+		if entity.video.active.frames == 0 {
 			testing.expect_value(t, video_test_projection_pixel(projection), red)
 		}
 		time.sleep(time.Millisecond * 5)
 	}
-	testing.expect_value(t, state.active.frames, u64(1))
-	ensure(state.active.frames > 0)
+	testing.expect_value(t, entity.video.active.frames, u64(1))
+	ensure(entity.video.active.frames > 0)
 	for y in ([2]i32{8, 32}) {
 		offset := (int(y) * 64 + 32) * 4
-		frame := state.active.frame
+		frame := entity.video.active.frame
 		testing.expect_value(
 			t,
 			video_test_projection_pixel(projection, y),
@@ -420,23 +420,184 @@ video_switch_keeps_previous_frame_until_upload :: proc(t: ^testing.T) {
 	testing.expect_value(t, video_test_projection_pixel(projection), black)
 
 	// Clear during loading also releases the retained image immediately.
-	ensure(video_page_show(state, "next"))
+	ensure(video_page_show("next"))
 	deadline = time.time_add(time.now(), time.Second * 3)
-	for state.active.frames == 0 && time.diff(time.now(), deadline) > 0 {
+	for entity.video.active.frames == 0 && time.diff(time.now(), deadline) > 0 {
 		video_update()
 		time.sleep(time.Millisecond * 5)
 	}
-	ensure(state.active.frames > 0)
-	ensure(video_page_show(state, "next"))
+	ensure(entity.video.active.frames > 0)
+	ensure(video_page_show("next"))
 	video_page_clear()
 	testing.expect_value(t, video_test_projection_pixel(projection), black)
 }
 
+@(test)
+video_fade_completes_and_clears_deck :: proc(t: ^testing.T) {
+	allocator_previous := context.allocator
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	context.allocator = mem.dynamic_arena_allocator(&arena)
+	defer {
+		context.allocator = allocator_previous
+		mem.dynamic_arena_destroy(&arena)
+	}
+	projection := video_test_projection_make(t)
+	defer video_test_projection_destroy(t, projection)
+	entity := video_entity_get()
+	shown_before := entity.video.shown
+
+	video_fade_start(0.4)
+	testing.expect_value(t, entity.fade.remaining_s, f32(0.4))
+	testing.expect_value(t, video_fade_opacity(), f32(1))
+
+	gm.frame.dt = 0.1
+	video_update()
+	testing.expect_value(t, entity.fade.remaining_s, f32(0.3))
+	testing.expect_value(t, video_fade_opacity(), f32(0.75))
+	mid := video_test_projection_pixel(projection)
+	testing.expect(t, mid[0] > 0 && mid[0] < 255, "a fading slide should dim, not pop")
+	testing.expect_value(t, mid[1], u8(0))
+	testing.expect_value(t, mid[2], u8(0))
+
+	for _ in 0 ..< 10 {
+		if entity.fade.remaining_s <= 0 do break
+		video_update()
+	}
+	testing.expect(t, entity.video.active == nil, "completion should stop the playback")
+	testing.expect(t, entity.video.previous.texture == nil, "completion should drop the last frame")
+	testing.expect_value(t, entity.fade.remaining_s, f32(0))
+	testing.expect_value(t, entity.fade.duration_s, f32(0))
+	testing.expect_value(t, video_fade_opacity(), f32(1))
+	testing.expect_value(t, entity.video.shown, shown_before)
+	testing.expect_value(t, video_test_projection_pixel(projection), [3]u8{})
+}
+
+@(test)
+video_fade_hide_clears_immediately :: proc(t: ^testing.T) {
+	allocator_previous := context.allocator
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	context.allocator = mem.dynamic_arena_allocator(&arena)
+	defer {
+		context.allocator = allocator_previous
+		mem.dynamic_arena_destroy(&arena)
+	}
+	projection := video_test_projection_make(t)
+	defer video_test_projection_destroy(t, projection)
+	entity := video_entity_get()
+
+	video_fade_start(2)
+	gm.frame.dt = 0.1
+	video_update()
+	testing.expect(t, video_fade_opacity() < 1, "premise: the fade should be underway")
+
+	video_projection_hide()
+	testing.expect(t, !entity.video.shown)
+	testing.expect(t, entity.video.active == nil, "hide should stop the playback mid fade")
+	testing.expect(t, entity.video.previous.texture == nil, "hide should drop the last frame mid fade")
+	testing.expect_value(t, entity.fade.remaining_s, f32(0))
+	testing.expect_value(t, video_test_projection_pixel(projection), [3]u8{})
+
+	// Ticking after a hide stays blank: nothing stale can reappear.
+	video_update()
+	testing.expect_value(t, video_test_projection_pixel(projection), [3]u8{})
+}
+
+@(test)
+video_fade_keeps_timer_priority :: proc(t: ^testing.T) {
+	allocator_previous := context.allocator
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	context.allocator = mem.dynamic_arena_allocator(&arena)
+	defer {
+		context.allocator = allocator_previous
+		mem.dynamic_arena_destroy(&arena)
+	}
+	projection := video_test_projection_make(t)
+	defer video_test_projection_destroy(t, projection)
+	video_entity_get().video.shown = true
+
+	testing.expect(t, timers_add("test", 30) != ENTITY_HANDLE_NIL)
+	timers_start(0)
+	video_fade_start(0.2)
+	testing.expect(t, !video_projection_shown(), "a playing timer should own the projection mid fade")
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
+
+	gm.frame.dt = 0.1
+	video_update()
+	video_update()
+	testing.expect(
+		t,
+		video_entity_get().video.active == nil,
+		"the fade should complete under the timer",
+	)
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
+
+	timers_stop_all()
+	testing.expect(t, video_entity_get().video.shown, "the fade should not clear the checkbox")
+	testing.expect(t, video_projection_shown(), "stopping the timer gives the deck back")
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Video)
+	testing.expect_value(t, video_test_projection_pixel(projection), [3]u8{})
+}
+
+@(test)
+cue_dispatch_fade_out_flags :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+	video := entity_must_get(video_entity_ensure())
+	video.video.active = new(VideoPlayback)
+	sound := DefaultSoundSettings
+	gm.sound_settings = &sound
+
+	// Fade_Out with the Video cap fades over the shared fade_out_s.
+	fade := Entity_Cue {
+		caps       = {.Has_Video},
+		triggers   = {.Fade_Out},
+		fade_out_s = 0.5,
+	}
+	fired := cue_dispatch(&fade)
+	testing.expect_value(t, fired, Cue_Triggers{.Fade_Out})
+	testing.expect_value(t, video.fade.remaining_s, f32(0.5))
+	testing.expect_value(t, video.fade.duration_s, f32(0.5))
+
+	// Fade_Out with the Music cap records without touching video.
+	video.video.active = nil
+	video.fade = {}
+	music_fade := Entity_Cue {
+		caps       = {.Has_Music},
+		triggers   = {.Fade_Out},
+		fade_out_s = 0.5,
+	}
+	fired = cue_dispatch(&music_fade)
+	testing.expect_value(t, fired, Cue_Triggers{.Fade_Out})
+	testing.expect_value(t, video.fade.remaining_s, f32(0))
+
+	// Fade_Out without a fadeable cap stays inert.
+	bare := Entity_Cue {
+		triggers   = {.Fade_Out},
+		fade_out_s = 0.5,
+	}
+	fired = cue_dispatch(&bare)
+	testing.expect_value(t, fired, Cue_Triggers{})
+	testing.expect_value(t, video.fade.remaining_s, f32(0))
+
+	// An unrelated cue leaves a fresh deck alone.
+	gm.sound_settings = nil
+	plain := Entity_Cue {
+		caps     = {.Has_Music},
+		triggers = {.Music},
+	}
+	fired = cue_dispatch(&plain)
+	testing.expect_value(t, fired, Cue_Triggers{.Music})
+	testing.expect_value(t, video.fade.remaining_s, f32(0))
+}
+
 VideoTestProjection :: struct {
-	state:              ^VideoState,
 	surface:            ^sdl.Surface,
 	renderer_previous:  ^sdl.Renderer,
-	state_previous:     ^VideoState,
 	gm_previous:        ^GameMemory,
 	directory:          string,
 	directory_previous: string,
@@ -447,7 +608,6 @@ video_test_projection_make :: proc(t: ^testing.T) -> VideoTestProjection {
 	projection: VideoTestProjection
 	projection.gm_previous = gm
 	gm = game_memory_make()
-	projection.state_previous = gm.video
 	projection.renderer_previous = gm.displays[.Projection].renderer
 	err: os.Error
 	projection.directory_previous, err = os.get_working_directory(context.allocator)
@@ -466,32 +626,30 @@ video_test_projection_make :: proc(t: ^testing.T) -> VideoTestProjection {
 	ensure(projection.surface != nil)
 	gm.displays[.Projection].renderer = sdl.CreateSoftwareRenderer(projection.surface)
 	ensure(gm.displays[.Projection].renderer != nil)
-	state := new(VideoState)
-	state.pages = [dynamic]VideoPage {
+	entity := entity_must_get(video_entity_ensure())
+	entity.video.pages = [dynamic]VideoPage {
 		{page_id = "next", mode = .Still},
 		{page_id = "missing", mode = .Still},
 	}
-	state.active = video_playback_make({page_id = "previous", mode = .Still}, "previous.mp4")
-	state.active.state = .Holding
-	state.active.width = 64
-	state.active.height = 32
-	state.active.frames = 1
-	state.active.texture = sdl.CreateTexture(
+	entity.video.active = video_playback_make({page_id = "previous", mode = .Still}, "previous.mp4")
+	entity.video.active.state = .Holding
+	entity.video.active.width = 64
+	entity.video.active.height = 32
+	entity.video.active.frames = 1
+	entity.video.active.texture = sdl.CreateTexture(
 		gm.displays[.Projection].renderer,
 		.BGRA32,
 		.STREAMING,
 		64,
 		32,
 	)
-	ensure(state.active.texture != nil)
+	ensure(entity.video.active.texture != nil)
 	pixels: [64 * 32 * 4]u8
 	for offset := 0; offset < len(pixels); offset += 4 {
 		pixels[offset + 2] = 255
 		pixels[offset + 3] = 255
 	}
-	ensure(sdl.UpdateTexture(state.active.texture, nil, &pixels[0], 64 * 4))
-	projection.state = state
-	gm.video = state
+	ensure(sdl.UpdateTexture(entity.video.active.texture, nil, &pixels[0], 64 * 4))
 	return projection
 }
 
@@ -513,15 +671,14 @@ video_test_projection_pixel :: proc(projection: VideoTestProjection, y: i32 = 32
 video_test_projection_destroy :: proc(t: ^testing.T, projection: VideoTestProjection) {
 	video_page_clear()
 	deadline := time.time_add(time.now(), time.Second * 5)
-	for len(projection.state.retired) > 0 && time.diff(time.now(), deadline) > 0 {
+	for len(video_entity_get().video.retired) > 0 && time.diff(time.now(), deadline) > 0 {
 		video_update()
 		time.sleep(time.Millisecond * 5)
 	}
-	testing.expect_value(t, len(projection.state.retired), 0)
+	testing.expect_value(t, len(video_entity_get().video.retired), 0)
 	sdl.DestroyRenderer(gm.displays[.Projection].renderer)
 	sdl.DestroySurface(projection.surface)
 	gm.displays[.Projection].renderer = projection.renderer_previous
-	gm.video = projection.state_previous
 	gm = projection.gm_previous
 	ensure(os.set_working_directory(projection.directory_previous) == nil)
 	ensure(os.remove_all(projection.directory) == nil)
@@ -683,16 +840,19 @@ video_test_playback_stop :: proc(t: ^testing.T, playback: ^VideoPlayback) {
 	context.allocator = game_test_arena_init(&arena)
 	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
-	gm.video = new(VideoState)
-	gm.video.active = playback
+	entity_must_get(video_entity_ensure()).video.active = playback
 	video_page_clear()
 
 	deadline := time.time_add(time.now(), time.Second * 5)
-	for len(gm.video.retired) > 0 && time.diff(time.now(), deadline) > 0 {
+	for len(video_entity_get().video.retired) > 0 && time.diff(time.now(), deadline) > 0 {
 		video_update()
 		time.sleep(time.Millisecond * 5)
 	}
-	testing.expect(t, len(gm.video.retired) == 0, "retired playback should be reaped and freed")
+	testing.expect(
+		t,
+		len(video_entity_get().video.retired) == 0,
+		"retired playback should be reaped and freed",
+	)
 }
 
 // Pump the state machine until one of the wanted states is reached or the

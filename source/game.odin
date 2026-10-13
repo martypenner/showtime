@@ -46,8 +46,6 @@ DisplayKind :: enum u8 {
 	Projection,
 }
 
-// One window's handles plus the imgui backend bound to them.
-// kind identifies which role this display serves.
 Display :: struct {
 	kind:          DisplayKind,
 	window:        ^sdl.Window,
@@ -58,6 +56,9 @@ Display :: struct {
 
 GameMemory :: struct {
 	should_run:            bool,
+	entities:              Entity_Store,
+	projection_source:     ProjectionSource,
+	projection_handle:     Entity_Handle,
 	sound_settings:        ^SoundSettings,
 	lighting:              struct {
 		socket:         Maybe(net.UDP_Socket),
@@ -69,22 +70,15 @@ GameMemory :: struct {
 		color:          [3]f32,
 	},
 	active_tab:            Tab,
-	timers:                [MAX_TIMERS]Timer,
-	timer_marks:           [MAX_TIMER_MARKS]TimerMark,
-	timer_marks_count:     int,
 	timer_serial_next:     int,
 	timer_ui:              struct {
-		overflow_hint_seconds:       f32,
-		marks_overflow_hint_seconds: f32,
-		label_input:                 [64]u8,
-		seconds_input:               f32,
+		label_input:   [64]u8,
+		seconds_input: f32,
 	},
 	game_mode:             struct {
 		sounds_like_a_song_playlist: ^Playlist,
 	},
-	video:                 ^VideoState,
 	scores:                ^ScoreState,
-	// Read-only track dataset, loaded once.
 	tracks:                map[string]GeneratedTrack,
 	tracks_data:           []byte,
 	frame:                 struct {
@@ -92,18 +86,12 @@ GameMemory :: struct {
 		dt:        f32,
 	},
 	displays:              [DisplayKind]Display,
-	// imgui allocator functions, DLL-global statics that reset to nil when
-	// a new DLL loads, so they must be saved on first init and restored here.
 	imgui_alloc_func:      imgui.MemAllocFunc,
 	imgui_free_func:       imgui.MemFreeFunc,
 	imgui_alloc_user_data: rawptr,
 }
 
-// Unified envelope: at_seconds plus value. Music gain, lighting weight,
-// duck gain, and timer blink alpha all sample through envelope_value_at,
-// so the timestamped-lerp lives in one place. Points must be in ascending
-// at_seconds order, starting at 0; sampling holds the first value before
-// the first point and the last value past the last point.
+// Points must be in ascending at_seconds order, starting at 0.
 Envelope_Point :: struct {
 	at_seconds: f32,
 	value:      f32,
@@ -128,8 +116,6 @@ envelope_value_at :: proc(keys: []Envelope_Point, elapsed_seconds: f32) -> f32 {
 	return previous.value
 }
 
-// Ticks a seconds-remaining countdown toward zero, reporting expiry.
-// Sticks at zero once expired, so idle countdowns read expired.
 countdown_tick :: proc(remaining: ^f32, dt: f32) -> bool {
 	ensure(remaining != nil)
 	if remaining^ <= 0 do return true
@@ -144,10 +130,6 @@ update :: proc() {
 
 	event: sdl.Event
 	for sdl.PollEvent(&event) {
-		// QUIT has no windowID, so it must be handled before the
-		// per-window routing below. SDL's default SIGINT/SIGTERM
-		// handlers post this event, which is what Ctrl-C and the
-		// watch script's kill send. Any window closing should quit.
 		#partial switch event.type {
 		case .QUIT, .WINDOW_CLOSE_REQUESTED:
 			gm.should_run = false
@@ -159,7 +141,6 @@ update :: proc() {
 			imgui.SetCurrentContext(display.imgui_context)
 			imsdl3.ProcessEvent(&event)
 
-			// Only the controls window takes hotkeys.
 			if kind != .Controls do continue
 			#partial switch event.type {
 			case .KEY_DOWN:
@@ -175,10 +156,7 @@ update :: proc() {
 		}
 	}
 
-	sound_update(gm.frame.dt)
-	lighting_update(gm.frame.dt)
-	timers_update(gm.frame.dt)
-	video_update()
+	entities_frame_update(gm.frame.dt)
 }
 
 draw :: proc() {
@@ -186,18 +164,18 @@ draw :: proc() {
 	draw_display(.Controls, controls_draw)
 }
 
-// Active timers own the projection; score wins over video when idle.
 ProjectionSource :: enum u8 {
 	Timer,
 	Video,
 	Score,
+	Blank,
 }
 
 projection_source_resolve :: proc() -> ProjectionSource {
 	if timers_any_running() do return .Timer
 	if score_projection_shown() do return .Score
 	if video_projection_shown() do return .Video
-	return .Timer
+	return .Blank
 }
 
 @(private = "file")
@@ -215,14 +193,13 @@ draw_display :: proc(kind: DisplayKind, draw_ui: proc()) {
 	sdl.SetRenderDrawColor(display.renderer, 16, 16, 16, sdl.ALPHA_OPAQUE)
 	sdl.RenderClear(display.renderer)
 	if kind == .Projection {
-		// Slide art sits under the imgui draw data, at 1:1 pixel scale.
 		sdl.SetRenderScale(display.renderer, 1, 1)
-		switch projection_source_resolve() {
+		switch gm.projection_source {
 		case .Score:
 			score_projection_background_render(display.renderer)
 		case .Video:
 			video_projection_render(display.renderer)
-		case .Timer:
+		case .Timer, .Blank:
 		}
 	}
 	sdl.SetRenderScale(
@@ -238,8 +215,6 @@ draw_display :: proc(kind: DisplayKind, draw_ui: proc()) {
 game_update :: proc() {
 	update()
 	draw()
-
-	// Everything on tracking allocator is valid until end-of-frame.
 	free_all(context.temp_allocator)
 }
 
@@ -284,9 +259,6 @@ game_init_window :: proc() {
 		sdl.WINDOWPOS_CENTERED,
 	)
 
-	// Setup Dear ImGui, one context per window. Each context needs its own
-	// platform + renderer backend and font atlas: an SDL_Texture, the font
-	// atlas included, can only be used with the renderer that created it.
 	imgui.CHECKVERSION()
 	for kind in DisplayKind {
 		display := &gm.displays[kind]
@@ -308,8 +280,6 @@ display_titles := [DisplayKind]cstring {
 	.Projection = "Showtime Projection",
 }
 
-// Window flags differ per role: the projection always starts maximized,
-// the controls window only outside debug builds.
 @(private = "file")
 display_flags :: proc(kind: DisplayKind) -> sdl.WindowFlags {
 	switch kind {
@@ -338,7 +308,6 @@ imgui_context_init :: proc(
 	imgui_io.ConfigFlags += {.NavEnableKeyboard}
 	imgui.FontAtlas_AddFontDefaultVector(imgui_io.Fonts)
 
-	// No imgui.ini: all layout is defined in code, so there is nothing to persist.
 	imgui_io.IniFilename = nil
 
 	imgui.StyleColorsDark()
@@ -355,11 +324,12 @@ imgui_context_init :: proc(
 
 game_memory_make :: proc() -> ^GameMemory {
 	memory := new(GameMemory)
-	memory^ = GameMemory {
-		should_run = true,
-		timer_ui = {seconds_input = DEFAULT_TIMER_SECONDS},
-		lighting = {color = {1, 1, 1}},
+	memory^ = GameMemory{
+		should_run  = true,
+		timer_ui    = {seconds_input = DEFAULT_TIMER_SECONDS},
+		lighting    = {color = {1, 1, 1}},
 	}
+	entity_store_init(&memory.entities)
 	return memory
 }
 
@@ -370,7 +340,7 @@ game_init :: proc() {
 
 	gm.sound_settings = sound_settings_init()
 
-	gm.video = video_init()
+	video_init()
 
 	gm.scores = score_init()
 	imgui.SetCurrentContext(gm.displays[.Projection].imgui_context)
@@ -434,7 +404,8 @@ game_memory_size :: proc() -> int {
 	// Nested video layouts also require a restart when they change.
 	return(
 		size_of(GameMemory) +
-		size_of(VideoState) +
+		size_of(Entity_Store) +
+		size_of(Entity) +
 		size_of(VideoPlayback) +
 		size_of(VideoDecoder) \
 	)
@@ -445,16 +416,12 @@ game_hot_reloaded :: proc(mem: rawptr) {
 	gm = (^GameMemory)(mem)
 
 	if gm.imgui_alloc_func == nil {
-		// First load: save the imgui allocator functions, DLL-global
-		// statics that reset to nil when a new DLL loads.
 		imgui.GetAllocatorFunctions(
 			&gm.imgui_alloc_func,
 			&gm.imgui_free_func,
 			&gm.imgui_alloc_user_data,
 		)
 	} else {
-		// Hot reload: restore the allocator functions into the new DLL,
-		// then refresh the per-context IO pointers.
 		imgui.SetCurrentContext(gm.displays[.Controls].imgui_context)
 		imgui.SetAllocatorFunctions(
 			gm.imgui_alloc_func,

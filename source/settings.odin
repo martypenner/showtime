@@ -7,9 +7,22 @@ import norm "path_normalize"
 
 SETTINGS_FILENAME :: "settings.sjson"
 
-SettingsFile :: struct {
-	using _:     SoundSettings,
-	video_pages: map[string]VideoPlaybackMode,
+// Explicit persisted surface. Same keys as the previous inline mix of
+// SoundSettings and video pages, so the current settings.sjson carries over
+// with no migration step. Runtime state (browser indices, wave fractions,
+// live handles, mixer objects, scores, timers, marks, lighting) stays out.
+App_Settings :: struct {
+	use_house_music:    bool,
+	fade_in_time:       f32,
+	fade_out_time:      f32,
+	start_next_time:    f32,
+	shuffle:            bool,
+	loop:               bool,
+	normalize_volume:   bool,
+	target_loudness:    f32,
+	music_track_bounds: map[string]MusicTrackBounds,
+	played_track_paths: map[string]bool,
+	video_pages:        map[string]VideoPlaybackMode,
 }
 
 settings_load :: proc(settings: ^$T) {
@@ -20,16 +33,58 @@ settings_load :: proc(settings: ^$T) {
 	log.ensuref(json_err == nil, "Error unmarshaling settings file: %v", json_err)
 }
 
-settings_save :: proc() {
-	ensure(gm.sound_settings != nil && gm.video != nil)
-	sound := gm.sound_settings^
-	sound.played_track_paths = make(map[string]bool, context.temp_allocator)
-	for &playlist in sound.playlists {
-		for &track in playlist.tracks {
-			if track.played do sound.played_track_paths[norm.path_nfc(track.path)] = true
+// Track bounds persist from the track entities. Paths without an entity
+// (synthetic test fixtures) fall back to the runtime map so nothing drops.
+// The map travels by pointer because element assignment through a bare map
+// parameter is rejected.
+entity_track_bounds_write :: proc(out: ^map[string]MusicTrackBounds) {
+	ensure(gm != nil)
+	for handle in gm.entities.track {
+		entity, ok := entity_get(handle)
+		ensure(ok)
+		track := &entity.track
+		if len(track.file_hash) == 0 || track.bounds_end_s <= track.bounds_start_s do continue
+		// Full-range bounds are the default and never persist.
+		if track.bounds_start_s <= 0 && track.bounds_end_s >= track.duration_s do continue
+		out[norm.path_nfc(track.path)] = MusicTrackBounds{
+			file_hash  = track.file_hash,
+			start_time = track.bounds_start_s,
+			end_time   = track.bounds_end_s,
 		}
 	}
-	settings := SettingsFile{sound, gm.video.settings.pages}
+	for path, bound in gm.sound_settings.music_track_bounds {
+		if path not_in out do out[path] = bound
+	}
+}
+
+settings_save :: proc() {
+	ensure(gm.sound_settings != nil && video_entity_get() != nil)
+	played := make(map[string]bool, context.temp_allocator)
+	for &playlist in gm.sound_settings.playlists {
+		for &track in playlist.tracks {
+			if track.played do played[norm.path_nfc(track.path)] = true
+		}
+	}
+	for handle in gm.entities.track {
+		entity, ok := entity_get(handle)
+		ensure(ok)
+		if entity.track.played do played[norm.path_nfc(entity.track.path)] = true
+	}
+	bounds := make(map[string]MusicTrackBounds, context.temp_allocator)
+	entity_track_bounds_write(&bounds)
+	settings := App_Settings {
+		use_house_music    = gm.sound_settings.use_house_music,
+		fade_in_time       = gm.sound_settings.fade_in_time,
+		fade_out_time      = gm.sound_settings.fade_out_time,
+		start_next_time    = gm.sound_settings.start_next_time,
+		shuffle            = gm.sound_settings.shuffle,
+		loop               = gm.sound_settings.loop,
+		normalize_volume   = gm.sound_settings.normalize_volume,
+		target_loudness    = gm.sound_settings.target_loudness,
+		music_track_bounds = bounds,
+		played_track_paths = played,
+		video_pages        = video_entity_get().video.settings.pages,
+	}
 	data, json_err := json.marshal(
 		settings,
 		json.Marshal_Options {

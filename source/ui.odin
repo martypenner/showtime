@@ -106,10 +106,10 @@ music_browser_track_selected :: proc() -> ^Track {
 }
 
 show_pre_show :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps              = {.Has_Music, .Has_Lighting},
 		triggers          = {.Music, .Lighting},
-		playlist          = .Kids_on_Bikes_80s_Explore,
+		playlist          = entity_playlist_handle_for_name(.Kids_on_Bikes_80s_Explore),
 		music_volume      = 0.3,
 		fade_in_s         = gm.sound_settings.fade_in_time,
 		fade_out_s        = gm.sound_settings.fade_out_time,
@@ -120,10 +120,10 @@ show_pre_show :: proc() {
 }
 
 show_arena_pre_show :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps              = {.Has_Music, .Has_Lighting},
 		triggers          = {.Music, .Lighting},
-		playlist          = .Arena_Pre_show,
+		playlist          = entity_playlist_handle_for_name(.Arena_Pre_show),
 		music_volume      = 0.2,
 		fade_in_s         = gm.sound_settings.fade_in_time,
 		fade_out_s        = gm.sound_settings.fade_out_time,
@@ -134,10 +134,10 @@ show_arena_pre_show :: proc() {
 }
 
 show_start :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Music},
 		triggers     = {.Music},
-		playlist     = .Show_Starters,
+		playlist     = entity_playlist_handle_for_name(.Show_Starters),
 		music_volume = 0.7,
 		fade_in_s    = 0.5,
 		fade_out_s   = gm.sound_settings.fade_out_time,
@@ -146,10 +146,10 @@ show_start :: proc() {
 }
 
 show_post_show :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps              = {.Has_Music, .Has_Lighting},
 		triggers          = {.Music, .Lighting},
-		playlist          = .Kids_on_Bikes_80s_Explore,
+		playlist          = entity_playlist_handle_for_name(.Kids_on_Bikes_80s_Explore),
 		music_volume      = 0.7,
 		fade_in_s         = gm.sound_settings.fade_in_time,
 		fade_out_s        = gm.sound_settings.fade_out_time,
@@ -160,7 +160,7 @@ show_post_show :: proc() {
 }
 
 show_to_house :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps              = {.Has_Lighting},
 		triggers          = {.Lighting},
 		look              = .House,
@@ -169,7 +169,7 @@ show_to_house :: proc() {
 	if gm.sound_settings.use_house_music {
 		cue.caps += {.Has_Music}
 		cue.triggers += {.Music}
-		cue.playlist = .Kids_on_Bikes_80s_Explore
+		cue.playlist = entity_playlist_handle_for_name(.Kids_on_Bikes_80s_Explore)
 		cue.music_volume = 0.05
 		cue.fade_in_s = gm.sound_settings.fade_in_time
 		cue.fade_out_s = gm.sound_settings.fade_out_time
@@ -206,11 +206,10 @@ show_scene_ramp :: proc() {
 }
 
 show_scene_fade :: proc() {
-	music_playbacks_fade_all(2)
-
-	cue := Cue {
-		caps              = {.Has_Lighting},
-		triggers          = {.Lighting},
+	cue := Entity_Cue {
+		caps              = {.Has_Music, .Has_Lighting, .Has_Video},
+		triggers          = {.Lighting, .Fade_Out},
+		fade_out_s        = 2,
 		look              = .SceneWithFullFade,
 		lighting_fx_reset = true,
 	}
@@ -239,10 +238,10 @@ show_ave_maria :: proc() {
 			music_playback_stop(&playback)
 		}
 	} else {
-		cue := Cue {
+		cue := Entity_Cue {
 			caps         = {.Has_Music},
 			triggers     = {.Music},
-			playlist     = .Ave_Maria,
+			playlist     = entity_playlist_handle_for_name(.Ave_Maria),
 			music_volume = 0.8,
 			fade_in_s    = gm.sound_settings.fade_in_time,
 			fade_out_s   = 0.3,
@@ -271,10 +270,10 @@ game_innuendo :: proc() {
 	if playlist_is_current(.Sex_With_Me) {
 		music_playbacks_fade_all(2)
 	} else {
-		cue := Cue {
+		cue := Entity_Cue {
 			caps         = {.Has_Music},
 			triggers     = {.Music},
-			playlist     = .Sex_With_Me,
+			playlist     = entity_playlist_handle_for_name(.Sex_With_Me),
 			music_volume = 0.6,
 			fade_in_s    = gm.sound_settings.fade_in_time,
 			fade_out_s   = gm.sound_settings.fade_out_time,
@@ -367,7 +366,7 @@ game_challenge :: proc() {
 }
 
 game_final_showdown :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound, .Has_Lighting},
 		triggers     = {.Sound, .Lighting},
 		sound        = ._810166_Long_Brass_Stab,
@@ -378,7 +377,7 @@ game_final_showdown :: proc() {
 }
 
 lighting_house :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps              = {.Has_Lighting},
 		triggers          = {.Lighting},
 		look              = .House,
@@ -388,7 +387,7 @@ lighting_house :: proc() {
 }
 
 lighting_scene :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps              = {.Has_Lighting},
 		triggers          = {.Lighting},
 		look              = .Scene,
@@ -398,9 +397,10 @@ lighting_scene :: proc() {
 }
 
 lighting_scene_fade :: proc() {
-	cue := Cue {
-		caps              = {.Has_Lighting},
-		triggers          = {.Lighting},
+	cue := Entity_Cue {
+		caps              = {.Has_Lighting, .Has_Video},
+		triggers          = {.Lighting, .Fade_Out},
+		fade_out_s        = 2,
 		look              = .SceneWithFullFade,
 		lighting_fx_reset = true,
 	}
@@ -410,15 +410,22 @@ lighting_scene_fade :: proc() {
 lighting_fade_to_black :: proc() {
 	lighting_fx_deactivate_all()
 	lighting_fx_run(.Blackout, {{0, gm.lighting.fx[.Blackout].weight_current}, {2, 1}})
+	fade := Entity_Cue {
+		caps       = {.Has_Video},
+		triggers   = {.Fade_Out},
+		fade_out_s = 2,
+	}
+	cue_dispatch(&fade)
 }
 
 lighting_cut_to_black :: proc() {
 	lighting_fx_deactivate_all()
 	lighting_fx_run(.Blackout, {{0, 1}})
+	video_page_clear()
 }
 
 lighting_center_focus :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps              = {.Has_Lighting},
 		triggers          = {.Lighting},
 		look              = .CenterFocus,
@@ -445,7 +452,7 @@ lighting_rainbow_sting_toggle :: proc() {
 }
 
 sound_play_break_glass :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY,
@@ -455,7 +462,7 @@ sound_play_break_glass :: proc() {
 }
 
 sound_play_gunshot :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Single_Gunshot_54_40780,
@@ -465,7 +472,7 @@ sound_play_gunshot :: proc() {
 }
 
 sound_play_scream_lady :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Woman_Screaming_Sfx_Screaming_Sound_Effect_320169,
@@ -475,7 +482,7 @@ sound_play_scream_lady :: proc() {
 }
 
 sound_play_fireworks :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Fireworks_13_419033,
@@ -485,7 +492,7 @@ sound_play_fireworks :: proc() {
 }
 
 sound_play_train_horn :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Train_Horn_337875,
@@ -495,7 +502,7 @@ sound_play_train_horn :: proc() {
 }
 
 sound_play_tick_tick_ding :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Ticktickding,
@@ -505,7 +512,7 @@ sound_play_tick_tick_ding :: proc() {
 }
 
 sound_play_ding :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Ding_126626,
@@ -515,7 +522,7 @@ sound_play_ding :: proc() {
 }
 
 sound_play_lightning :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Lightning_237994,
@@ -525,7 +532,7 @@ sound_play_lightning :: proc() {
 }
 
 sound_play_rain :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Calming_Rain_257596,
@@ -535,7 +542,7 @@ sound_play_rain :: proc() {
 }
 
 sound_play_meow :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Cat_Meow,
@@ -545,7 +552,7 @@ sound_play_meow :: proc() {
 }
 
 sound_play_yeeeaaahhh :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Yeeeeaaaaaaaahh,
@@ -555,7 +562,7 @@ sound_play_yeeeaaahhh :: proc() {
 }
 
 sound_play_buzzer :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = ._244932_Kwahmah_02_Short_Buzzer,
@@ -565,7 +572,7 @@ sound_play_buzzer :: proc() {
 }
 
 sound_play_whistle :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = ._495367_Kirkpatricklive_Coach_Whistle_35_Long,
@@ -575,7 +582,7 @@ sound_play_whistle :: proc() {
 }
 
 sound_play_rimshot :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = ._276687_Comedy_Rimshot,
@@ -585,7 +592,7 @@ sound_play_rimshot :: proc() {
 }
 
 sound_play_orchestral_hits :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Double_Orchestral_Hits_C,
@@ -595,7 +602,7 @@ sound_play_orchestral_hits :: proc() {
 }
 
 sound_play_game_show_sting :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = ._502152_Game_Show_Brass_Intro_Sting,
@@ -605,7 +612,7 @@ sound_play_game_show_sting :: proc() {
 }
 
 sound_play_dun_dun_dun :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = .Dun_Dun_Dun,
@@ -615,7 +622,7 @@ sound_play_dun_dun_dun :: proc() {
 }
 
 sound_play_brass_stab :: proc() {
-	cue := Cue {
+	cue := Entity_Cue {
 		caps         = {.Has_Sound},
 		triggers     = {.Sound},
 		sound        = ._810166_Long_Brass_Stab,
@@ -1050,7 +1057,7 @@ controls_draw :: proc() {
 				controls_group_end()
 			}
 
-			ensure(gm.video != nil && gm.scores != nil)
+			ensure(video_entity_get() != nil && gm.scores != nil)
 			list_row_height := imgui.GetTextLineHeightWithSpacing()
 			list_padding := imgui.GetStyle().FramePadding.y * 2
 			list_height_min := list_row_height * 6 + list_padding
@@ -1060,7 +1067,7 @@ controls_draw :: proc() {
 			)
 			video_height_needed := max(
 				list_height_min,
-				f32(len(gm.video.pages)) * list_row_height + list_padding,
+				f32(len(video_entity_get().video.pages)) * list_row_height + list_padding,
 			)
 			score_height_needed :=
 				imgui.GetFrameHeightWithSpacing() * 4 +
@@ -1075,7 +1082,7 @@ controls_draw :: proc() {
 				imgui.GetStyle().WindowPadding.y * 4 +
 				imgui.GetStyle().ItemSpacing.y * 4 +
 				score_height_needed
-			if gm.video.active != nil {
+			if video_entity_get().video.active != nil {
 				sections_height += imgui.GetFrameHeightWithSpacing()
 			}
 			list_height_extra := max(
@@ -1313,20 +1320,23 @@ projection_draw :: proc() {
 	)
 	imgui.PopStyleVar(3)
 
-	switch projection_source_resolve() {
+	switch gm.projection_source {
 	case .Score:
 		score_projection_draw()
 	case .Timer:
 		imgui.PushFontFloat(nil, 500)
-		text := strings.clone_to_cstring(timers_projection_text(), context.temp_allocator)
+		text := strings.clone_to_cstring(
+			timers_projection_text_from(gm.projection_handle),
+			context.temp_allocator,
+		)
 		text_size := imgui.CalcTextSize(text)
 		imgui.SetCursorPos(
 			{(vp.WorkSize.x - text_size.x) * 0.5, (vp.WorkSize.y - text_size.y) * 0.5},
 		)
 		imgui.TextColored({0.85, 0.25, 0.25, 1}, text)
 		imgui.PopFont()
-	case .Video:
-	// The video texture is the background; nothing imgui to add.
+	case .Video, .Blank:
+	// The video texture is the background; blank leaves it black.
 	}
 
 	imgui.End()

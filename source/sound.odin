@@ -14,10 +14,6 @@ import norm "path_normalize"
 import sdl "vendor:sdl3"
 import mixer "vendor:sdl3/mixer"
 
-// Sound-owned data lives here, next to the behavior that reads and mutates it.
-// The shared GameMemory holds only a pointer to SoundSettings (the hot-reload
-// persistence shell), so these definitions stay local to the sound Module.
-
 MusicTrackBounds :: struct {
 	file_hash:  string,
 	start_time: f32,
@@ -26,7 +22,6 @@ MusicTrackBounds :: struct {
 
 SoundSettings :: struct {
 	mixer:                        ^mixer.Mixer `json:"-"`,
-	// The endpoint/default volume (0..1) for ordinary playback.
 	music_volume:                 f32 `json:"-"`,
 	use_house_music:              bool,
 	fade_in_time:                 f32,
@@ -45,18 +40,14 @@ SoundSettings :: struct {
 	music_browser_track_index:    i32 `json:"-"`,
 	settings_save_time_left:      f32 `json:"-"`,
 	music_playbacks:              [MUSIC_PLAYBACK_COUNT]MusicPlayback `json:"-"`,
-	current_sounds:               SoundVoices `json:"-"`,
 	pending_sounds:               PendingSounds `json:"-"`,
 	is_sound_playing:             bool `json:"-"`,
-	// Multiplier on all music track gain while sound effects are playing.
 	duck_gain:                    f32 `json:"-"`,
 	wave_editor_preview:          WaveEditorPreview `json:"-"`,
 	wave_editor_start_fraction:   f32 `json:"-"`,
 	wave_editor_end_fraction:     f32 `json:"-"`,
 }
 
-// A cross-fade only ever blends the outgoing track into the incoming one, so two
-// playbacks is the most we need.
 MUSIC_PLAYBACK_COUNT :: 2
 
 MusicPlayback :: struct {
@@ -97,22 +88,8 @@ SOUND_FADE_OUT_DURATION :: f32(2.0)
 SOUND_REPLAY_FADE_THRESHOLD :: f32(4.0)
 SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION :: f32(0.25)
 
-// Music ducks to this gain multiplier while sound effects play, ramping down
-// and back up over MUSIC_DUCK_SECONDS. The return starts in the last
-// MUSIC_DUCK_SECONDS of the soonest-ending sound effect.
 MUSIC_DUCK_GAIN :: f32(0.2)
 MUSIC_DUCK_SECONDS :: f32(0.2)
-
-SoundVoice :: struct {
-	audio:       ^mixer.Audio,
-	mixer_track: ^mixer.Track,
-	name:        SoundEffectName,
-	volume:      f32,
-	duration:    f32,
-	fading:      bool,
-}
-
-SoundVoices :: [dynamic; 32]SoundVoice
 
 PendingSound :: struct {
 	name:        SoundEffectName,
@@ -124,18 +101,8 @@ PendingSounds :: [dynamic; 8]PendingSound
 
 TrackKeys :: [dynamic; 512]PathName
 
-// Track paths are stored relative to the directory the binary is run from so
-// the gain cache in settings stays portable across machines and checkouts.
-// Playlist dirs are usually symlinks; keys/paths go through the symlink
-// (assets/sound/music/<playlist>/<track>) rather than the resolved target,
-// so the cache stays portable even when the symlink target moves.
 MUSIC_DIR :: "assets/sound/music"
 
-// Track metadata and waveforms load at runtime from the binary blob that
-// source/tools/generate_enums writes to assets/sound/music.rms. Keeping the
-// multi-thousand-track dataset out of compiled Odin source keeps build times
-// down. Strings and waveform slices point into the loaded buffer, which lives
-// as long as the game memory arena.
 TRACK_DATA_PATH :: "assets/sound/music.rms"
 TRACK_DATA_MAGIC :: "RMST"
 TRACK_DATA_VERSION :: 1
@@ -238,8 +205,6 @@ playlists_load :: proc() -> Playlists {
 		playlists:           ^Playlists,
 		playlist_index:      int,
 		track_index:         int,
-		// All tasks share one mutex guarding writes to the shared track_keys list
-		// and the reserved slots in each playlist's track array.
 		mutex:               ^sync.Mutex,
 	}
 
@@ -325,7 +290,83 @@ playlists_load :: proc() -> Playlists {
 		log.ensuref(generated_track_ok, "Missing generated track metadata for %s", track_key)
 	}
 
+	sound_playlist_entities_create(&playlists)
+
 	return playlists
+}
+
+sound_playlist_entities_create :: proc(playlists: ^Playlists) {
+	ensure(playlists != nil)
+	for &playlist in playlists {
+		playlist_handle := entity_playlist_create(playlist.name)
+		for &track in playlist.tracks {
+			track_handle := entity_track_create(track.path, track.title)
+			track_entity := entity_must_get(track_handle)
+			generated, ok := gm.tracks[norm.path_nfc(track.path)]
+			log.ensuref(ok, "Missing generated track metadata for %s", track.path)
+			track_entity.track.duration_s = generated.duration_seconds
+			track_entity.track.file_hash = generated.file_hash
+			track_entity.track.bounds_start_s = 0
+			track_entity.track.bounds_end_s = generated.duration_seconds
+			playlist_entity := entity_must_get(playlist_handle)
+			append(&playlist_entity.playlist_tracks, track_handle)
+		}
+	}
+}
+
+track_played_set :: proc(path: string, played: bool) {
+	if handle := entity_track_handle_for_path(path); handle != ENTITY_HANDLE_NIL {
+		entity_must_get(handle).track.played = played
+	}
+}
+
+track_bounds_set :: proc(path: string, bounds: MusicTrackBounds) {
+	gm.sound_settings.music_track_bounds[norm.path_nfc(path)] = bounds
+	if handle := entity_track_handle_for_path(path); handle != ENTITY_HANDLE_NIL {
+		entity := entity_must_get(handle)
+		entity.track.file_hash = bounds.file_hash
+		entity.track.bounds_start_s = bounds.start_time
+		entity.track.bounds_end_s = bounds.end_time
+	}
+}
+
+track_bounds_delete :: proc(path: string) {
+	delete_key(&gm.sound_settings.music_track_bounds, norm.path_nfc(path))
+	if handle := entity_track_handle_for_path(path); handle != ENTITY_HANDLE_NIL {
+		entity := entity_must_get(handle)
+		entity.track.bounds_start_s = 0
+		entity.track.bounds_end_s = entity.track.duration_s
+	}
+}
+
+music_entity_ensure :: proc() -> Entity_Handle {
+	if len(gm.entities.music) > 0 {
+		if _, ok := entity_get(gm.entities.music[0]); ok do return gm.entities.music[0]
+	}
+	return entity_create({.Music}, "Music")
+}
+
+music_entity_sync :: proc() {
+	if gm == nil || gm.sound_settings == nil do return
+	entity := entity_must_get(music_entity_ensure())
+	primary := gm.sound_settings.music_playback_primary
+	if primary == nil || primary.mixer_track == nil {
+		entity.music = {}
+		return
+	}
+	entity.music.playback = primary
+	entity.music.playlist = ENTITY_HANDLE_NIL
+	entity.music.track = ENTITY_HANDLE_NIL
+	if primary.playlist != nil {
+		entity.music.playlist = entity_playlist_handle_for_label(primary.playlist.name)
+	}
+	if primary.track != nil {
+		entity.music.track = entity_track_handle_for_path(primary.track.path)
+	}
+	entity.music.volume_endpoint = 0
+	if primary.volume_point_count > 0 {
+		entity.music.volume_endpoint = music_playback_volume_endpoint(primary)
+	}
 }
 
 track_volume_multiplier :: proc(active_rms: f32) -> f32 {
@@ -366,7 +407,6 @@ sound_play_options :: proc(
 	return props
 }
 
-// Stop a mixer voice if it still plays, then release its track and audio.
 voice_track_teardown :: proc(track: ^mixer.Track, audio: ^mixer.Audio) {
 	if mixer.TrackPlaying(track) do ensure(mixer.StopTrack(track, 0))
 	mixer.DestroyTrack(track)
@@ -382,18 +422,20 @@ sound_play :: proc(name: SoundEffectName, volume: f32, delay_s: f32 = 0) -> ^mix
 		return nil
 	}
 
-	for &voice in gm.sound_settings.current_sounds {
-		if !sound_retrigger_fade_needed(voice.name, name, mixer.TrackPlaying(voice.mixer_track), voice.duration) do continue
-		if !voice.fading {
-			voice.fading = true
+	for handle in gm.entities.sound {
+		voice, ok := entity_get(handle)
+		ensure(ok)
+		if !sound_retrigger_fade_needed(voice.sound.name, name, mixer.TrackPlaying(voice.sound.mixer_track), voice.sound.duration_s) do continue
+		if !voice.sound.fading {
+			voice.sound.fading = true
 			ensure(
 				mixer.StopTrack(
-					voice.mixer_track,
-					mixer.TrackMSToFrames(voice.mixer_track, i64(SOUND_FADE_OUT_DURATION * 1000)),
+					voice.sound.mixer_track,
+					mixer.TrackMSToFrames(voice.sound.mixer_track, i64(SOUND_FADE_OUT_DURATION * 1000)),
 				),
 			)
 		}
-		return voice.mixer_track
+		return voice.sound.mixer_track
 	}
 
 	path := strings.clone_to_cstring(sound_effect_path(name), context.temp_allocator)
@@ -407,16 +449,15 @@ sound_play :: proc(name: SoundEffectName, volume: f32, delay_s: f32 = 0) -> ^mix
 	duration_frames := mixer.GetAudioDuration(audio)
 	ensure(duration_frames > 0)
 
-	append(
-		&gm.sound_settings.current_sounds,
-		SoundVoice {
-			audio = audio,
-			mixer_track = track,
-			name = name,
-			volume = volume,
-			duration = f32(mixer.AudioFramesToMS(audio, duration_frames)) / 1000,
-		},
-	)
+	handle := entity_create({.Sound}, "")
+	voice := entity_must_get(handle)
+	voice.sound = {
+		mixer_audio = audio,
+		mixer_track = track,
+		name        = name,
+		volume      = volume,
+		duration_s  = f32(mixer.AudioFramesToMS(audio, duration_frames)) / 1000,
+	}
 	gm.sound_settings.is_sound_playing = true
 
 	return track
@@ -627,7 +668,7 @@ music_playback_start :: proc(
 	)
 	if stale {
 		log.warnf("Ignoring bounds for changed track: %s", track.path)
-		delete_key(&gm.sound_settings.music_track_bounds, norm.path_nfc(track.path))
+		track_bounds_delete(track.path)
 		gm.sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
 	}
 	stream_length := f32(mixer.AudioFramesToMS(audio, mixer.GetAudioDuration(audio))) / 1000
@@ -772,6 +813,7 @@ music_playback_start_playlist_track :: proc(
 	gm.sound_settings.current_playing_playlist = playlist
 	gm.sound_settings.music_playback_primary = playback
 	track.played = true
+	track_played_set(track.path, true)
 	gm.sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
 	playlist.current_playing_track = track
 	playlist.last_played_track = track
@@ -909,11 +951,14 @@ music_playback_update :: proc(playback: ^MusicPlayback) -> bool {
 }
 
 playlist_find_by_name :: proc(playlist_name: PlaylistName) -> ^Playlist {
-	name := playlist_name_string(playlist_name)
+	return playlist_find_by_label(playlist_name_string(playlist_name))
+}
+
+playlist_find_by_label :: proc(label: string) -> ^Playlist {
 	for &playlist in gm.sound_settings.playlists {
-		if playlist.name == name do return &playlist
+		if playlist.name == label do return &playlist
 	}
-	log.warnf("Couldn't find playlist, skipping: %s", name)
+	log.warnf("Couldn't find playlist, skipping: %s", label)
 	return nil
 }
 
@@ -924,6 +969,7 @@ playlist_pick_random_track :: proc(playlist: ^Playlist) -> ^Track {
 	// Playlist exhausted: clear played flags so it can be replayed next time.
 	for &current_track in playlist.tracks {
 		current_track.played = false
+		track_played_set(current_track.path, false)
 	}
 	gm.sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
 	if !gm.sound_settings.loop do return nil
@@ -980,6 +1026,15 @@ sound_settings_init :: proc() -> ^SoundSettings {
 			if _, ok := settings.played_track_paths[norm.path_nfc(track.path)]; ok {
 				track.played = true
 			}
+			if handle := entity_track_handle_for_path(track.path); handle != ENTITY_HANDLE_NIL {
+				entity := entity_must_get(handle)
+				entity.track.played = track.played
+				if bounds, ok := settings.music_track_bounds[norm.path_nfc(track.path)]; ok {
+					entity.track.file_hash = bounds.file_hash
+					entity.track.bounds_start_s = bounds.start_time
+					entity.track.bounds_end_s = bounds.end_time
+				}
+			}
 		}
 	}
 	for _, playlist_index in settings.playlists {
@@ -1010,6 +1065,13 @@ sound_duck_gain_next :: proc(current_gain, remaining_min_s, dt: f32) -> f32 {
 }
 
 sound_update :: proc(dt: f32) {
+	sound_section_update(dt)
+	music_section_update()
+}
+
+// Sound voices tick here, inside the frame traversal's sound section.
+// Finished voices tear down their mixer objects and leave the store.
+sound_section_update :: proc(dt: f32) {
 	pending_index := 0
 	for pending_index < len(gm.sound_settings.pending_sounds) {
 		pending := &gm.sound_settings.pending_sounds[pending_index]
@@ -1022,29 +1084,33 @@ sound_update :: proc(dt: f32) {
 	}
 
 	sound_index := 0
-	for sound_index < len(gm.sound_settings.current_sounds) {
-		voice := &gm.sound_settings.current_sounds[sound_index]
-		if !mixer.TrackPlaying(voice.mixer_track) {
-			voice_track_teardown(voice.mixer_track, voice.audio)
-			unordered_remove(&gm.sound_settings.current_sounds, sound_index)
+	for sound_index < len(gm.entities.sound) {
+		handle := gm.entities.sound[sound_index]
+		voice, ok := entity_get(handle)
+		ensure(ok)
+		if !mixer.TrackPlaying(voice.sound.mixer_track) {
+			voice_track_teardown(voice.sound.mixer_track, voice.sound.mixer_audio)
+			entity_destroy(handle)
 			continue
 		}
 		sound_index += 1
 	}
-	gm.sound_settings.is_sound_playing = len(gm.sound_settings.current_sounds) > 0
+	gm.sound_settings.is_sound_playing = len(gm.entities.sound) > 0
 
 	remaining_min := f32(0)
-	for &voice in gm.sound_settings.current_sounds {
-		if voice.fading do continue
+	for handle in gm.entities.sound {
+		voice, ok := entity_get(handle)
+		ensure(ok)
+		if voice.sound.fading do continue
 		elapsed :=
 			f32(
 				mixer.AudioFramesToMS(
-					voice.audio,
-					mixer.GetTrackPlaybackPosition(voice.mixer_track),
+					voice.sound.mixer_audio,
+					mixer.GetTrackPlaybackPosition(voice.sound.mixer_track),
 				),
 			) /
 			1000
-		remaining := max(voice.duration - elapsed, 0)
+		remaining := max(voice.sound.duration_s - elapsed, 0)
 		if remaining_min == 0 || remaining < remaining_min do remaining_min = remaining
 	}
 	gm.sound_settings.duck_gain = sound_duck_gain_next(gm.sound_settings.duck_gain, remaining_min, dt)
@@ -1053,7 +1119,11 @@ sound_update :: proc(dt: f32) {
 	   countdown_tick(&gm.sound_settings.settings_save_time_left, dt) {
 		settings_save()
 	}
+}
 
+// The music crossfade engine runs here, inside the frame traversal's music
+// section, then mirrors the primary playback into the music entity.
+music_section_update :: proc() {
 	music_playback_ended: [MUSIC_PLAYBACK_COUNT]bool
 	primary := gm.sound_settings.music_playback_primary
 	for &playback, playback_index in gm.sound_settings.music_playbacks {
@@ -1128,14 +1198,19 @@ sound_update :: proc(dt: f32) {
 		}
 		music_playback_stop(&playback)
 	}
+
+	music_entity_sync()
 }
 
 sound_shutdown :: proc() {
 	if gm.sound_settings.settings_save_time_left > 0 do settings_save()
 	wave_editor_preview_stop()
-	for &voice in gm.sound_settings.current_sounds {
-		voice_track_teardown(voice.mixer_track, voice.audio)
+	for handle in gm.entities.sound {
+		voice, ok := entity_get(handle)
+		ensure(ok)
+		voice_track_teardown(voice.sound.mixer_track, voice.sound.mixer_audio)
 	}
+	entity_domain_clear(&gm.entities.sound)
 	for &playback in gm.sound_settings.music_playbacks do music_playback_stop(&playback)
 	mixer.DestroyMixer(gm.sound_settings.mixer)
 	gm.sound_settings.mixer = nil

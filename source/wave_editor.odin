@@ -92,7 +92,7 @@ wave_editor_track_select :: proc(track: ^Track) {
 	)
 	if stale {
 		log.warnf("Ignoring bounds for changed track: %s", track.path)
-		delete_key(&gm.sound_settings.music_track_bounds, norm.path_nfc(track.path))
+		track_bounds_delete(track.path)
 		gm.sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
 	}
 	gm.sound_settings.wave_editor_start_fraction =
@@ -197,13 +197,16 @@ wave_editor :: proc() {
 	if changed {
 		if gm.sound_settings.wave_editor_start_fraction == 0 &&
 		   gm.sound_settings.wave_editor_end_fraction == 1 {
-			delete_key(&gm.sound_settings.music_track_bounds, norm.path_nfc(track.path))
+			track_bounds_delete(track.path)
 		} else {
-			gm.sound_settings.music_track_bounds[norm.path_nfc(track.path)] = {
-				file_hash  = generated_track.file_hash,
-				start_time = gm.sound_settings.wave_editor_start_fraction * generated_track.duration_seconds,
-				end_time   = gm.sound_settings.wave_editor_end_fraction * generated_track.duration_seconds,
-			}
+			track_bounds_set(
+				track.path,
+				{
+					file_hash = generated_track.file_hash,
+					start_time = gm.sound_settings.wave_editor_start_fraction * generated_track.duration_seconds,
+					end_time = gm.sound_settings.wave_editor_end_fraction * generated_track.duration_seconds,
+				},
+			)
 		}
 		gm.sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
 	}
