@@ -203,8 +203,10 @@ wave_editor :: proc() {
 				track.path,
 				{
 					file_hash = generated_track.file_hash,
-					start_time = gm.sound_settings.wave_editor_start_fraction * generated_track.duration_seconds,
-					end_time = gm.sound_settings.wave_editor_end_fraction * generated_track.duration_seconds,
+					start_time = gm.sound_settings.wave_editor_start_fraction *
+					generated_track.duration_seconds,
+					end_time = gm.sound_settings.wave_editor_end_fraction *
+					generated_track.duration_seconds,
 				},
 			)
 		}

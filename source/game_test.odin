@@ -66,11 +66,7 @@ game_memory_arena_owns_memory_and_returns_backing_allocations :: proc(t: ^testin
 			}
 		}
 	}
-	testing.expect(
-		t,
-		memory_in_arena,
-		"GameMemory should be allocated inside the app arena",
-	)
+	testing.expect(t, memory_in_arena, "GameMemory should be allocated inside the app arena")
 
 	scratch := make(map[LightingFxKind]LightingFx)
 	scratch[.Blackout] = LightingFx {
@@ -123,24 +119,25 @@ projection_source_timer_overrides_video_and_score :: proc(t: ^testing.T) {
 
 	video_entity_ensure()
 	video_entity_get().video.selected = "opener"
-	gm.scores = new(ScoreState)
-	gm.scores.scoreboards = SCOREBOARDS
-	gm.scores.active = 1
-	gm.scores.shown = true
+	gm.scores = score_init()
+	score_board_select(1)
 
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Score)
 
-	gm.scores.shown = false
+	score_projection_hide()
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Video)
 
 	testing.expect(t, timers_add("timer", 30) != ENTITY_HANDLE_NIL)
 	timers_start(0)
 	video_entity_get().video.selected = "opener"
-	gm.scores.shown = true
+	score_board_select(1)
 	testing.expect(t, !video_projection_shown(), "timer should hide video")
 	testing.expect(t, !score_projection_shown(), "timer should hide score")
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
 
 	timers_stop_all()
+	// The timer owns the projection without clearing the selection.
+	testing.expect_value(t, gm.scores.active, 1)
+	testing.expect_value(t, gm.scores_ui.board, 1)
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Score)
 }

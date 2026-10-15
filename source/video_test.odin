@@ -83,9 +83,9 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 	gm.sound_settings = &sound
 	video := entity_must_get(video_entity_ensure())
 	video.video.settings.pages = map[string]VideoPlaybackMode {
-		"opener" = .Loop,
+		"opener"   = .Loop,
 		"halftime" = .Once,
-		"outro" = .Still,
+		"outro"    = .Still,
 	}
 	settings_save()
 
@@ -396,7 +396,11 @@ video_fade_completes_and_clears_deck :: proc(t: ^testing.T) {
 		video_update()
 	}
 	testing.expect(t, entity.video.active == nil, "completion should stop the playback")
-	testing.expect(t, entity.video.previous.texture == nil, "completion should drop the last frame")
+	testing.expect(
+		t,
+		entity.video.previous.texture == nil,
+		"completion should drop the last frame",
+	)
 	testing.expect_value(t, entity.fade.remaining_s, f32(0))
 	testing.expect_value(t, entity.fade.duration_s, f32(0))
 	testing.expect_value(t, video_fade_opacity(), f32(1))
@@ -426,7 +430,11 @@ video_clear_during_fade_stays_blank :: proc(t: ^testing.T) {
 	// and disarms the fade.
 	video_page_clear()
 	testing.expect(t, entity.video.active == nil, "clear should stop the playback mid fade")
-	testing.expect(t, entity.video.previous.texture == nil, "clear should drop the last frame mid fade")
+	testing.expect(
+		t,
+		entity.video.previous.texture == nil,
+		"clear should drop the last frame mid fade",
+	)
 	testing.expect_value(t, entity.fade.remaining_s, f32(0))
 	testing.expect_value(t, video_test_projection_pixel(projection), [3]u8{})
 
@@ -452,7 +460,11 @@ video_fade_keeps_timer_priority :: proc(t: ^testing.T) {
 	testing.expect(t, timers_add("test", 30) != ENTITY_HANDLE_NIL)
 	timers_start(0)
 	video_fade_start(0.2)
-	testing.expect(t, !video_projection_shown(), "a playing timer should own the projection mid fade")
+	testing.expect(
+		t,
+		!video_projection_shown(),
+		"a playing timer should own the projection mid fade",
+	)
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
 
 	gm.frame.dt = 0.1
@@ -566,7 +578,10 @@ video_test_projection_make :: proc(t: ^testing.T) -> VideoTestProjection {
 		{page_id = "next", mode = .Still},
 		{page_id = "missing", mode = .Still},
 	}
-	entity.video.active = video_playback_make({page_id = "previous", mode = .Still}, "previous.mp4")
+	entity.video.active = video_playback_make(
+		{page_id = "previous", mode = .Still},
+		"previous.mp4",
+	)
 	entity.video.active.state = .Holding
 	entity.video.active.width = 64
 	entity.video.active.height = 32

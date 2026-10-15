@@ -628,15 +628,9 @@ sound_duck_gain_next_ramps_down_and_returns :: proc(t: ^testing.T) {
 		t,
 		abs(sound_duck_gain_next(0.5, MUSIC_DUCK_SECONDS, 0.1) - MUSIC_DUCK_GAIN) < 1e-6,
 	)
-	testing.expect(
-		t,
-		abs(sound_duck_gain_next(1, MUSIC_DUCK_SECONDS / 2, 0.016) - 0.6) < 1e-6,
-	)
+	testing.expect(t, abs(sound_duck_gain_next(1, MUSIC_DUCK_SECONDS / 2, 0.016) - 0.6) < 1e-6)
 	// Ramp down while a sound effect still has time left.
-	testing.expect(
-		t,
-		abs(sound_duck_gain_next(1, MUSIC_DUCK_SECONDS + 1, 0.1) - 0.6) < 1e-6,
-	)
+	testing.expect(t, abs(sound_duck_gain_next(1, MUSIC_DUCK_SECONDS + 1, 0.1) - 0.6) < 1e-6)
 	// Never below the duck floor.
 	testing.expect_value(
 		t,

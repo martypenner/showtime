@@ -10,30 +10,24 @@ import sdl "vendor:sdl3"
 import stbi "vendor:stb/image"
 
 ScoreState :: struct {
-	shown:       bool,
-	active:      int,
-	scoreboards: [3]Scoreboard,
-	font:        ^imgui.Font,
+	// Selected board index, or -1 when hidden. Hidden is the absence of a
+	// reference, not a second flag.
+	active: int,
+	font:   ^imgui.Font,
 }
 
-Scoreboard :: struct {
-	name:       string,
-	background: struct {
-		filename: string,
-		texture:  ^sdl.Texture,
-		missing:  bool,
-		width:    int,
-		height:   int,
-	},
-	regions:    [Score_Team]Score_Region,
-	red:        u16,
-	blue:       u16,
+// Seed table for the three score entities. Values and textures start empty
+// on the entities.
+Score_Seed :: struct {
+	name:                string,
+	background_filename: string,
+	regions:             [Score_Team]Score_Region,
 }
 
-SCOREBOARDS :: [3]Scoreboard {
+SCORE_SEEDS :: [3]Score_Seed {
 	{
 		name = "Game",
-		background = {filename = "assets/images/score_background_1.png"},
+		background_filename = "assets/images/score_background_1.png",
 		regions = {
 			.Red = {x = 0.10, y = 0.50, w = 0.30, h = 0.42},
 			.Blue = {x = 0.60, y = 0.50, w = 0.30, h = 0.42},
@@ -41,7 +35,7 @@ SCOREBOARDS :: [3]Scoreboard {
 	},
 	{
 		name = "Final",
-		background = {filename = "assets/images/score_background_2.png"},
+		background_filename = "assets/images/score_background_2.png",
 		regions = {
 			.Red = {x = 0.10, y = 0.50, w = 0.30, h = 0.42},
 			.Blue = {x = 0.60, y = 0.50, w = 0.30, h = 0.42},
@@ -49,7 +43,7 @@ SCOREBOARDS :: [3]Scoreboard {
 	},
 	{
 		name = "Season",
-		background = {filename = "assets/images/score_background_3.png"},
+		background_filename = "assets/images/score_background_3.png",
 		regions = {
 			.Red = {x = 0.05, y = 0.63, w = 0.31, h = 0.30},
 			.Blue = {x = 0.63, y = 0.63, w = 0.31, h = 0.30},
@@ -59,43 +53,31 @@ SCOREBOARDS :: [3]Scoreboard {
 
 score_init :: proc() -> ^ScoreState {
 	state := new(ScoreState)
-	state.scoreboards = SCOREBOARDS
+	state.active = -1
 	score_entities_ensure()
-	score_entity_sync()
+	for handle in gm.entities.score {
+		entity, ok := entity_get(handle)
+		ensure(ok)
+		entity.score.red = 0
+		entity.score.blue = 0
+	}
 	return state
 }
 
 score_entities_ensure :: proc() {
-	boards := SCOREBOARDS
-	for i in 0 ..< len(boards) {
+	seeds := SCORE_SEEDS
+	for i in 0 ..< len(seeds) {
 		if i < len(gm.entities.score) {
 			if _, ok := entity_get(gm.entities.score[i]); ok do continue
 		}
-		entity_create({.Score, .Projection}, boards[i].name)
+		handle := entity_create({.Score, .Projection}, seeds[i].name)
+		entity := entity_must_get(handle)
+		entity.score.background_filename = seeds[i].background_filename
+		entity.score.regions = seeds[i].regions
 	}
 }
 
-score_entity_sync :: proc() {
-	if gm == nil || gm.scores == nil do return
-	score_entities_ensure()
-	for handle, i in gm.entities.score {
-		if i >= len(gm.scores.scoreboards) do break
-		entity, ok := entity_get(handle)
-		ensure(ok)
-		board := &gm.scores.scoreboards[i]
-		entity.score.shown = gm.scores.shown
-		entity.score.active = (i == gm.scores.active)
-		entity.score.red = board.red
-		entity.score.blue = board.blue
-		entity.score.background_filename = board.background.filename
-		entity.score.background_texture = board.background.texture
-		entity.score.background_missing = board.background.missing
-		entity.score.background_width = board.background.width
-		entity.score.background_height = board.background.height
-		entity.score.regions = board.regions
-	}
-}
-
+// Call with the projection imgui context current, before its first NewFrame.
 score_font_load :: proc() {
 	if gm.scores == nil do return
 
@@ -111,49 +93,88 @@ score_font_load :: proc() {
 }
 
 score_shutdown :: proc() {
-	if gm == nil || gm.scores == nil do return
-	for &board in gm.scores.scoreboards {
-		if board.background.texture != nil {
-			sdl.DestroyTexture(board.background.texture)
-			board.background.texture = nil
+	if gm == nil do return
+	for handle in gm.entities.score {
+		entity, ok := entity_get(handle)
+		ensure(ok)
+		if entity.score.background_texture != nil {
+			sdl.DestroyTexture(entity.score.background_texture)
+			entity.score.background_texture = nil
 		}
 	}
-	gm.scores = nil
+	entity_domain_clear(&gm.entities.score)
+	if gm.scores != nil do gm.scores = nil
 }
 
+// Effective visibility: an active timer owns the projection.
 score_projection_shown :: proc() -> bool {
-	return gm.scores != nil && gm.scores.shown && !timers_any_running()
+	return gm.scores != nil && gm.scores.active >= 0 && !timers_any_running()
 }
 
-score_active :: proc(state: ^ScoreState) -> ^Scoreboard {
-	return &state.scoreboards[state.active]
+score_projection_show :: proc() {
+	if gm.scores == nil do return
+	gm.scores.active = score_board_selected()
+	video_page_clear()
+}
+
+score_projection_hide :: proc() {
+	if gm.scores != nil do gm.scores.active = -1
+}
+
+// The board every edit and render targets: the selection while shown, the
+// remembered one while hidden.
+score_board_selected :: proc() -> int {
+	ensure(gm != nil && gm.scores != nil)
+	if gm.scores.active >= 0 do return gm.scores.active
+	ensure(gm.scores_ui.board < len(gm.entities.score))
+	return gm.scores_ui.board
+}
+
+score_board_select :: proc(index: int) {
+	ensure(gm != nil && gm.scores != nil)
+	ensure(index >= 0 && index < len(gm.entities.score))
+	gm.scores.active = index
+	gm.scores_ui.board = index
+}
+
+score_board_active :: proc() -> ^Entity {
+	ensure(gm != nil && gm.scores != nil)
+	// Edits from the controls land on the remembered board while hidden.
+	// Render paths only run when a board is selected.
+	return entity_must_get(gm.entities.score[score_board_selected()])
 }
 
 score_value_set :: proc(team: Score_Team, value: i64) {
 	if gm.scores == nil do return
-	board := score_active(gm.scores)
+	board := score_board_active()
 	clamped := u16(clamp(value, 0, SCORE_MAX))
 	switch team {
 	case .Red:
-		board.red = clamped
+		board.score.red = clamped
 	case .Blue:
-		board.blue = clamped
+		board.score.blue = clamped
 	}
-	if gm.scores.active < 2 {
-		game := &gm.scores.scoreboards[0]
-		final := &gm.scores.scoreboards[1]
-		game.red, game.blue = board.red, board.blue
-		final.red, final.blue = board.red, board.blue
+	// Game and Final show the same scores.
+	if score_board_selected() < 2 {
+		ensure(len(gm.entities.score) >= 2)
+		for i in 0 ..< 2 {
+			mirror := entity_must_get(gm.entities.score[i])
+			mirror.score.red = board.score.red
+			mirror.score.blue = board.score.blue
+		}
 	}
 }
 
 score_value_get :: proc(state: ^ScoreState, team: Score_Team) -> u16 {
-	board := score_active(state)
+	ensure(state != nil)
+	active := max(state.active, 0)
+	ensure(active < len(gm.entities.score))
+	board := entity_must_get(gm.entities.score[active])
 	switch team {
 	case .Red:
-		return board.red
+		return board.score.red
 	case .Blue:
-		return board.blue
+		return board.score.blue
 	}
 	return 0
 }
@@ -167,56 +188,67 @@ score_controls_draw :: proc() {
 	state := gm.scores
 	if state == nil do return
 
-	imgui.Checkbox("Show on projection", &state.shown)
-
-	imgui.Separator()
-
-	for &board, i in state.scoreboards {
-		if imgui.Selectable(
-			strings.clone_to_cstring(board.name, context.temp_allocator),
-			i == state.active,
-		) {
-			state.active = i
+	shown := state.active >= 0
+	if imgui.Checkbox("Show on projection", &shown) {
+		if shown {
+			score_projection_show()
+		} else {
+			score_projection_hide()
 		}
 	}
 
-	board := score_active(state)
+	imgui.Separator()
 
-	red := c.int(board.red)
+	for handle, i in gm.entities.score {
+		entity, ok := entity_get(handle)
+		ensure(ok)
+		if imgui.Selectable(
+			strings.clone_to_cstring(entity.label, context.temp_allocator),
+			i == score_board_selected(),
+		) {
+			score_board_select(i)
+		}
+	}
+
+	board := score_board_active()
+
+	red := c.int(board.score.red)
 	if imgui.InputInt("Red score", &red) {score_value_set(.Red, i64(red))}
-	blue := c.int(board.blue)
+	blue := c.int(board.score.blue)
 	if imgui.InputInt("Blue score", &blue) {score_value_set(.Blue, i64(blue))}
 
 	if imgui.Button("Reset scores") {score_reset()}
 }
 
+// Letterboxed the same way page videos are; a missing background leaves the
+// window black.
 score_projection_background_render :: proc(renderer: ^sdl.Renderer) {
-	state := gm.scores
-	if state == nil do return
-	board := score_active(state)
-	if board.background.missing do return
+	if gm.scores == nil do return
+	board := score_board_active()
+	if board.score.background_missing do return
 
-	if board.background.texture == nil {
+	if board.score.background_texture == nil {
 		score_background_load(board, renderer)
 	}
-	if board.background.texture == nil do return
+	if board.score.background_texture == nil do return
 
 	width, height: c.int
 	if !sdl.GetCurrentRenderOutputSize(renderer, &width, &height) do return
 	dest := video_fit_rect(
-		board.background.width,
-		board.background.height,
+		board.score.background_width,
+		board.score.background_height,
 		int(width),
 		int(height),
 	)
-	sdl.RenderTexture(renderer, board.background.texture, nil, &dest)
+	sdl.RenderTexture(renderer, board.score.background_texture, nil, &dest)
 }
 
 @(private = "file")
-score_background_load :: proc(board: ^Scoreboard, renderer: ^sdl.Renderer) {
+score_background_load :: proc(board: ^Entity, renderer: ^sdl.Renderer) {
+	ensure(board != nil && .Score in board.caps)
 	width, height, channels: c.int
 	pixels := stbi.load(
-		strings.clone_to_cstring(board.background.filename, context.temp_allocator),
+		strings.clone_to_cstring(board.score.background_filename, context.temp_allocator),
 		&width,
 		&height,
 		&channels,
@@ -225,9 +257,9 @@ score_background_load :: proc(board: ^Scoreboard, renderer: ^sdl.Renderer) {
 	if pixels == nil {
 		log.errorf(
 			"Score: no background at %s; the slide shows scores on black",
-			board.background.filename,
+			board.score.background_filename,
 		)
-		board.background.missing = true
+		board.score.background_missing = true
 		return
 	}
 
@@ -247,12 +279,12 @@ score_background_load :: proc(board: ^Scoreboard, renderer: ^sdl.Renderer) {
 			}
 			sdl.UnlockTexture(texture)
 		}
-		board.background.texture = texture
-		board.background.width = int(width)
-		board.background.height = int(height)
+		board.score.background_texture = texture
+		board.score.background_width = int(width)
+		board.score.background_height = int(height)
 	} else {
 		log.errorf("Score: cannot create background texture: %v", sdl.GetError())
-		board.background.missing = true
+		board.score.background_missing = true
 	}
 	stbi.image_free(pixels)
 }
@@ -260,14 +292,14 @@ score_background_load :: proc(board: ^Scoreboard, renderer: ^sdl.Renderer) {
 score_projection_draw :: proc() {
 	state := gm.scores
 	if state == nil do return
-	board := score_active(state)
+	board := score_board_active()
 
 	width, height: c.int
 	if !sdl.GetCurrentRenderOutputSize(gm.displays[.Projection].renderer, &width, &height) do return
 
 	fit := video_fit_rect(
-		board.background.width > 0 ? board.background.width : int(width),
-		board.background.height > 0 ? board.background.height : int(height),
+		board.score.background_width > 0 ? board.score.background_width : int(width),
+		board.score.background_height > 0 ? board.score.background_height : int(height),
 		int(width),
 		int(height),
 	)
@@ -282,7 +314,7 @@ score_projection_draw :: proc() {
 	ensure(font_scale > 0)
 
 	for team in Score_Team {
-		region := board.regions[team]
+		region := board.score.regions[team]
 		region_x := fit.x + region.x * fit.w
 		region_y := fit.y + region.y * fit.h
 		region_w := region.w * fit.w

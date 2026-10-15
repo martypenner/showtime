@@ -431,7 +431,10 @@ sound_play :: proc(name: SoundEffectName, volume: f32, delay_s: f32 = 0) -> ^mix
 			ensure(
 				mixer.StopTrack(
 					voice.sound.mixer_track,
-					mixer.TrackMSToFrames(voice.sound.mixer_track, i64(SOUND_FADE_OUT_DURATION * 1000)),
+					mixer.TrackMSToFrames(
+						voice.sound.mixer_track,
+						i64(SOUND_FADE_OUT_DURATION * 1000),
+					),
 				),
 			)
 		}
@@ -1058,10 +1061,7 @@ sound_settings_init :: proc() -> ^SoundSettings {
 // gain stays the same lerp as music gain and lighting weight.
 sound_duck_gain_next :: proc(current_gain, remaining_min_s, dt: f32) -> f32 {
 	if remaining_min_s > MUSIC_DUCK_SECONDS {
-		return max(
-			MUSIC_DUCK_GAIN,
-			current_gain - dt * (1 - MUSIC_DUCK_GAIN) / MUSIC_DUCK_SECONDS,
-		)
+		return max(MUSIC_DUCK_GAIN, current_gain - dt * (1 - MUSIC_DUCK_GAIN) / MUSIC_DUCK_SECONDS)
 	} else if remaining_min_s > 0 {
 		keys := [2]Envelope_Point{{0, 1}, {MUSIC_DUCK_SECONDS, MUSIC_DUCK_GAIN}}
 		return min(1, envelope_value_at(keys[:], remaining_min_s))
@@ -1118,7 +1118,11 @@ sound_section_update :: proc(dt: f32) {
 		remaining := max(voice.sound.duration_s - elapsed, 0)
 		if remaining_min == 0 || remaining < remaining_min do remaining_min = remaining
 	}
-	gm.sound_settings.duck_gain = sound_duck_gain_next(gm.sound_settings.duck_gain, remaining_min, dt)
+	gm.sound_settings.duck_gain = sound_duck_gain_next(
+		gm.sound_settings.duck_gain,
+		remaining_min,
+		dt,
+	)
 
 	if gm.sound_settings.settings_save_time_left > 0 &&
 	   countdown_tick(&gm.sound_settings.settings_save_time_left, dt) {

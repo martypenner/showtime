@@ -30,7 +30,11 @@ timers_add_is_paused_until_started :: proc(t: ^testing.T) {
 	testing.expect_value(t, timer_at(0).timer.flash_remaining_s, f32(TIMER_BLINK_SECONDS))
 
 	timers_update(0.5)
-	testing.expect(t, timer_at(0).timer.flash_remaining_s < TIMER_BLINK_SECONDS, "flash should fade")
+	testing.expect(
+		t,
+		timer_at(0).timer.flash_remaining_s < TIMER_BLINK_SECONDS,
+		"flash should fade",
+	)
 
 	timers_stop_all()
 	testing.expect_value(t, timers_active_count(), 0)
@@ -266,14 +270,9 @@ timers_cue_arm_helpers_set_caps_cues_and_payload :: proc(t: ^testing.T) {
 	timers_cue_arm_projection(0, true, false)
 	testing.expect(
 		t,
-		timer_at(0).cue.caps ==
-			Cue_Caps{.Has_Sound, .Has_Music, .Has_Lighting, .Has_Video},
+		timer_at(0).cue.caps == Cue_Caps{.Has_Sound, .Has_Music, .Has_Lighting, .Has_Video},
 	)
-	testing.expect(
-		t,
-		timer_at(0).cue.triggers ==
-			Cue_Triggers{.Sound, .Music, .Lighting, .Video},
-	)
+	testing.expect(t, timer_at(0).cue.triggers == Cue_Triggers{.Sound, .Music, .Lighting, .Video})
 	testing.expect_value(t, timer_at(0).cue.sound_volume, f32(0.7))
 	testing.expect(t, timer_at(0).cue.playlist == playlist_handle)
 	testing.expect_value(t, timer_at(0).cue.music_volume, f32(0.5))
@@ -291,6 +290,7 @@ timer_expiry_applies_video_and_score_payloads :: proc(t: ^testing.T) {
 	video_entity_ensure()
 	score_previous := gm.scores
 	gm.scores = new(ScoreState)
+	score_entities_ensure()
 	defer gm.scores = score_previous
 
 	testing.expect(t, timers_add("cued", 5) != ENTITY_HANDLE_NIL)
@@ -303,18 +303,23 @@ timer_expiry_applies_video_and_score_payloads :: proc(t: ^testing.T) {
 	testing.expect(t, timer_at(0).cue.fired == Cue_Triggers{.Video, .Score})
 	// A cued page that no longer exists leaves the selection alone.
 	testing.expect_value(t, video_entity_get().video.selected, "")
-	testing.expect(t, gm.scores.shown)
+	testing.expect(t, gm.scores.active >= 0)
 	testing.expect_value(t, gm.scores.active, 2)
+
+	// Hiding keeps the cued board remembered for the next show.
+	score_projection_hide()
+	testing.expect_value(t, gm.scores_ui.board, 2)
 
 	testing.expect(t, timers_add("plain", 5) != ENTITY_HANDLE_NIL)
 	timers_cue_arm_projection(1, true, true)
 	timers_start(1)
 	timers_update(6)
 	testing.expect_value(t, video_entity_get().video.selected, "")
-	testing.expect(t, gm.scores.shown)
-	testing.expect(
-		t,
-		gm.scores.active == 2,
-		"an uncued score cue leaves the selection alone",
-	)
+	testing.expect(t, gm.scores.active >= 0)
+	testing.expect(t, gm.scores.active == 2, "an uncued score cue shows the remembered board")
+
+	// Arming a projection cue without firing never touches the selection.
+	timers_cue_arm_projection(1, false, true, "", 1)
+	testing.expect_value(t, gm.scores.active, 2)
+	testing.expect_value(t, gm.scores_ui.board, 2)
 }

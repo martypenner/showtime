@@ -942,7 +942,9 @@ controls_draw :: proc() {
 						draw_list,
 						{origin.x + w / 2, origin.y + w / 2},
 						r,
-						imgui.GetColorU32ImVec4({gm.lighting.color[0], gm.lighting.color[1], gm.lighting.color[2], 1}),
+						imgui.GetColorU32ImVec4(
+							{gm.lighting.color[0], gm.lighting.color[1], gm.lighting.color[2], 1},
+						),
 					)
 
 					picker_button_w: f32 = 20
@@ -1057,7 +1059,7 @@ controls_draw :: proc() {
 			)
 			score_height_needed :=
 				imgui.GetFrameHeightWithSpacing() * 4 +
-				list_row_height * (f32(len(gm.scores.scoreboards)) + 1) +
+				list_row_height * (f32(len(gm.entities.score)) + 1) +
 				imgui.GetStyle().WindowPadding.y * 2 +
 				imgui.GetStyle().ItemSpacing.y * 2 +
 				1

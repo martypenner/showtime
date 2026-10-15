@@ -43,8 +43,8 @@ score_projection_centers_text_at_display_scales :: proc(t: ^testing.T) {
 	defer score_shutdown()
 	score_font_load()
 	ensure(state.font != nil)
-	state.scoreboards[0].background.width = 1920
-	state.scoreboards[0].background.height = 1080
+	score_board_active().score.background_width = 1920
+	score_board_active().score.background_height = 1080
 	score_value_set(.Red, 2)
 	score_value_set(.Blue, 22)
 
@@ -104,16 +104,21 @@ score_seeds_three_boards :: proc(t: ^testing.T) {
 	state := score_test_begin()
 	defer score_test_end(state)
 
-	testing.expect(t, !state.shown, "score state should start hidden")
+	testing.expect(t, state.active == -1, "score state should start hidden")
 	testing.expect(t, state.font == nil, "font should start nil until loaded")
-	testing.expect_value(t, state.active, 0)
 
 	names := [3]string{"Game", "Final", "Season"}
-	for board, i in state.scoreboards {
-		testing.expect_value(t, board.name, names[i])
-		testing.expect(t, board.background.texture == nil, "background should start unloaded")
-		testing.expect_value(t, board.red, u16(0))
-		testing.expect_value(t, board.blue, u16(0))
+	for handle, i in gm.entities.score {
+		entity, ok := entity_get(handle)
+		testing.expect(t, ok)
+		testing.expect_value(t, entity.label, names[i])
+		testing.expect(
+			t,
+			entity.score.background_texture == nil,
+			"background should start unloaded",
+		)
+		testing.expect_value(t, entity.score.red, u16(0))
+		testing.expect_value(t, entity.score.blue, u16(0))
 	}
 }
 
@@ -127,21 +132,52 @@ score_playing_timer_owns_projection :: proc(t: ^testing.T) {
 	gm.scores = state
 	defer score_shutdown()
 
-	state.shown = true
+	state.active = 0
 	testing.expect(t, timers_add("test", 30) != ENTITY_HANDLE_NIL, "timer add should succeed")
 
 	timers_start(0)
-	testing.expect(t, state.shown, "starting a timer should leave the slide armed")
+	testing.expect(t, state.active >= 0, "starting a timer should leave the slide armed")
 	testing.expect(t, !score_projection_shown(), "a playing timer should own the projection")
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
 
 	// The Show flag stays armed but never overrides a running timer.
-	state.shown = true
+	state.active = 0
 	testing.expect(t, !score_projection_shown(), "the flag should not override the timer")
 	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Timer)
 
 	timers_stop_all()
 	testing.expect(t, score_projection_shown(), "stopping the timer gives the projection back")
+}
+
+@(test)
+score_hide_remembers_board :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	state := score_test_begin()
+	defer score_test_end(state)
+
+	score_board_select(2)
+	score_value_set(.Red, 7)
+
+	score_projection_hide()
+	testing.expect(t, state.active == -1, "hiding should drop the projection reference")
+	testing.expect(t, !score_projection_shown(), "a hidden projection should not show")
+
+	// Hidden edits land on the remembered board, not Game.
+	score_value_set(.Red, 9)
+	season := entity_must_get(gm.entities.score[2])
+	testing.expect_value(t, season.score.red, u16(9))
+	// Season edits never mirror, so Game keeps its own score.
+	game := entity_must_get(gm.entities.score[0])
+	testing.expect_value(t, game.score.red, u16(0))
+
+	// Showing again restores the remembered board.
+	score_projection_show()
+	testing.expect_value(t, state.active, 2)
+	testing.expect(t, score_projection_shown(), "showing should restore the projection")
 }
 
 @(test)

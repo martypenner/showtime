@@ -46,7 +46,7 @@ entity_track_bounds_write :: proc(out: ^map[string]MusicTrackBounds) {
 		if len(track.file_hash) == 0 || track.bounds_end_s <= track.bounds_start_s do continue
 		// Full-range bounds are the default and never persist.
 		if track.bounds_start_s <= 0 && track.bounds_end_s >= track.duration_s do continue
-		out[norm.path_nfc(track.path)] = MusicTrackBounds{
+		out[norm.path_nfc(track.path)] = MusicTrackBounds {
 			file_hash  = track.file_hash,
 			start_time = track.bounds_start_s,
 			end_time   = track.bounds_end_s,

@@ -75,6 +75,10 @@ GameMemory :: struct {
 		label_input:   [64]u8,
 		seconds_input: f32,
 	},
+	scores_ui:             struct {
+		// Last selected board, remembered while the projection is hidden.
+		board: int,
+	},
 	game_mode:             struct {
 		sounds_like_a_song_playlist: ^Playlist,
 	},
@@ -324,10 +328,10 @@ imgui_context_init :: proc(
 
 game_memory_make :: proc() -> ^GameMemory {
 	memory := new(GameMemory)
-	memory^ = GameMemory{
-		should_run  = true,
-		timer_ui    = {seconds_input = DEFAULT_TIMER_SECONDS},
-		lighting    = {color = {1, 1, 1}},
+	memory^ = GameMemory {
+		should_run = true,
+		timer_ui = {seconds_input = DEFAULT_TIMER_SECONDS},
+		lighting = {color = {1, 1, 1}},
 	}
 	entity_store_init(&memory.entities)
 	return memory

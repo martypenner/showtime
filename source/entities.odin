@@ -40,7 +40,7 @@ Entity_Cap :: enum u8 {
 	Projection,
 }
 
-Entity_Caps :: bit_set[Entity_Cap; u16]
+Entity_Caps :: bit_set[Entity_Cap;u16]
 
 Entity_Trigger :: enum u8 {
 	Sound,
@@ -51,7 +51,7 @@ Entity_Trigger :: enum u8 {
 	Fade_Out,
 }
 
-Entity_Triggers :: bit_set[Entity_Trigger; u8]
+Entity_Triggers :: bit_set[Entity_Trigger;u8]
 
 Entity_Fade :: struct {
 	duration_s:   f32,
@@ -89,11 +89,11 @@ Entity_Mark :: struct {
 }
 
 Entity_Track :: struct {
-	path:        string,
-	title:       string,
-	played:      bool,
-	duration_s:  f32,
-	file_hash:   string,
+	path:           string,
+	title:          string,
+	played:         bool,
+	duration_s:     f32,
+	file_hash:      string,
 	bounds_start_s: f32,
 	bounds_end_s:   f32,
 }
@@ -133,8 +133,6 @@ Entity_Lighting :: struct {
 }
 
 Entity_Score :: struct {
-	shown:               bool,
-	active:              bool,
 	red:                 u16,
 	blue:                u16,
 	background_filename: string,
@@ -228,7 +226,10 @@ entity_create :: proc(caps: Entity_Caps, label: string) -> Entity_Handle {
 		index = u32(len(store.entries))
 		ensure(index < 0xFFFFFF)
 		generation = 1
-		append(&store.entries, Entity_Store_Entry{entity = {}, generation = generation, alive = true})
+		append(
+			&store.entries,
+			Entity_Store_Entry{entity = {}, generation = generation, alive = true},
+		)
 	}
 	handle := entity_handle_make(index, generation)
 	entry := &store.entries[index]
@@ -296,17 +297,30 @@ entity_domain_clear :: proc(array: ^[dynamic]Entity_Handle) {
 	for len(array) > 0 do entity_destroy(array[0])
 }
 
-entity_fade_start :: proc(entity: ^Entity, duration_s: f32, source_value: f32 = 1, target_value: f32 = 0) {
+entity_fade_start :: proc(
+	entity: ^Entity,
+	duration_s: f32,
+	source_value: f32 = 1,
+	target_value: f32 = 0,
+) {
 	ensure(entity != nil)
 	if duration_s <= 0 do return
-	entity.fade = {duration_s = duration_s, remaining_s = duration_s, source_value = source_value, target_value = target_value}
+	entity.fade = {
+		duration_s   = duration_s,
+		remaining_s  = duration_s,
+		source_value = source_value,
+		target_value = target_value,
+	}
 }
 
 entity_fade_value_at :: proc(entity: ^Entity) -> f32 {
 	ensure(entity != nil)
 	if entity.fade.remaining_s <= 0 || entity.fade.duration_s <= 0 do return entity.fade.target_value
 	elapsed := entity.fade.duration_s - entity.fade.remaining_s
-	keys := [2]Envelope_Point{{0, entity.fade.source_value}, {entity.fade.duration_s, entity.fade.target_value}}
+	keys := [2]Envelope_Point {
+		{0, entity.fade.source_value},
+		{entity.fade.duration_s, entity.fade.target_value},
+	}
 	return envelope_value_at(keys[:], elapsed)
 }
 
@@ -399,11 +413,12 @@ entities_frame_update :: proc(dt: f32) {
 	for handle in gm.entities.playlist do entity_record_emit(.Controls, handle)
 	for handle in gm.entities.track do entity_record_emit(.Controls, handle)
 
-	score_entity_sync()
 	for handle in gm.entities.score {
-		entity, ok := entity_get(handle)
+		_, ok := entity_get(handle)
 		ensure(ok)
-		entity_record_emit(entity.score.shown ? .Projection : .Controls, handle)
+		// Visibility is the selection reference. No per-entity check.
+		shown := gm.scores != nil && gm.scores.active >= 0
+		entity_record_emit(shown ? .Projection : .Controls, handle)
 	}
 
 	gm.projection_source, gm.projection_handle = entity_projection_resolve()

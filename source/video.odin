@@ -159,7 +159,10 @@ video_page_mode_cycle :: proc() {
 	entity := video_entity_get()
 	ensure(entity != nil)
 	if entity.video.active == nil do return
-	video_page_mode_set(entity.video.active.page_id, video_page_mode_next(entity.video.active.mode))
+	video_page_mode_set(
+		entity.video.active.page_id,
+		video_page_mode_next(entity.video.active.mode),
+	)
 }
 
 video_page_mode_set :: proc(page_id: string, mode: VideoPlaybackMode) {
