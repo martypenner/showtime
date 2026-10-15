@@ -749,22 +749,8 @@ controls_draw :: proc() {
 
 			{
 				if imgui.Checkbox("Use house music", &gm.sound_settings.use_house_music) {
-					if gm.sound_settings.use_house_music {
-						if gm.sound_settings.current_playing_playlist == nil {
-							playlist := playlist_find_by_name(.Kids_on_Bikes_80s_Chill)
-							ensure(playlist != nil, "Couldn't find playlist for Use_House_Music")
-
-							track := playlist_pick_random_track(playlist)
-							ensure(track != nil, "Couldn't pick track for Use_House_Music")
-
-							music_crossfade(
-								playlist,
-								track,
-								0.2,
-								gm.sound_settings.fade_in_time,
-								gm.sound_settings.fade_out_time,
-							)
-						}
+					if !gm.sound_settings.use_house_music && playlist_is_house() {
+						music_playbacks_fade_all(gm.sound_settings.fade_out_time)
 					}
 					settings_save()
 				}

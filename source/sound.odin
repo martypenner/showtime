@@ -468,6 +468,11 @@ playlist_is_current :: proc(playlist_name: PlaylistName) -> bool {
 	return playback != nil && playback.playlist.name == playlist_name_string(playlist_name)
 }
 
+playlist_is_house :: proc() -> bool {
+	playback := gm.sound_settings.music_playback_primary
+	return playback != nil && strings.has_prefix(playback.playlist.name, "Kids on Bikes (80s)")
+}
+
 track_is_current :: proc(track_name: cstring) -> bool {
 	playback := gm.sound_settings.music_playback_primary
 	return playback != nil && playback.track.title == string(track_name)
