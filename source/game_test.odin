@@ -122,7 +122,7 @@ projection_source_timer_overrides_video_and_score :: proc(t: ^testing.T) {
 	gm = game_memory_make()
 
 	video_entity_ensure()
-	video_entity_get().video.shown = true
+	video_entity_get().video.selected = "opener"
 	gm.scores = new(ScoreState)
 	gm.scores.scoreboards = SCOREBOARDS
 	gm.scores.active = 1
@@ -135,7 +135,7 @@ projection_source_timer_overrides_video_and_score :: proc(t: ^testing.T) {
 
 	testing.expect(t, timers_add("timer", 30) != ENTITY_HANDLE_NIL)
 	timers_start(0)
-	video_entity_get().video.shown = true
+	video_entity_get().video.selected = "opener"
 	gm.scores.shown = true
 	testing.expect(t, !video_projection_shown(), "timer should hide video")
 	testing.expect(t, !score_projection_shown(), "timer should hide score")

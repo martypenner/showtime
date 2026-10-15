@@ -44,7 +44,6 @@ video_init :: proc() {
 	settings_load(&entity.video.settings)
 
 	video_pages_load(entity)
-	entity.video.shown = true
 }
 
 video_shutdown :: proc() {
@@ -112,29 +111,14 @@ video_page_show :: proc(page_id: string) -> bool {
 	playback := video_playback_make(page^, fmt.tprintf("%s/%s.mp4", VIDEO_DIR, page.page_id))
 	entity.video.active = playback
 	video_ffprobe_spawn(playback)
-	entity.video.shown = playback.state != .Failed
 	return playback.state != .Failed
 }
 
-video_page_select :: proc(page_id: string) -> bool {
-	entity := video_entity_get()
-	ensure(entity != nil)
-	page, ok := video_page_find(page_id)
-	if !ok do return false
-	entity.video.selected = page.page_id
-	return true
-}
-
+// The selected video is the default projection source; the resolver checks
+// timers and the score checkbox before this.
 video_projection_shown :: proc() -> bool {
 	entity := video_entity_get()
-	return entity != nil && entity.video.shown && !timers_any_running()
-}
-
-video_projection_hide :: proc() {
-	entity := video_entity_get()
-	if entity == nil do return
-	entity.video.shown = false
-	video_page_clear()
+	return entity != nil && entity.video.selected != "" && !timers_any_running()
 }
 
 video_page_clear :: proc() {
@@ -279,21 +263,13 @@ video_controls_draw :: proc(height: f32) {
 				strings.clone_to_cstring(label, context.temp_allocator),
 				is_selected,
 			) {
-				// Selection only writes selected. When the deck is already
-				// shown, the new selection takes the single active slot.
-				if video_page_select(page.page_id) && entity.video.shown {
-					video_page_show(entity.video.selected)
-				}
+				// Selecting a page makes it the projection source, swapping
+				// playback with a flicker-free handoff.
+				video_page_show(page.page_id)
 			}
 		}
 	}
 	imgui.EndChild()
-
-	// The sole show/hide control. Checking shows the selected slide.
-	// Unchecking releases the deck so no stale frame can reappear.
-	if imgui.Checkbox("Show on projection", &entity.video.shown) && entity.video.shown {
-		if len(entity.video.selected) > 0 do video_page_show(entity.video.selected)
-	}
 
 	playback := entity.video.active
 	if playback == nil {

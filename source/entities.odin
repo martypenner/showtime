@@ -100,11 +100,12 @@ Entity_Track :: struct {
 
 // The video deck itself. The sole {.Video, .Projection} entity owns the
 // pages, persistence, and playback references; no separate state mirrors it.
+// The selected page is always the default projection source; nothing hides
+// the deck.
 Entity_Video :: struct {
 	pages:    [dynamic]VideoPage,
 	settings: VideoSettings,
 	selected: string,
-	shown:    bool,
 	active:   ^VideoPlayback,
 	retired:  [dynamic]^VideoPlayback,
 	previous: VideoProjectionFrame,
@@ -392,7 +393,7 @@ entities_frame_update :: proc(dt: f32) {
 	for handle in gm.entities.video {
 		entity, ok := entity_get(handle)
 		ensure(ok)
-		entity_record_emit(entity.video.shown ? .Projection : .Controls, handle)
+		entity_record_emit(entity.video.selected != "" ? .Projection : .Controls, handle)
 	}
 
 	for handle in gm.entities.playlist do entity_record_emit(.Controls, handle)

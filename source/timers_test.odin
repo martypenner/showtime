@@ -301,8 +301,8 @@ timer_expiry_applies_video_and_score_payloads :: proc(t: ^testing.T) {
 	timers_update(6)
 	testing.expect(t, timer_at(0).timer.done)
 	testing.expect(t, timer_at(0).cue.fired == Cue_Triggers{.Video, .Score})
-	// A cued page that no longer exists falls back to the deck state.
-	testing.expect(t, video_entity_get().video.shown)
+	// A cued page that no longer exists leaves the selection alone.
+	testing.expect_value(t, video_entity_get().video.selected, "")
 	testing.expect(t, gm.scores.shown)
 	testing.expect_value(t, gm.scores.active, 2)
 
@@ -310,7 +310,7 @@ timer_expiry_applies_video_and_score_payloads :: proc(t: ^testing.T) {
 	timers_cue_arm_projection(1, true, true)
 	timers_start(1)
 	timers_update(6)
-	testing.expect(t, video_entity_get().video.shown)
+	testing.expect_value(t, video_entity_get().video.selected, "")
 	testing.expect(t, gm.scores.shown)
 	testing.expect(
 		t,

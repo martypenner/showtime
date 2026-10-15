@@ -164,14 +164,11 @@ cue_dispatch :: proc(cue: ^Entity_Cue) -> Cue_Triggers {
 		lighting_look_activate(cue.look)
 	}
 	if .Video in fire {
-		if entity := video_entity_get(); entity != nil {
-			if len(cue.video_page) > 0 {
-				if !video_page_show(cue.video_page) {
-					entity.video.shown = true
-				}
-			} else {
-				entity.video.shown = true
-			}
+		// The selected video is already the default source, so a cue only
+		// needs to switch pages. A page the deck no longer has leaves the
+		// selection alone.
+		if video_entity_get() != nil && len(cue.video_page) > 0 {
+			video_page_show(cue.video_page)
 		}
 	}
 	if .Score in fire && gm.scores != nil {
