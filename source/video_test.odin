@@ -226,6 +226,49 @@ video_show_selects_and_replaces_active :: proc(t: ^testing.T) {
 }
 
 @(test)
+video_playing_survives_score_show_hide :: proc(t: ^testing.T) {
+	allocator_previous := context.allocator
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	context.allocator = mem.dynamic_arena_allocator(&arena)
+	defer {
+		context.allocator = allocator_previous
+		mem.dynamic_arena_destroy(&arena)
+	}
+	projection := video_test_projection_make(t)
+	defer video_test_projection_destroy(t, projection)
+	entity := video_entity_get()
+
+	// A looping page is playing when a score is shown on top of it.
+	entity.video.pages[0].mode = .Loop
+	ensure(video_page_show("next"))
+	deadline := time.time_add(time.now(), time.Second * 3)
+	for entity.video.active.frames == 0 && time.diff(time.now(), deadline) > 0 {
+		video_update()
+		time.sleep(time.Millisecond * 5)
+	}
+	ensure(entity.video.active.frames > 0)
+
+	gm.scores = score_init()
+	defer score_shutdown()
+	score_projection_show()
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Score)
+	testing.expect(t, entity.video.active != nil, "showing a score should not stop the video")
+	frames := entity.video.active.frames
+	deadline = time.time_add(time.now(), time.Second * 3)
+	for entity.video.active.frames == frames && time.diff(time.now(), deadline) > 0 {
+		video_update()
+		time.sleep(time.Millisecond * 5)
+	}
+	testing.expect(t, entity.video.active.frames > frames, "the video should keep playing under the score")
+
+	// Hiding the score hands the projection back to the playing video.
+	score_projection_hide()
+	testing.expect_value(t, projection_source_resolve(), ProjectionSource.Video)
+	testing.expect(t, entity.video.active != nil, "hiding a score should keep the video playing")
+}
+
+@(test)
 video_recheck_never_renders_stale_slide :: proc(t: ^testing.T) {
 	allocator_previous := context.allocator
 	arena: mem.Dynamic_Arena

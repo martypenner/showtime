@@ -65,6 +65,7 @@ cue_dispatch :: proc(cue: ^Entity_Cue) -> Cue_Triggers {
 	if .Score in fire && gm.scores != nil {
 		if cue.scoreboard >= 0 && cue.scoreboard < len(gm.entities.score) {
 			score_board_select(cue.scoreboard)
+			gm.scores.active = cue.scoreboard
 		} else if gm.scores.active < 0 {
 			gm.scores.active = score_board_selected()
 		}

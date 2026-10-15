@@ -114,7 +114,6 @@ score_projection_shown :: proc() -> bool {
 score_projection_show :: proc() {
 	if gm.scores == nil do return
 	gm.scores.active = score_board_selected()
-	video_page_clear()
 }
 
 score_projection_hide :: proc() {
@@ -133,8 +132,8 @@ score_board_selected :: proc() -> int {
 score_board_select :: proc(index: int) {
 	ensure(gm != nil && gm.scores != nil)
 	ensure(index >= 0 && index < len(gm.entities.score))
-	gm.scores.active = index
 	gm.scores_ui.board = index
+	if gm.scores.active >= 0 do gm.scores.active = index
 }
 
 score_board_active :: proc() -> ^Entity {

@@ -225,6 +225,28 @@ score_values_share_between_game_and_final :: proc(t: ^testing.T) {
 	testing.expect_value(t, score_value_get(state, .Red), u16(7))
 }
 
+@(test)
+score_hidden_selection_does_not_show :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	state := score_test_begin()
+	defer score_test_end(state)
+
+	ensure(state.active == -1)
+	score_board_select(2)
+	testing.expect(t, state.active == -1, "selecting a board should not show it")
+	testing.expect(t, !score_projection_shown(), "selecting a board should not show it")
+	testing.expect_value(t, gm.scores_ui.board, 2)
+
+	// The checkbox still shows the selected board.
+	score_projection_show()
+	testing.expect(t, score_projection_shown(), "the checkbox should show the score")
+	testing.expect_value(t, state.active, 2)
+}
+
 @(private = "file")
 score_test_begin :: proc() -> ^ScoreState {
 	state := score_init()
