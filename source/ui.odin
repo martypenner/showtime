@@ -57,6 +57,7 @@ lighting_look_labels := [LightingLook]cstring {
 lighting_fx_labels := [LightingFxKind]cstring {
 	.Blackout     = "Blackout",
 	.RainbowSting = "Rainbow sting",
+	.Pulsing      = "Pulsing",
 	.Rain         = "Rain",
 	.Innuendo     = "Innuendo",
 	.AveMaria     = "Ave Maria",
@@ -451,6 +452,14 @@ lighting_rainbow_sting_toggle :: proc() {
 	lighting_fx_run(.RainbowSting, {{0, fx.weight_current}, {2, 1 - target_prev}})
 }
 
+lighting_pulsing_toggle :: proc() {
+	// Toggle: head for the opposite of wherever the last envelope
+	// was going, starting from the current weight.
+	fx := gm.lighting.fx[.Pulsing]
+	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].value : 0
+	lighting_fx_run(.Pulsing, {{0, fx.weight_current}, {2, 1 - target_prev}})
+}
+
 sound_play_break_glass :: proc() {
 	cue := Entity_Cue {
 		caps         = {.Has_Sound},
@@ -663,6 +672,8 @@ hotkeys_handle_key :: proc(key: sdl.Keycode) {
 		lighting_innuendo_toggle()
 	case sdl.K_R:
 		lighting_rainbow_sting_toggle()
+	case sdl.K_S:
+		lighting_pulsing_toggle()
 	case sdl.K_1:
 		sound_play_break_glass()
 	case sdl.K_2:
@@ -903,10 +914,10 @@ controls_draw :: proc() {
 				imgui.SameLine()
 				{
 					fx := gm.lighting.fx[.RainbowSting]
-					text := " Rainbow Sting"
+					text := " Rainbow sting"
 					target_prev: f32
 					if fx.weight_current > 0 {
-						text = "    Cancel\n Rainbow Sting"
+						text = "    Cancel\n rainbow sting"
 						target_prev = fx.keys[fx.key_count - 1].value
 					}
 					if controls_button(
@@ -918,6 +929,27 @@ controls_draw :: proc() {
 						button_width,
 					) {
 						lighting_rainbow_sting_toggle()
+					}
+				}
+
+				imgui.SameLine()
+				{
+					fx := gm.lighting.fx[.Pulsing]
+					text := "Pulsing"
+					target_prev: f32
+					if fx.weight_current > 0 {
+						text = "Cancel Pulsing"
+						target_prev = fx.keys[fx.key_count - 1].value
+					}
+					if controls_button(
+						strings.clone_to_cstring(
+							fmt.tprint(text, " (s)##Lighting"),
+							context.temp_allocator,
+						),
+						.Lighting,
+						button_width,
+					) {
+						lighting_pulsing_toggle()
 					}
 				}
 

@@ -17,6 +17,7 @@ LightingLook :: enum {
 LightingFxKind :: enum {
 	Blackout,
 	RainbowSting,
+	Pulsing,
 	Rain,
 	Innuendo,
 	AveMaria,
