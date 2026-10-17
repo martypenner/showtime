@@ -42,8 +42,9 @@ _ :: fmt
 gm: ^GameMemory
 
 DisplayKind :: enum u8 {
-	Controls,
+	// this one needs to come first unless we manually show windows. I want controls window to over top this one.
 	Projection,
+	Controls,
 }
 
 Display :: struct {
