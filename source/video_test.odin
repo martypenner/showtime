@@ -81,6 +81,7 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 		Playlist{tracks = [dynamic]Track{{path = "music.mp3", played = true}}},
 	)
 	gm.sound_settings = &sound
+	defer gm.sound_settings = nil
 	video := entity_must_get(video_entity_ensure())
 	video.video.settings.pages = map[string]VideoPlaybackMode {
 		"opener"   = .Loop,
@@ -145,6 +146,7 @@ video_page_mode_owns_filename_and_updates_playback :: proc(t: ^testing.T) {
 	sound := DefaultSoundSettings
 	sound.target_loudness = -10
 	gm.sound_settings = &sound
+	defer gm.sound_settings = nil
 	borrowed := []u8{'o', 'p', 'e', 'n', 'e', 'r'}
 	playback := VideoPlayback {
 		page_id = string(borrowed),

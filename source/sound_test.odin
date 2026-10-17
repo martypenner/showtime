@@ -20,6 +20,7 @@ sound_state_owned_by_root_survives_reload_pointer :: proc(t: ^testing.T) {
 		music_playback_primary = &playback,
 	}
 	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
 
 	reloaded := gm
 	gm = nil
@@ -50,6 +51,7 @@ music_normalization_is_attenuation_only :: proc(t: ^testing.T) {
 		target_loudness  = -12,
 	}
 	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
 	testing.expect_value(t, track_volume_multiplier(0), f32(1))
 	testing.expect_value(t, track_volume_multiplier(0.01), f32(1))
 	testing.expect(t, track_volume_multiplier(1) >= MUSIC_MIN_NORMALIZED_GAIN)
@@ -95,6 +97,7 @@ sound_music_current_volume_uses_maximum_live_volume :: proc(t: ^testing.T) {
 	settings.music_playbacks[1] = incoming
 	settings.music_playback_primary = &settings.music_playbacks[0]
 	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
 	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
 	ensure(mixer.PlayTrack(playback.mixer_track, 0))
 	ensure(mixer.SetTrackAudio(incoming_track, incoming_audio))
@@ -134,6 +137,7 @@ music_playback_explicit_endpoints_ignore_settings_volume :: proc(t: ^testing.T) 
 		duck_gain    = 1,
 	}
 	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
 	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
 	ensure(mixer.PlayTrack(playback.mixer_track, 0))
 	music_playback_volume_set(&playback, {{0, 0}, {2, 0.3}})
@@ -196,6 +200,7 @@ music_playback_stopping_gain_tracks_normalization :: proc(t: ^testing.T) {
 		duck_gain        = 1,
 	}
 	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
 	points := playback.volume_points
 	gm.tracks[path] = {
 		active_rms = 1,
@@ -346,6 +351,7 @@ music_playback_volume_set_one_point_is_ongoing :: proc(t: ^testing.T) {
 			duck_gain        = 1,
 		}
 		gm.sound_settings = &settings
+		defer gm.sound_settings = nil
 		music_playback_volume_set(&playback, {{0, volume}})
 		testing.expect(t, mixer.TrackPlaying(playback.mixer_track))
 		testing.expect(t, !playback.stopping)
@@ -402,6 +408,7 @@ music_playback_zero_final_volume_suppresses_automatic_next :: proc(t: ^testing.T
 	settings.music_playbacks[0] = playback
 	settings.music_playback_primary = &settings.music_playbacks[0]
 	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
 	sound_update(0)
 	testing.expect(t, !settings.music_playbacks[0].playlist_successor_started)
 	mixer.DestroyMixer(mixer_value)
@@ -439,6 +446,7 @@ music_playback_one_point_zero_starts_silent_automatic_next :: proc(t: ^testing.T
 	settings.music_playbacks[0] = playback
 	settings.music_playback_primary = &settings.music_playbacks[0]
 	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
 	sound_update(0)
 	successor := settings.music_playback_primary
 	testing.expect(t, successor != &settings.music_playbacks[0])
@@ -462,6 +470,7 @@ playlist_selection_preserves_order_and_avoids_last :: proc(t: ^testing.T) {
 		shuffle = false,
 	}
 	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
 	playlist := Playlist {
 		name = "test",
 	}
@@ -496,9 +505,9 @@ playlist_reset_avoids_just_started_track :: proc(t: ^testing.T) {
 		loop    = true,
 	}
 	gm.sound_settings = &settings
-	playlist := Playlist {
-		name = "test",
-	}
+	defer gm.sound_settings = nil
+	playlist := new(Playlist)
+	playlist.name = "test"
 	defer delete(playlist.tracks)
 	append(
 		&playlist.tracks,
@@ -506,18 +515,18 @@ playlist_reset_avoids_just_started_track :: proc(t: ^testing.T) {
 		Track{title = "second", path = MUSIC_PLAYBACK_TEST_TONE_PATH},
 	)
 
-	first := playlist_pick_random_track(&playlist)
-	first_playback := music_playback_start_playlist_track(&playlist, first, 1, 0)
+	first := playlist_pick_random_track(playlist)
+	first_playback := music_playback_start_playlist_track(playlist, first, 1, 0)
 	testing.expect(t, playlist.last_played_track == first)
 
-	second := playlist_pick_random_track(&playlist)
+	second := playlist_pick_random_track(playlist)
 	testing.expect(t, second != first)
-	second_playback := music_playback_start_playlist_track(&playlist, second, 1, 0)
+	second_playback := music_playback_start_playlist_track(playlist, second, 1, 0)
 	testing.expect(t, playlist.last_played_track == second)
 
 	// Both tracks have played, so this pick clears the played flags: it has to
 	// land on the other track instead of replaying the one that is playing.
-	testing.expect(t, playlist_pick_random_track(&playlist) != second)
+	testing.expect(t, playlist_pick_random_track(playlist) != second)
 
 	music_playback_stop(second_playback)
 	music_playback_stop(first_playback)
@@ -674,6 +683,7 @@ music_playbacks_fade_others_spares_the_exception :: proc(t: ^testing.T) {
 	settings.music_playbacks[0] = playback
 	settings.music_playbacks[1] = incoming
 	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
 	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
 	ensure(mixer.PlayTrack(playback.mixer_track, 0))
 	ensure(mixer.SetTrackAudio(incoming_track, incoming_audio))
@@ -711,9 +721,9 @@ music_crossfade_starts_next_and_fades_current :: proc(t: ^testing.T) {
 		mixer = mixer_value,
 	}
 	gm.sound_settings = &settings
-	playlist := Playlist {
-		name = "test",
-	}
+	defer gm.sound_settings = nil
+	playlist := new(Playlist)
+	playlist.name = "test"
 	defer delete(playlist.tracks)
 	append(
 		&playlist.tracks,
@@ -721,9 +731,9 @@ music_crossfade_starts_next_and_fades_current :: proc(t: ^testing.T) {
 		Track{title = "second", path = MUSIC_PLAYBACK_TEST_TONE_PATH},
 	)
 
-	first := music_playback_start_playlist_track(&playlist, &playlist.tracks[0], 0.5, 0)
+	first := music_playback_start_playlist_track(playlist, &playlist.tracks[0], 0.5, 0)
 	ensure(first != nil)
-	second := music_crossfade(&playlist, &playlist.tracks[1], 0.5, 0, 2)
+	second := music_crossfade(playlist, &playlist.tracks[1], 0.5, 0, 2)
 	testing.expect(t, gm.sound_settings.music_playback_primary == second)
 	testing.expect_value(t, second.volume_point_count, u8(1))
 	testing.expect_value(t, first.volume_point_count, u8(2))
