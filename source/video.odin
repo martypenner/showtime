@@ -60,6 +60,7 @@ video_shutdown :: proc() {
 }
 
 video_update :: proc() {
+	profiler_scope(#procedure)
 	entity := video_entity_get()
 	if entity == nil do return
 
@@ -513,6 +514,7 @@ video_ffprobe_spawn :: proc(playback: ^VideoPlayback) -> bool {
 // Advance the state machine one step on the render thread. Never blocks: a
 // state either reads what is already available or waits for the next update.
 video_playback_update :: proc(playback: ^VideoPlayback) {
+	profiler_scope(#procedure)
 	switch playback.state {
 	case .Probing:
 		video_playback_update_probing(playback)

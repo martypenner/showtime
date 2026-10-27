@@ -129,6 +129,7 @@ countdown_tick :: proc(remaining: ^f32, dt: f32) -> bool {
 }
 
 update :: proc() {
+	profiler_scope("update")
 	current_time := sdl.GetTicks()
 	gm.frame.dt = f32(current_time - gm.frame.last_time) / 1000 // Convert milliseconds to seconds
 	gm.frame.last_time = current_time
@@ -165,6 +166,7 @@ update :: proc() {
 }
 
 draw :: proc() {
+	profiler_scope("draw")
 	draw_display(.Projection, projection_draw)
 	draw_display(.Controls, controls_draw)
 }
@@ -185,47 +187,61 @@ projection_source_resolve :: proc() -> ProjectionSource {
 
 @(private = "file")
 draw_display :: proc(kind: DisplayKind, draw_ui: proc()) {
+	profiler_scope("draw_display", kind == .Projection ? "projection" : "controls")
 	display := &gm.displays[kind]
 	imgui.SetCurrentContext(display.imgui_context)
 
-	imsdlrenderer3.NewFrame()
-	imsdl3.NewFrame()
-	imgui.NewFrame()
+	{
+		profiler_scope("ui")
+		imsdlrenderer3.NewFrame()
+		imsdl3.NewFrame()
+		imgui.NewFrame()
 
-	draw_ui()
-	imgui.Render()
-
-	sdl.SetRenderDrawColor(display.renderer, 16, 16, 16, sdl.ALPHA_OPAQUE)
-	sdl.RenderClear(display.renderer)
-	if kind == .Projection {
-		sdl.SetRenderScale(display.renderer, 1, 1)
-		switch gm.projection_source {
-		case .Score:
-			score_projection_background_render(display.renderer)
-		case .Video:
-			video_projection_render(display.renderer)
-		case .Timer, .Blank:
-		}
+		draw_ui()
+		imgui.Render()
 	}
-	sdl.SetRenderScale(
-		display.renderer,
-		display.io.DisplayFramebufferScale.x,
-		display.io.DisplayFramebufferScale.y,
-	)
-	imsdlrenderer3.RenderDrawData(imgui.GetDrawData(), display.renderer)
-	sdl.RenderPresent(display.renderer)
+
+	{
+		profiler_scope("scene")
+		sdl.SetRenderDrawColor(display.renderer, 16, 16, 16, sdl.ALPHA_OPAQUE)
+		sdl.RenderClear(display.renderer)
+		if kind == .Projection {
+			sdl.SetRenderScale(display.renderer, 1, 1)
+			switch gm.projection_source {
+			case .Score:
+				score_projection_background_render(display.renderer)
+			case .Video:
+				video_projection_render(display.renderer)
+			case .Timer, .Blank:
+			}
+		}
+		sdl.SetRenderScale(
+			display.renderer,
+			display.io.DisplayFramebufferScale.x,
+			display.io.DisplayFramebufferScale.y,
+		)
+	}
+
+	{
+		profiler_scope("present")
+		imsdlrenderer3.RenderDrawData(imgui.GetDrawData(), display.renderer)
+		sdl.RenderPresent(display.renderer)
+	}
 }
 
 @(export)
 game_update :: proc() {
+	profiler_scope("frame")
 	update()
 	draw()
+	profiler_flush()
 	free_all(context.temp_allocator)
 }
 
 @(export)
 game_init_window :: proc() {
 	if gm == nil do gm = game_memory_make()
+	profiler_start()
 
 	ensure(sdl.SetAppMetadata("Showtime", "1.0", "showtime"), string(sdl.GetError()))
 
@@ -381,6 +397,8 @@ game_shutdown :: proc() {
 		net.close(socket)
 		gm.lighting.socket = nil
 	}
+
+	profiler_stop()
 
 	gm = nil
 }

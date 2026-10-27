@@ -386,6 +386,7 @@ entity_track_handle_for_path :: proc(path: string) -> Entity_Handle {
 }
 
 entities_frame_update :: proc(dt: f32) {
+	profiler_scope(#procedure)
 	ensure(gm != nil)
 	clear(&gm.entities.draw_records)
 

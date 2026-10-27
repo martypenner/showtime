@@ -1077,6 +1077,7 @@ sound_update :: proc(dt: f32) {
 // Sound voices tick here, inside the frame traversal's sound section.
 // Finished voices tear down their mixer objects and leave the store.
 sound_section_update :: proc(dt: f32) {
+	profiler_scope(#procedure)
 	pending_index := 0
 	for pending_index < len(gm.sound_settings.pending_sounds) {
 		pending := &gm.sound_settings.pending_sounds[pending_index]
@@ -1133,6 +1134,7 @@ sound_section_update :: proc(dt: f32) {
 // The music crossfade engine runs here, inside the frame traversal's music
 // section, then mirrors the primary playback into the music entity.
 music_section_update :: proc() {
+	profiler_scope(#procedure)
 	music_playback_ended: [MUSIC_PLAYBACK_COUNT]bool
 	primary := gm.sound_settings.music_playback_primary
 	for &playback, playback_index in gm.sound_settings.music_playbacks {

@@ -714,6 +714,7 @@ hotkeys_handle_key :: proc(key: sdl.Keycode) {
 }
 
 controls_draw :: proc() {
+	profiler_scope(#procedure)
 	// imgui.ShowDemoWindow()
 
 	vp := imgui.GetMainViewport()
@@ -1316,6 +1317,7 @@ controls_draw :: proc() {
 }
 
 projection_draw :: proc() {
+	profiler_scope(#procedure)
 	vp := imgui.GetMainViewport()
 	imgui.SetNextWindowPos(vp.WorkPos)
 	imgui.SetNextWindowSize(vp.WorkSize)
