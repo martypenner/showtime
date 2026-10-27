@@ -399,8 +399,6 @@ game_shutdown :: proc() {
 	}
 
 	profiler_stop()
-
-	gm = nil
 }
 
 @(export)
@@ -415,6 +413,7 @@ game_shutdown_window :: proc() {
 		sdl.DestroyWindow(display.window)
 	}
 	sdl.Quit()
+	gm = nil
 }
 
 @(export)
