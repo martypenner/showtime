@@ -1,31 +1,33 @@
 package game
 
+import hm "core:container/handle_map"
 import "core:strings"
 import sdl "vendor:sdl3"
 import mixer "vendor:sdl3/mixer"
 
 Entity :: struct {
-	handle:          Entity_Handle,
-	caps:            Entity_Caps,
-	triggers:        Entity_Triggers,
-	fired:           Entity_Triggers,
-	label:           string,
-	fade:            Entity_Fade,
-	timer:           Entity_Timer,
-	cue:             Entity_Cue,
-	mark:            Entity_Mark,
-	track:           Entity_Track,
-	video:           Entity_Video,
-	music:           Entity_Music,
-	sound:           Entity_Sound,
-	lighting:        Entity_Lighting,
-	score:           Entity_Score,
-	playlist_tracks: [dynamic]Entity_Handle,
+	handle:               Entity_Handle,
+	caps:                 Entity_Caps,
+	label:                string,
+	fade:                 Entity_Fade,
+	timer:                Entity_Timer,
+	cue:                  Entity_Cue,
+	mark:                 Entity_Mark,
+	track:                Entity_Track,
+	video:                Entity_Video,
+	music:                Entity_Music,
+	sound:                Entity_Sound,
+	score:                Entity_Score,
+	lighting:             Lighting_Handle,
+	playlist_tracks:      [dynamic]Entity_Handle,
+	playlist_last_played: Entity_Handle,
 }
 
-Entity_Handle :: distinct u32
+Entity_Handle :: distinct hm.Handle64
 
-ENTITY_HANDLE_NIL :: Entity_Handle(0)
+ENTITY_HANDLE_NIL :: Entity_Handle{}
+
+Lighting_Handle :: distinct hm.Handle64
 
 Entity_Cap :: enum u8 {
 	Timer,
@@ -41,17 +43,6 @@ Entity_Cap :: enum u8 {
 }
 
 Entity_Caps :: bit_set[Entity_Cap;u16]
-
-Entity_Trigger :: enum u8 {
-	Sound,
-	Music,
-	Lighting,
-	Video,
-	Score,
-	Fade_Out,
-}
-
-Entity_Triggers :: bit_set[Entity_Trigger;u8]
 
 Entity_Fade :: struct {
 	duration_s:   f32,
@@ -112,10 +103,9 @@ Entity_Video :: struct {
 }
 
 Entity_Music :: struct {
-	playlist:        Entity_Handle,
-	track:           Entity_Handle,
-	volume_endpoint: f32,
-	playback:        ^MusicPlayback,
+	playlist: Entity_Handle,
+	track:    Entity_Handle,
+	playback: ^MusicPlayback,
 }
 
 Entity_Sound :: struct {
@@ -127,9 +117,13 @@ Entity_Sound :: struct {
 	mixer_audio: ^mixer.Audio,
 }
 
+// Sparse payload of a .Lighting entity. Entity.lighting and owner link the
+// two records in both directions.
 Entity_Lighting :: struct {
-	look: LightingLook,
-	fx:   [LightingFxKind]LightingFx,
+	handle: Lighting_Handle,
+	owner:  Entity_Handle,
+	look:   LightingLook,
+	fx:     [LightingFxKind]LightingFx,
 }
 
 Entity_Score :: struct {
@@ -143,23 +137,16 @@ Entity_Score :: struct {
 	regions:             [Score_Team]Score_Region,
 }
 
-// Handle map entry. The handle packs the generation in the top byte and the
-// entry index plus one in the lower bits, so a reused slot never aliases a
-// destroyed entity.
-Entity_Store_Entry :: struct {
-	entity:     Entity,
-	generation: u32,
-	alive:      bool,
-}
-
 Entity_Draw_Record :: struct {
 	display: DisplayKind,
 	handle:  Entity_Handle,
 }
 
 Entity_Store :: struct {
-	entries:          [dynamic]Entity_Store_Entry,
-	free:             [dynamic]u32,
+	// Chunked storage: addresses stay stable as the maps grow, and a reused
+	// slot bumps its generation so stale handles stop resolving.
+	entities:         hm.Dynamic_Handle_Map(Entity, Entity_Handle),
+	lighting_states:  hm.Dynamic_Handle_Map(Entity_Lighting, Lighting_Handle),
 	sound:            [dynamic]Entity_Handle,
 	lighting:         [dynamic]Entity_Handle,
 	timer:            [dynamic]Entity_Handle,
@@ -176,8 +163,8 @@ Entity_Store :: struct {
 
 entity_store_init :: proc(store: ^Entity_Store) {
 	ensure(store != nil)
-	store.entries = make([dynamic]Entity_Store_Entry)
-	store.free = make([dynamic]u32)
+	hm.dynamic_init(&store.entities, context.allocator)
+	hm.dynamic_init(&store.lighting_states, context.allocator)
 	store.sound = make([dynamic]Entity_Handle)
 	store.lighting = make([dynamic]Entity_Handle)
 	store.timer = make([dynamic]Entity_Handle)
@@ -192,52 +179,21 @@ entity_store_init :: proc(store: ^Entity_Store) {
 	store.draw_records = make([dynamic]Entity_Draw_Record)
 }
 
-@(private = "file")
-entity_handle_make :: proc(index: u32, generation: u32) -> Entity_Handle {
-	return Entity_Handle((generation << 24) | (index + 1))
-}
-
-@(private = "file")
-entity_handle_split :: proc(handle: Entity_Handle) -> (index: u32, generation: u32, ok: bool) {
-	raw := u32(handle)
-	if raw == 0 do return 0, 0, false
-	index = (raw & 0xFFFFFF) - 1
-	generation = raw >> 24
-	ok = true
-	return
-}
-
 entity_create :: proc(caps: Entity_Caps, label: string) -> Entity_Handle {
 	ensure(gm != nil)
 	ensure(caps != {})
 	store := &gm.entities
-	index: u32
-	generation: u32
-	if len(store.free) > 0 {
-		index = pop(&store.free)
-		entry := &store.entries[index]
-		ensure(!entry.alive)
-		entry.generation += 1
-		if entry.generation == 0 || entry.generation > 0xFF do entry.generation = 1
-		generation = entry.generation
-		entry.entity = {}
-		entry.alive = true
-	} else {
-		index = u32(len(store.entries))
-		ensure(index < 0xFFFFFF)
-		generation = 1
-		append(
-			&store.entries,
-			Entity_Store_Entry{entity = {}, generation = generation, alive = true},
-		)
-	}
-	handle := entity_handle_make(index, generation)
-	entry := &store.entries[index]
-	entry.entity.handle = handle
-	entry.entity.caps = caps
-	if len(label) > 0 do entry.entity.label = strings.clone(label)
+	handle, err := hm.add(&store.entities, Entity{caps = caps})
+	ensure(err == nil)
+	entity := entity_must_get(handle)
+	if len(label) > 0 do entity.label = strings.clone(label)
 	if .Sound in caps do append(&store.sound, handle)
-	if .Lighting in caps do append(&store.lighting, handle)
+	if .Lighting in caps {
+		lighting, lighting_err := hm.add(&store.lighting_states, Entity_Lighting{owner = handle})
+		ensure(lighting_err == nil)
+		entity.lighting = lighting
+		append(&store.lighting, handle)
+	}
 	if .Timer in caps do append(&store.timer, handle)
 	if .Mark in caps do append(&store.mark, handle)
 	if .Video in caps do append(&store.video, handle)
@@ -250,11 +206,7 @@ entity_create :: proc(caps: Entity_Caps, label: string) -> Entity_Handle {
 
 entity_get :: proc(handle: Entity_Handle) -> (^Entity, bool) {
 	if gm == nil do return nil, false
-	index, generation, ok := entity_handle_split(handle)
-	if !ok || int(index) >= len(gm.entities.entries) do return nil, false
-	entry := &gm.entities.entries[index]
-	if !entry.alive || entry.generation != generation do return nil, false
-	return &entry.entity, true
+	return hm.get(&gm.entities.entities, handle)
 }
 
 entity_must_get :: proc(handle: Entity_Handle) -> ^Entity {
@@ -273,24 +225,38 @@ entity_domain_remove :: proc(array: ^[dynamic]Entity_Handle, handle: Entity_Hand
 	}
 }
 
+// Destruction releases everything the entity owns: domain membership, the
+// lighting payload, and a music entity's live playback.
 entity_destroy :: proc(handle: Entity_Handle) {
 	entity, ok := entity_get(handle)
 	ensure(ok)
 	caps := entity.caps
 	store := &gm.entities
 	if .Sound in caps do entity_domain_remove(&store.sound, handle)
-	if .Lighting in caps do entity_domain_remove(&store.lighting, handle)
+	if .Lighting in caps {
+		entity_domain_remove(&store.lighting, handle)
+		state, state_ok := hm.get(&store.lighting_states, entity.lighting)
+		ensure(state_ok && state.owner == handle)
+		found, err := hm.remove(&store.lighting_states, entity.lighting)
+		ensure(found && err == nil)
+	}
 	if .Timer in caps do entity_domain_remove(&store.timer, handle)
 	if .Mark in caps do entity_domain_remove(&store.mark, handle)
 	if .Video in caps do entity_domain_remove(&store.video, handle)
-	if .Music in caps do entity_domain_remove(&store.music, handle)
+	if .Music in caps {
+		if playback := entity.music.playback; playback != nil {
+			ensure(playback.entity == handle && playback.mixer_track != nil)
+			voice_track_teardown(playback.mixer_track, playback.mixer_audio)
+			playback^ = {}
+		}
+		if gm.music_primary == handle do gm.music_primary = ENTITY_HANDLE_NIL
+		entity_domain_remove(&store.music, handle)
+	}
 	if .Score in caps do entity_domain_remove(&store.score, handle)
 	if .Playlist in caps do entity_domain_remove(&store.playlist, handle)
 	if .Track in caps do entity_domain_remove(&store.track, handle)
-	index, _, _ := entity_handle_split(handle)
-	entity^ = {}
-	store.entries[index].alive = false
-	append(&store.free, index)
+	found, err := hm.remove(&store.entities, handle)
+	ensure(found && err == nil)
 }
 
 entity_domain_clear :: proc(array: ^[dynamic]Entity_Handle) {
@@ -352,15 +318,15 @@ entity_playlist_create :: proc(name: string) -> Entity_Handle {
 
 entity_track_create :: proc(path: string, title: string) -> Entity_Handle {
 	ensure(gm != nil)
-	key := strings.clone(path)
-	if handle, found := gm.entities.track_handles[key]; found {
+	if handle, found := gm.entities.track_handles[path]; found {
 		_, alive := entity_get(handle)
 		ensure(alive)
 		return handle
 	}
-	handle := entity_create({.Track}, title)
+	handle := entity_create({.Track}, "")
 	entity := entity_must_get(handle)
 	entity.track.path = strings.clone(path)
+	entity.track.title = strings.clone(title)
 	gm.entities.track_handles[entity.track.path] = handle
 	return handle
 }
@@ -397,7 +363,6 @@ entities_frame_update :: proc(dt: f32) {
 	for handle in gm.entities.music do entity_record_emit(.Controls, handle)
 
 	lighting_update(dt)
-	lighting_entity_sync()
 	for handle in gm.entities.lighting do entity_record_emit(.Controls, handle)
 
 	timers_update(dt)

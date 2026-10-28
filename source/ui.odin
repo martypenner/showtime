@@ -89,21 +89,21 @@ controls_list_begin :: proc(label: cstring, height: f32) -> bool {
 	return imgui.BeginChild(label, {0, height}, {.FrameStyle})
 }
 
-music_browser_playlist_selected :: proc() -> ^Playlist {
+music_browser_playlist_selected :: proc() -> Entity_Handle {
 	ensure(
 		gm.sound_settings.music_browser_playlist_index >= 0 &&
-		gm.sound_settings.music_browser_playlist_index < i32(len(gm.sound_settings.playlists)),
+		gm.sound_settings.music_browser_playlist_index < i32(len(gm.entities.playlist)),
 	)
-	return &gm.sound_settings.playlists[gm.sound_settings.music_browser_playlist_index]
+	return gm.entities.playlist[gm.sound_settings.music_browser_playlist_index]
 }
 
-music_browser_track_selected :: proc() -> ^Track {
-	playlist := music_browser_playlist_selected()
+music_browser_track_selected :: proc() -> Entity_Handle {
+	playlist := entity_must_get(music_browser_playlist_selected())
 	ensure(
 		gm.sound_settings.music_browser_track_index >= 0 &&
-		gm.sound_settings.music_browser_track_index < i32(len(playlist.tracks)),
+		gm.sound_settings.music_browser_track_index < i32(len(playlist.playlist_tracks)),
 	)
-	return &playlist.tracks[gm.sound_settings.music_browser_track_index]
+	return playlist.playlist_tracks[gm.sound_settings.music_browser_track_index]
 }
 
 show_pre_show :: proc() {
@@ -182,8 +182,8 @@ show_to_house :: proc() {
 }
 
 show_scene_ramp :: proc() {
-	primary := gm.sound_settings.music_playback_primary
-	if primary != nil && primary.mixer_track != nil && mixer.TrackPlaying(primary.mixer_track) {
+	primary, primary_ok := music_primary_playback()
+	if primary_ok && primary.mixer_track != nil && mixer.TrackPlaying(primary.mixer_track) {
 		primary_volume := music_playback_volume_at(
 			primary,
 			mixer.GetTrackPlaybackPosition(primary.mixer_track),
@@ -219,10 +219,10 @@ show_scene_fade :: proc() {
 
 show_drop_needle :: proc() {
 	playlist := playlist_find_by_name(.Needle_Droppers)
-	ensure(playlist != nil, "Couldn't find playlist for Needle_Droppers")
+	ensure(playlist != ENTITY_HANDLE_NIL, "Couldn't find playlist for Needle_Droppers")
 
 	track := playlist_pick_random_track(playlist)
-	ensure(track != nil, "Couldn't pick track for Needle_Droppers")
+	ensure(track != ENTITY_HANDLE_NIL, "Couldn't pick track for Needle_Droppers")
 
 	for &playback in gm.sound_settings.music_playbacks {
 		music_playback_stop(&playback)
@@ -250,7 +250,7 @@ show_ave_maria :: proc() {
 		cue_dispatch(&cue)
 	}
 
-	fx := gm.lighting.fx[.Blackout]
+	fx := lighting_state(lighting_entity_ensure()).fx[.Blackout]
 	if fx.weight_current > 0 {
 		// Blackout is dark: fade it down.
 		lighting_fx_run(.Blackout, {{0, fx.weight_current}, {2, 0}})
@@ -284,21 +284,23 @@ game_innuendo :: proc() {
 
 	// Toggle: head for the opposite of wherever the last envelope
 	// was going, starting from the current weight.
-	fx := gm.lighting.fx[.Innuendo]
+	fx := lighting_state(lighting_entity_ensure()).fx[.Innuendo]
 	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].value : 0
 	lighting_fx_run(.Innuendo, {{0, fx.weight_current}, {2, 1 - target_prev}})
 }
 
 game_oscar_moment :: proc() {
 	playlist := playlist_find_by_name(.Mood_Heroic_EPIC)
-	ensure(playlist != nil, "Couldn't find playlist for Oscar_Moment")
+	ensure(playlist != ENTITY_HANDLE_NIL, "Couldn't find playlist for Oscar_Moment")
 
-	current_playback := gm.sound_settings.music_playback_primary
+	primary, primary_ok := music_primary_playback()
+	primary_entity, primary_entity_ok := entity_get(gm.music_primary)
 	oscar_moment_playing :=
-		current_playback != nil &&
-		current_playback.mixer_track != nil &&
-		current_playback.playlist == playlist &&
-		!current_playback.stopping
+		primary_ok &&
+		primary.mixer_track != nil &&
+		primary_entity_ok &&
+		primary_entity.music.playlist == playlist &&
+		!primary.stopping
 
 	music_playbacks_fade_all(gm.sound_settings.fade_out_time)
 
@@ -306,7 +308,7 @@ game_oscar_moment :: proc() {
 		lighting_look_activate(.Scene)
 	} else {
 		track := playlist_pick_random_track(playlist)
-		ensure(track != nil, "Couldn't pick track for Oscar_Moment")
+		ensure(track != ENTITY_HANDLE_NIL, "Couldn't pick track for Oscar_Moment")
 
 		new_playback := music_playback_start_playlist_track(
 			playlist,
@@ -329,25 +331,27 @@ game_oscar_moment :: proc() {
 }
 
 game_sounds_like_a_song :: proc() {
-	current_playback := gm.sound_settings.music_playback_primary
+	primary, primary_ok := music_primary_playback()
+	primary_entity, primary_entity_ok := entity_get(gm.music_primary)
 	playlist_playing :=
-		gm.game_mode.sounds_like_a_song_playlist != nil &&
-		current_playback != nil &&
-		current_playback.mixer_track != nil &&
-		current_playback.playlist == gm.game_mode.sounds_like_a_song_playlist &&
-		!current_playback.stopping
+		gm.game_mode.sounds_like_a_song_playlist != ENTITY_HANDLE_NIL &&
+		primary_ok &&
+		primary.mixer_track != nil &&
+		primary_entity_ok &&
+		primary_entity.music.playlist == gm.game_mode.sounds_like_a_song_playlist &&
+		!primary.stopping
 
 	if playlist_playing {
 		music_playbacks_fade_all(gm.sound_settings.fade_out_time)
-		gm.game_mode.sounds_like_a_song_playlist = nil
+		gm.game_mode.sounds_like_a_song_playlist = ENTITY_HANDLE_NIL
 	} else {
 		playlist := playlist_find_by_name(.Sounds_Like_a_Song)
-		ensure(playlist != nil, "Couldn't find playlist for Sounds_Like_a_Song")
+		ensure(playlist != ENTITY_HANDLE_NIL, "Couldn't find playlist for Sounds_Like_a_Song")
 
 		music_playbacks_fade_all(gm.sound_settings.fade_out_time)
 
 		track := playlist_pick_random_track(playlist)
-		ensure(track != nil, "Couldn't pick track for Sounds_Like_a_Song")
+		ensure(track != ENTITY_HANDLE_NIL, "Couldn't pick track for Sounds_Like_a_Song")
 
 		new_playback := music_playback_start_playlist_track(
 			playlist,
@@ -410,7 +414,10 @@ lighting_scene_fade :: proc() {
 
 lighting_fade_to_black :: proc() {
 	lighting_fx_deactivate_all()
-	lighting_fx_run(.Blackout, {{0, gm.lighting.fx[.Blackout].weight_current}, {2, 1}})
+	lighting_fx_run(
+		.Blackout,
+		{{0, lighting_state(lighting_entity_ensure()).fx[.Blackout].weight_current}, {2, 1}},
+	)
 	fade := Entity_Cue {
 		caps       = {.Has_Video},
 		triggers   = {.Fade_Out},
@@ -438,7 +445,7 @@ lighting_center_focus :: proc() {
 lighting_innuendo_toggle :: proc() {
 	// Toggle: head for the opposite of wherever the last envelope
 	// was going, starting from the current weight.
-	fx := gm.lighting.fx[.Innuendo]
+	fx := lighting_state(lighting_entity_ensure()).fx[.Innuendo]
 	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].value : 0
 	lighting_fx_run(.Innuendo, {{0, fx.weight_current}, {2, 1 - target_prev}})
 	lighting_look_activate(.Scene)
@@ -447,7 +454,7 @@ lighting_innuendo_toggle :: proc() {
 lighting_rainbow_sting_toggle :: proc() {
 	// Toggle: head for the opposite of wherever the last envelope
 	// was going, starting from the current weight.
-	fx := gm.lighting.fx[.RainbowSting]
+	fx := lighting_state(lighting_entity_ensure()).fx[.RainbowSting]
 	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].value : 0
 	lighting_fx_run(.RainbowSting, {{0, fx.weight_current}, {2, 1 - target_prev}})
 }
@@ -455,7 +462,7 @@ lighting_rainbow_sting_toggle :: proc() {
 lighting_pulsing_toggle :: proc() {
 	// Toggle: head for the opposite of wherever the last envelope
 	// was going, starting from the current weight.
-	fx := gm.lighting.fx[.Pulsing]
+	fx := lighting_state(lighting_entity_ensure()).fx[.Pulsing]
 	target_prev := fx.key_count > 0 ? fx.keys[fx.key_count - 1].value : 0
 	lighting_fx_run(.Pulsing, {{0, fx.weight_current}, {2, 1 - target_prev}})
 }
@@ -779,8 +786,8 @@ controls_draw :: proc() {
 					imgui.SliderFlags_AlwaysClamp,
 				) {
 					gm.sound_settings.music_volume = music_vol / 100
-					primary := gm.sound_settings.music_playback_primary
-					if primary != nil && primary.mixer_track != nil {
+					primary, primary_ok := music_primary_playback()
+					if primary_ok && primary.mixer_track != nil {
 						music_playback_volume_set(primary, {{0, gm.sound_settings.music_volume}})
 					}
 					settings_save()
@@ -894,7 +901,7 @@ controls_draw :: proc() {
 				}
 				imgui.SameLine()
 				{
-					fx := gm.lighting.fx[.Innuendo]
+					fx := lighting_state(lighting_entity_ensure()).fx[.Innuendo]
 					text := "Innuendo"
 					target_prev: f32
 					if fx.weight_current > 0 {
@@ -914,7 +921,7 @@ controls_draw :: proc() {
 				}
 				imgui.SameLine()
 				{
-					fx := gm.lighting.fx[.RainbowSting]
+					fx := lighting_state(lighting_entity_ensure()).fx[.RainbowSting]
 					text := " Rainbow sting"
 					target_prev: f32
 					if fx.weight_current > 0 {
@@ -935,7 +942,7 @@ controls_draw :: proc() {
 
 				imgui.SameLine()
 				{
-					fx := gm.lighting.fx[.Pulsing]
+					fx := lighting_state(lighting_entity_ensure()).fx[.Pulsing]
 					text := "Pulsing"
 					target_prev: f32
 					if fx.weight_current > 0 {
@@ -1084,7 +1091,7 @@ controls_draw :: proc() {
 			list_height_min := list_row_height * 6 + list_padding
 			music_height_needed := max(
 				list_height_min,
-				f32(len(gm.sound_settings.playlists)) * list_row_height + list_padding,
+				f32(len(gm.entities.playlist)) * list_row_height + list_padding,
 			)
 			video_height_needed := max(
 				list_height_min,
@@ -1127,8 +1134,7 @@ controls_draw :: proc() {
 				imgui.TextUnformatted("Music")
 
 				{
-					primary := gm.sound_settings.music_playback_primary
-					if primary != nil {
+					if _, primary_ok := music_primary_playback(); primary_ok {
 						imgui.SameLine()
 
 						style := button_styles[.Sound]
@@ -1148,26 +1154,34 @@ controls_draw :: proc() {
 					"Playlists##ControlList",
 					list_height_min + music_height_extra,
 				) {
-					for &playlist, index in gm.sound_settings.playlists {
+					for playlist_handle, index in gm.entities.playlist {
+						playlist := entity_must_get(playlist_handle)
+						_, primary_ok := music_primary_playback()
+						primary_entity, primary_entity_ok := entity_get(gm.music_primary)
+						is_current :=
+							primary_ok &&
+							primary_entity_ok &&
+							primary_entity.music.playlist == playlist_handle
 						if imgui.Selectable(
-							strings.clone_to_cstring(playlist.name, context.temp_allocator),
-							gm.sound_settings.music_playback_primary != nil &&
-							gm.sound_settings.music_playback_primary.playlist == &playlist,
+							strings.clone_to_cstring(playlist.label, context.temp_allocator),
+							is_current,
 						) {
-							ensure(len(playlist.tracks) > 0)
+							ensure(len(playlist.playlist_tracks) > 0)
 							gm.sound_settings.music_browser_playlist_index = i32(index)
 							gm.sound_settings.music_browser_track_index = 0
-							wave_editor_track_select(&playlist.tracks[0])
+							wave_editor_track_select(playlist.playlist_tracks[0])
 
-							primary := gm.sound_settings.music_playback_primary
-							if primary != nil && primary.playlist == &playlist {
+							if is_current {
 								music_playbacks_fade_all(2)
 							} else {
-								track := playlist_pick_random_track(&playlist)
-								ensure(track != nil, "Couldn't pick track for playlist")
+								track := playlist_pick_random_track(playlist_handle)
+								ensure(
+									track != ENTITY_HANDLE_NIL,
+									"Couldn't pick track for playlist",
+								)
 
 								music_crossfade(
-									&playlist,
+									playlist_handle,
 									track,
 									0.3,
 									gm.sound_settings.fade_in_time,
@@ -1210,15 +1224,16 @@ controls_draw :: proc() {
 			imgui.BeginGroup()
 			imgui.Text("Playlist")
 			if imgui.BeginChild("Playlist##List", {300, 0}, {.FrameStyle}) {
-				for &candidate, index in gm.sound_settings.playlists {
+				for playlist_handle, index in gm.entities.playlist {
+					playlist := entity_must_get(playlist_handle)
 					if imgui.Selectable(
-						strings.clone_to_cstring(candidate.name, context.temp_allocator),
+						strings.clone_to_cstring(playlist.label, context.temp_allocator),
 						i32(index) == gm.sound_settings.music_browser_playlist_index,
 					) {
-						ensure(len(candidate.tracks) > 0)
+						ensure(len(playlist.playlist_tracks) > 0)
 						gm.sound_settings.music_browser_playlist_index = i32(index)
 						gm.sound_settings.music_browser_track_index = 0
-						wave_editor_track_select(&candidate.tracks[0])
+						wave_editor_track_select(playlist.playlist_tracks[0])
 					}
 				}
 			}
@@ -1229,7 +1244,7 @@ controls_draw :: proc() {
 
 			imgui.BeginGroup()
 			imgui.Text("Track")
-			playlist := music_browser_playlist_selected()
+			playlist := entity_must_get(music_browser_playlist_selected())
 			if imgui.BeginChild(
 				"Track##List",
 				{
@@ -1241,13 +1256,14 @@ controls_draw :: proc() {
 				},
 				child_flags = {.FrameStyle},
 			) {
-				for &candidate, index in playlist.tracks {
+				for track_handle, index in playlist.playlist_tracks {
+					track := entity_must_get(track_handle)
 					if imgui.Selectable(
-						strings.clone_to_cstring(candidate.title, context.temp_allocator),
+						strings.clone_to_cstring(track.track.title, context.temp_allocator),
 						i32(index) == gm.sound_settings.music_browser_track_index,
 					) {
 						gm.sound_settings.music_browser_track_index = i32(index)
-						wave_editor_track_select(&candidate)
+						wave_editor_track_select(track_handle)
 					}
 				}
 			}
@@ -1276,10 +1292,13 @@ controls_draw :: proc() {
 			imgui.Text(strings.clone_to_cstring(music_current_label(), context.temp_allocator))
 
 			imgui.SameLine()
-			imgui.Text("| Lighting: %s", lighting_look_labels[gm.lighting.active_look])
+			imgui.Text(
+				"| Lighting: %s",
+				lighting_look_labels[lighting_state(lighting_entity_ensure()).look],
+			)
 
 			lighting_fx_count := 0
-			for &fx, kind in gm.lighting.fx {
+			for &fx, kind in lighting_state(lighting_entity_ensure()).fx {
 				if fx.weight_current <= 0 do continue
 
 				imgui.SameLine(0, 0)

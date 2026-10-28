@@ -60,12 +60,11 @@ GameMemory :: struct {
 	entities:              Entity_Store,
 	projection_source:     ProjectionSource,
 	projection_handle:     Entity_Handle,
+	music_primary:         Entity_Handle,
 	sound_settings:        ^SoundSettings,
 	lighting:              struct {
 		socket:         Maybe(net.UDP_Socket),
 		endpoint:       net.Endpoint,
-		active_look:    LightingLook,
-		fx:             [LightingFxKind]LightingFx,
 		fx_osc_address: [LightingFxKind]string,
 		// Lighting picker color, edited in the controls window.
 		color:          [3]f32,
@@ -81,7 +80,7 @@ GameMemory :: struct {
 		board: int,
 	},
 	game_mode:             struct {
-		sounds_like_a_song_playlist: ^Playlist,
+		sounds_like_a_song_playlist: Entity_Handle,
 	},
 	scores:                ^ScoreState,
 	tracks:                map[string]GeneratedTrack,
@@ -423,11 +422,14 @@ game_memory :: proc() -> rawptr {
 
 @(export)
 game_memory_size :: proc() -> int {
-	// Nested video layouts also require a restart when they change.
+	// Layouts reached through pointers or containers also require a restart
+	// when they change.
 	return(
 		size_of(GameMemory) +
 		size_of(Entity_Store) +
 		size_of(Entity) +
+		size_of(Entity_Lighting) +
+		size_of(SoundSettings) +
 		size_of(VideoPlayback) +
 		size_of(VideoDecoder) \
 	)

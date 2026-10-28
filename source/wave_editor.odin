@@ -32,17 +32,13 @@ wave_editor_preview_stop :: proc() {
 	preview^ = {}
 }
 
-wave_editor_preview_start :: proc(track: ^Track) {
+wave_editor_preview_start :: proc(track_handle: Entity_Handle) {
 	wave_editor_preview_stop()
 
+	track := &entity_must_get(track_handle).track
 	generated_track, ok := gm.tracks[norm.path_nfc(track.path)]
 	ensure(ok)
-	bounds, stale := music_track_bounds_resolve(
-		gm.sound_settings.music_track_bounds,
-		norm.path_nfc(track.path),
-		generated_track.file_hash,
-		generated_track.duration_seconds,
-	)
+	bounds, stale := music_track_bounds_resolve_entity(track, generated_track)
 	ensure(!stale && bounds.start_time < bounds.end_time)
 
 	for &playback in gm.sound_settings.music_playbacks {
@@ -80,19 +76,14 @@ wave_editor_preview_start :: proc(track: ^Track) {
 	}
 }
 
-wave_editor_track_select :: proc(track: ^Track) {
+wave_editor_track_select :: proc(track_handle: Entity_Handle) {
 	wave_editor_preview_stop()
+	track := &entity_must_get(track_handle).track
 	generated_track, ok := gm.tracks[norm.path_nfc(track.path)]
 	ensure(ok && generated_track.duration_seconds > 0)
-	bounds, stale := music_track_bounds_resolve(
-		gm.sound_settings.music_track_bounds,
-		norm.path_nfc(track.path),
-		generated_track.file_hash,
-		generated_track.duration_seconds,
-	)
+	bounds, stale := music_track_bounds_resolve_entity(track, generated_track)
 	if stale {
 		log.warnf("Ignoring bounds for changed track: %s", track.path)
-		track_bounds_delete(track.path)
 		gm.sound_settings.settings_save_time_left = SOUND_SETTINGS_SAVE_DEBOUNCE_DURATION
 	}
 	gm.sound_settings.wave_editor_start_fraction =
@@ -101,7 +92,7 @@ wave_editor_track_select :: proc(track: ^Track) {
 }
 
 wave_editor :: proc() {
-	track := music_browser_track_selected()
+	track := &entity_must_get(music_browser_track_selected()).track
 	generated_track, ok := gm.tracks[norm.path_nfc(track.path)]
 	ensure(ok && generated_track.duration_seconds > 0)
 

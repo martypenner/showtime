@@ -84,20 +84,16 @@ cue_dispatch :: proc(cue: ^Entity_Cue) -> Cue_Triggers {
 // Resolve one random track from the cue's playlist entity and crossfade into
 // it. A missing playlist or an empty pick is a programming error.
 cue_music_fire :: proc(cue: ^Entity_Cue) {
-	playlist_entity := entity_must_get(cue.playlist)
-	ensure(.Playlist in playlist_entity.caps)
-	playlist := playlist_find_by_label(playlist_entity.label)
-	ensure(playlist != nil)
-	track := playlist_pick_random_track(playlist)
-	ensure(track != nil)
-	music_crossfade(playlist, track, cue.music_volume, cue.fade_in_s, cue.fade_out_s)
+	playlist := entity_must_get(cue.playlist)
+	ensure(.Playlist in playlist.caps)
+	track := playlist_pick_random_track(cue.playlist)
+	ensure(track != ENTITY_HANDLE_NIL)
+	music_crossfade(cue.playlist, track, cue.music_volume, cue.fade_in_s, cue.fade_out_s)
 }
 
 cue_fire :: proc(index: int) {
 	timer := timer_at(index)
-	fire := cue_dispatch(&timer.cue)
-	timer.triggers = transmute(Entity_Triggers)timer.cue.triggers
-	timer.fired = transmute(Entity_Triggers)fire
+	cue_dispatch(&timer.cue)
 }
 
 timers_cue_arm_sound :: proc(index: int, name: SoundEffectName, volume: f32) {

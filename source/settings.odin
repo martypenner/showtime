@@ -7,10 +7,10 @@ import norm "path_normalize"
 
 SETTINGS_FILENAME :: "settings.sjson"
 
-// Explicit persisted surface. Same keys as the previous inline mix of
-// SoundSettings and video pages, so the current settings.sjson carries over
-// with no migration step. Runtime state (browser indices, wave fractions,
-// live handles, mixer objects, scores, timers, marks, lighting) stays out.
+// Explicit persisted surface. Persistence is a projection of entity state
+// (track bounds, played paths, video pages) plus app preferences. Runtime
+// state (browser indices, wave fractions, live handles, mixer objects, scores,
+// timers, marks, lighting look/FX, music selection, sound voices) stays out.
 App_Settings :: struct {
 	use_house_music:    bool,
 	fade_in_time:       f32,
@@ -25,18 +25,17 @@ App_Settings :: struct {
 	video_pages:        map[string]VideoPlaybackMode,
 }
 
-settings_load :: proc(settings: ^$T) {
+settings_load :: proc(settings: ^$T, allocator := context.allocator) {
 	if !os.exists(SETTINGS_FILENAME) do return
 	data, read_err := os.read_entire_file(SETTINGS_FILENAME, context.temp_allocator)
 	log.ensuref(read_err == nil, "Error reading settings file: %v", read_err)
-	json_err := json.unmarshal(data, settings, .Bitsquid, context.allocator)
+	json_err := json.unmarshal(data, settings, .Bitsquid, allocator)
 	log.ensuref(json_err == nil, "Error unmarshaling settings file: %v", json_err)
 }
 
-// Track bounds persist from the track entities. Paths without an entity
-// (synthetic test fixtures) fall back to the runtime map so nothing drops.
-// The map travels by pointer because element assignment through a bare map
-// parameter is rejected.
+// Track bounds persist from the track entities. Tracks with no file hash or
+// default full-range bounds are omitted. The map travels by pointer because
+// element assignment through a bare map parameter is rejected.
 entity_track_bounds_write :: proc(out: ^map[string]MusicTrackBounds) {
 	ensure(gm != nil)
 	for handle in gm.entities.track {
@@ -44,27 +43,20 @@ entity_track_bounds_write :: proc(out: ^map[string]MusicTrackBounds) {
 		ensure(ok)
 		track := &entity.track
 		if len(track.file_hash) == 0 || track.bounds_end_s <= track.bounds_start_s do continue
-		// Full-range bounds are the default and never persist.
-		if track.bounds_start_s <= 0 && track.bounds_end_s >= track.duration_s do continue
+		// Full-range bounds are the default and never persist. Dormant tracks
+		// (missing from disk) have no duration and always keep their bounds.
+		if track.duration_s > 0 && track.bounds_start_s <= 0 && track.bounds_end_s >= track.duration_s do continue
 		out[norm.path_nfc(track.path)] = MusicTrackBounds {
 			file_hash  = track.file_hash,
 			start_time = track.bounds_start_s,
 			end_time   = track.bounds_end_s,
 		}
 	}
-	for path, bound in gm.sound_settings.music_track_bounds {
-		if path not_in out do out[path] = bound
-	}
 }
 
 settings_save :: proc() {
 	ensure(gm.sound_settings != nil && video_entity_get() != nil)
 	played := make(map[string]bool, context.temp_allocator)
-	for &playlist in gm.sound_settings.playlists {
-		for &track in playlist.tracks {
-			if track.played do played[norm.path_nfc(track.path)] = true
-		}
-	}
 	for handle in gm.entities.track {
 		entity, ok := entity_get(handle)
 		ensure(ok)

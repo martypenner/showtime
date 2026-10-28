@@ -130,10 +130,7 @@ timers_update :: proc(dt: f32) {
 			if countdown_tick(&entity.timer.remaining_s, dt) {
 				entity.timer.done = true
 				entity.timer.flash_remaining_s = TIMER_BLINK_SECONDS
-				fire := cue_dispatch(&entity.cue)
-				entity = entity_must_get(handle)
-				entity.triggers = transmute(Entity_Triggers)entity.cue.triggers
-				entity.fired = transmute(Entity_Triggers)fire
+				cue_dispatch(&entity.cue)
 			}
 		}
 

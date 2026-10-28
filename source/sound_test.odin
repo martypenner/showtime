@@ -16,9 +16,9 @@ sound_state_owned_by_root_survives_reload_pointer :: proc(t: ^testing.T) {
 		stopping = true,
 	}
 	settings := SoundSettings {
-		music_volume           = 0.5,
-		music_playback_primary = &playback,
+		music_volume = 0.5,
 	}
+	settings.music_playbacks[0] = playback
 	gm.sound_settings = &settings
 	defer gm.sound_settings = nil
 
@@ -27,8 +27,7 @@ sound_state_owned_by_root_survives_reload_pointer :: proc(t: ^testing.T) {
 	gm = reloaded
 	testing.expect(t, gm.sound_settings == &settings)
 	testing.expect_value(t, gm.sound_settings.music_volume, f32(0.5))
-	testing.expect(t, gm.sound_settings.music_playback_primary == &playback)
-	testing.expect(t, gm.sound_settings.music_playback_primary.stopping)
+	testing.expect(t, gm.sound_settings.music_playbacks[0].stopping)
 }
 
 @(test)
@@ -75,7 +74,6 @@ sound_music_current_volume_uses_maximum_live_volume :: proc(t: ^testing.T) {
 	defer delete_key(&gm.tracks, path)
 	gm.tracks[path_incoming] = {}
 	defer delete_key(&gm.tracks, path_incoming)
-	playback.source_path = path
 	incoming_audio := mixer.CreateSineWaveAudio(mixer_value, 440, 0.1, 30000)
 	ensure(incoming_audio != nil)
 	defer mixer.DestroyAudio(incoming_audio)
@@ -85,7 +83,6 @@ sound_music_current_volume_uses_maximum_live_volume :: proc(t: ^testing.T) {
 	incoming := MusicPlayback {
 		mixer_audio        = incoming_audio,
 		mixer_track        = incoming_track,
-		source_path        = path_incoming,
 		volume_point_count = 1,
 	}
 	incoming.volume_points[0] = {0, 0.2}
@@ -95,7 +92,8 @@ sound_music_current_volume_uses_maximum_live_volume :: proc(t: ^testing.T) {
 	}
 	settings.music_playbacks[0] = playback
 	settings.music_playbacks[1] = incoming
-	settings.music_playback_primary = &settings.music_playbacks[0]
+	sound_test_bind(&settings.music_playbacks[0], path)
+	sound_test_bind(&settings.music_playbacks[1], path_incoming)
 	gm.sound_settings = &settings
 	defer gm.sound_settings = nil
 	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
@@ -130,7 +128,7 @@ music_playback_explicit_endpoints_ignore_settings_volume :: proc(t: ^testing.T) 
 	path := "test-explicit-endpoints"
 	gm.tracks[path] = {}
 	defer delete_key(&gm.tracks, path)
-	playback.source_path = path
+	sound_test_bind(&playback, path)
 	playback.bounds_end_seconds = 30
 	settings := SoundSettings {
 		music_volume = 0.9,
@@ -188,7 +186,7 @@ music_playback_stopping_gain_tracks_normalization :: proc(t: ^testing.T) {
 	path := "test-stopping-gain"
 	gm.tracks[path] = {}
 	defer delete_key(&gm.tracks, path)
-	playback.source_path = path
+	sound_test_bind(&playback, path)
 	playback.volume_point_next = 1
 	playback.stopping = true
 	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
@@ -219,21 +217,106 @@ music_playback_stopping_gain_tracks_normalization :: proc(t: ^testing.T) {
 
 @(test)
 music_bounds_restore_and_invalidate_by_hash :: proc(t: ^testing.T) {
-	bounds_by_path := make(map[string]MusicTrackBounds)
-	defer delete(bounds_by_path)
-	bounds_by_path["track.mp3"] = {
-		file_hash  = "hash",
-		start_time = 12.5,
-		end_time   = 45.25,
+	track := Entity_Track {
+		file_hash      = "hash",
+		bounds_start_s = 12.5,
+		bounds_end_s   = 45.25,
 	}
-	bounds, stale := music_track_bounds_resolve(bounds_by_path, "track.mp3", "hash", 120)
+	generated := GeneratedTrack {
+		file_hash        = "hash",
+		duration_seconds = 120,
+	}
+	bounds, stale := music_track_bounds_resolve_entity(&track, generated)
 	testing.expect(t, !stale)
 	testing.expect_value(t, bounds.start_time, f32(12.5))
 	testing.expect_value(t, bounds.end_time, f32(45.25))
-	bounds, stale = music_track_bounds_resolve(bounds_by_path, "track.mp3", "changed", 120)
+	generated.file_hash = "changed"
+	bounds, stale = music_track_bounds_resolve_entity(&track, generated)
 	testing.expect(t, stale)
 	testing.expect_value(t, bounds.start_time, f32(0))
 	testing.expect_value(t, bounds.end_time, f32(120))
+	testing.expect_value(t, track.file_hash, "")
+	testing.expect_value(t, track.bounds_end_s, f32(120))
+
+	// An end just past the decoded duration is clamped on the entity itself.
+	track = {
+		file_hash      = "changed",
+		bounds_start_s = 12,
+		bounds_end_s   = 120.05,
+	}
+	bounds, stale = music_track_bounds_resolve_entity(&track, generated)
+	testing.expect(t, !stale)
+	testing.expect_value(t, bounds.end_time, f32(120))
+	testing.expect_value(t, track.bounds_start_s, f32(12))
+	testing.expect_value(t, track.bounds_end_s, f32(120))
+}
+
+@(test)
+music_bounds_reject_negative_start_with_matching_hash :: proc(t: ^testing.T) {
+	track := Entity_Track {
+		file_hash      = "hash",
+		bounds_start_s = -2,
+		bounds_end_s   = 10,
+	}
+	generated := GeneratedTrack {
+		file_hash        = "hash",
+		duration_seconds = 30,
+	}
+	testing.expect_assert_message(
+		t,
+		"track.bounds_start_s >= 0 && track.bounds_start_s < track.bounds_end_s",
+	)
+	_, _ = music_track_bounds_resolve_entity(&track, generated)
+	testing.fail_now(t, "invalid matching-hash bounds must not resolve")
+}
+
+@(test)
+music_bounds_reject_end_past_duration_with_matching_hash :: proc(t: ^testing.T) {
+	track := Entity_Track {
+		file_hash      = "hash",
+		bounds_start_s = 12,
+		bounds_end_s   = 45,
+	}
+	generated := GeneratedTrack {
+		file_hash        = "hash",
+		duration_seconds = 30,
+	}
+	testing.expect_assert_message(t, "track.bounds_end_s <= duration + 0.1")
+	_, _ = music_track_bounds_resolve_entity(&track, generated)
+	testing.fail_now(t, "invalid matching-hash bounds must not resolve")
+}
+
+@(test)
+music_entity_destroy_tears_down_playback :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	settings := DefaultSoundSettings
+	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
+	playback, mixer_value := music_playback_test_make({{0, 1}})
+	defer {
+		mixer.DestroyMixer(mixer_value)
+		mixer.Quit()
+	}
+	settings.music_playbacks[0] = playback
+	handle := sound_test_bind(&settings.music_playbacks[0], "test-destroy")
+	gm.music_primary = handle
+	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
+	ensure(mixer.PlayTrack(playback.mixer_track, 0))
+	testing.expect(t, mixer.TrackPlaying(playback.mixer_track))
+
+	entity_destroy(handle)
+	_, alive := entity_get(handle)
+	testing.expect(t, !alive)
+	testing.expect_value(t, len(gm.entities.music), 0)
+	testing.expect(t, settings.music_playbacks[0].mixer_track == nil)
+	testing.expect_value(t, settings.music_playbacks[0].entity, ENTITY_HANDLE_NIL)
+	testing.expect_value(t, gm.music_primary, ENTITY_HANDLE_NIL)
+	_, primary_ok := music_primary_playback()
+	testing.expect(t, !primary_ok)
 }
 
 @(test)
@@ -341,8 +424,8 @@ music_playback_volume_set_one_point_is_ongoing :: proc(t: ^testing.T) {
 		playback, mixer_value := music_playback_test_make({{0, 0.2}, {10, 0}})
 		path := volume == 0 ? "test-constant-zero" : "test-constant-nonzero"
 		gm.tracks[path] = {}
-		playback.source_path = path
 		playback.bounds_end_seconds = 30
+		sound_test_bind(&playback, path)
 		ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
 		ensure(mixer.PlayTrack(playback.mixer_track, 0))
 		settings := SoundSettings {
@@ -396,17 +479,23 @@ music_playback_zero_final_volume_suppresses_automatic_next :: proc(t: ^testing.T
 	defer context.allocator = game_test_arena_destroy(&arena)
 	gm = game_memory_make()
 
-	playback, mixer_value := music_playback_test_make({{0, 1}, {1, 0}})
-	playlist := Playlist {
-		name = "test",
+	gm.tracks = make(map[string]GeneratedTrack)
+	gm.tracks[MUSIC_PLAYBACK_TEST_TONE_PATH] = {
+		file_hash        = "test",
+		duration_seconds = 30,
 	}
-	playback.playlist = &playlist
+	playback, mixer_value := music_playback_test_make({{0, 1}, {1, 0}})
+	playback.bounds_end_seconds = 30
+	playlist := sound_test_playlist("test")
+	music := sound_test_bind(&playback, MUSIC_PLAYBACK_TEST_TONE_PATH)
+	music_entity := entity_must_get(music)
+	music_entity.music.playlist = playlist
 	settings := SoundSettings {
-		mixer                  = mixer_value,
-		music_playback_primary = &playback,
+		mixer = mixer_value,
 	}
 	settings.music_playbacks[0] = playback
-	settings.music_playback_primary = &settings.music_playbacks[0]
+	music_entity.music.playback = &settings.music_playbacks[0]
+	gm.music_primary = music
 	gm.sound_settings = &settings
 	defer gm.sound_settings = nil
 	sound_update(0)
@@ -432,24 +521,26 @@ music_playback_one_point_zero_starts_silent_automatic_next :: proc(t: ^testing.T
 	}
 	playback, mixer_value := music_playback_test_make({{0, 0}})
 	playback.bounds_end_seconds = 30
-	playlist := Playlist {
-		name = "test",
-	}
-	defer delete(playlist.tracks)
-	append(&playlist.tracks, Track{title = "successor", path = MUSIC_PLAYBACK_TEST_TONE_PATH})
-	playback.playlist = &playlist
+	playlist := sound_test_playlist("test")
+	successor_track := sound_test_track("successor", MUSIC_PLAYBACK_TEST_TONE_PATH)
+	sound_test_attach(playlist, successor_track)
+	music := sound_test_bind(&playback, MUSIC_PLAYBACK_TEST_TONE_PATH)
+	music_entity := entity_must_get(music)
+	music_entity.music.playlist = playlist
 	settings := SoundSettings {
-		mixer                  = mixer_value,
-		music_playback_primary = &playback,
-		shuffle                = false,
+		mixer   = mixer_value,
+		shuffle = false,
 	}
 	settings.music_playbacks[0] = playback
-	settings.music_playback_primary = &settings.music_playbacks[0]
+	music_entity.music.playback = &settings.music_playbacks[0]
+	gm.music_primary = music
 	gm.sound_settings = &settings
 	defer gm.sound_settings = nil
 	sound_update(0)
-	successor := settings.music_playback_primary
-	testing.expect(t, successor != &settings.music_playbacks[0])
+	testing.expect(t, gm.music_primary != music)
+	successor_entity := entity_must_get(gm.music_primary)
+	successor := successor_entity.music.playback
+	ensure(successor != nil)
 	testing.expect_value(t, successor.volume_point_count, u8(1))
 	testing.expect_value(t, music_playback_volume_endpoint(successor), f32(0))
 	testing.expect_value(t, mixer.GetTrackGain(successor.mixer_track), f32(0))
@@ -471,16 +562,20 @@ playlist_selection_preserves_order_and_avoids_last :: proc(t: ^testing.T) {
 	}
 	gm.sound_settings = &settings
 	defer gm.sound_settings = nil
-	playlist := Playlist {
-		name = "test",
-	}
-	defer delete(playlist.tracks)
-	append(&playlist.tracks, Track{title = "first"}, Track{title = "second"})
-	first := playlist_pick_track_unplayed(&playlist)
-	testing.expect_value(t, first.title, "first")
-	first.played = true
-	playlist.last_played_track = first
-	testing.expect_value(t, playlist_pick_track_unplayed(&playlist).title, "second")
+	playlist := sound_test_playlist("test")
+	first := sound_test_track("first", "test-first")
+	second := sound_test_track("second", "test-second")
+	sound_test_attach(playlist, first)
+	sound_test_attach(playlist, second)
+	picked := playlist_pick_track_unplayed(playlist)
+	testing.expect_value(t, entity_must_get(picked).track.title, "first")
+	entity_must_get(picked).track.played = true
+	entity_must_get(playlist).playlist_last_played = picked
+	testing.expect_value(
+		t,
+		entity_must_get(playlist_pick_track_unplayed(playlist)).track.title,
+		"second",
+	)
 }
 
 @(test)
@@ -506,27 +601,23 @@ playlist_reset_avoids_just_started_track :: proc(t: ^testing.T) {
 	}
 	gm.sound_settings = &settings
 	defer gm.sound_settings = nil
-	playlist := new(Playlist)
-	playlist.name = "test"
-	defer delete(playlist.tracks)
-	append(
-		&playlist.tracks,
-		Track{title = "first", path = MUSIC_PLAYBACK_TEST_TONE_PATH},
-		Track{title = "second", path = MUSIC_PLAYBACK_TEST_TONE_PATH},
-	)
+	playlist := sound_test_playlist("test")
+	first := sound_test_track("first", MUSIC_PLAYBACK_TEST_TONE_PATH)
+	second := sound_test_track("second", MUSIC_PLAYBACK_TEST_TONE_PATH)
+	sound_test_attach(playlist, first)
+	sound_test_attach(playlist, second)
 
-	first := playlist_pick_random_track(playlist)
 	first_playback := music_playback_start_playlist_track(playlist, first, 1, 0)
-	testing.expect(t, playlist.last_played_track == first)
+	testing.expect(t, entity_must_get(playlist).playlist_last_played == first)
 
-	second := playlist_pick_random_track(playlist)
-	testing.expect(t, second != first)
-	second_playback := music_playback_start_playlist_track(playlist, second, 1, 0)
-	testing.expect(t, playlist.last_played_track == second)
+	second_pick := playlist_pick_random_track(playlist)
+	testing.expect(t, second_pick != first)
+	second_playback := music_playback_start_playlist_track(playlist, second_pick, 1, 0)
+	testing.expect(t, entity_must_get(playlist).playlist_last_played == second_pick)
 
 	// Both tracks have played, so this pick clears the played flags: it has to
 	// land on the other track instead of replaying the one that is playing.
-	testing.expect(t, playlist_pick_random_track(playlist) != second)
+	testing.expect(t, playlist_pick_random_track(playlist) != second_pick)
 
 	music_playback_stop(second_playback)
 	music_playback_stop(first_playback)
@@ -589,6 +680,37 @@ music_playback_test_tone_write :: proc() {
 	copy(file_data, header_bytes[:])
 	copy(file_data[size_of(Wav_Header):], transmute([]byte)samples)
 	ensure(write_entire_file(MUSIC_PLAYBACK_TEST_TONE_PATH, file_data))
+}
+
+// Test fixtures build entities directly so multiple tracks can share one audio
+// file without the path dedup in entity_track_create.
+sound_test_track :: proc(title, path: string) -> Entity_Handle {
+	handle := entity_create({.Track}, "")
+	entity := entity_must_get(handle)
+	entity.track.title = title
+	entity.track.path = path
+	entity.track.duration_s = 30
+	entity.track.bounds_start_s = 0
+	entity.track.bounds_end_s = 30
+	return handle
+}
+
+sound_test_playlist :: proc(name: string) -> Entity_Handle {
+	return entity_playlist_create(name)
+}
+
+sound_test_attach :: proc(playlist, track: Entity_Handle) {
+	append(&entity_must_get(playlist).playlist_tracks, track)
+}
+
+sound_test_bind :: proc(playback: ^MusicPlayback, path: string) -> Entity_Handle {
+	track := sound_test_track("test", path)
+	music := entity_create({.Music}, "")
+	entity := entity_must_get(music)
+	entity.music.track = track
+	entity.music.playback = playback
+	playback.entity = music
+	return music
 }
 
 music_playback_test_make :: proc(points: []Envelope_Point) -> (MusicPlayback, ^mixer.Mixer) {
@@ -665,7 +787,6 @@ music_playbacks_fade_others_spares_the_exception :: proc(t: ^testing.T) {
 	defer delete_key(&gm.tracks, path)
 	gm.tracks[path_incoming] = {}
 	defer delete_key(&gm.tracks, path_incoming)
-	playback.source_path = path
 	incoming_audio := mixer.CreateSineWaveAudio(mixer_value, 440, 0.1, 30000)
 	ensure(incoming_audio != nil)
 	defer mixer.DestroyAudio(incoming_audio)
@@ -675,13 +796,14 @@ music_playbacks_fade_others_spares_the_exception :: proc(t: ^testing.T) {
 	incoming := MusicPlayback {
 		mixer_audio        = incoming_audio,
 		mixer_track        = incoming_track,
-		source_path        = path_incoming,
 		volume_point_count = 1,
 	}
 	incoming.volume_points[0] = {0, 0.2}
 	settings := SoundSettings{}
 	settings.music_playbacks[0] = playback
 	settings.music_playbacks[1] = incoming
+	sound_test_bind(&settings.music_playbacks[0], path)
+	sound_test_bind(&settings.music_playbacks[1], path_incoming)
 	gm.sound_settings = &settings
 	defer gm.sound_settings = nil
 	ensure(mixer.SetTrackAudio(playback.mixer_track, playback.mixer_audio))
@@ -722,19 +844,16 @@ music_crossfade_starts_next_and_fades_current :: proc(t: ^testing.T) {
 	}
 	gm.sound_settings = &settings
 	defer gm.sound_settings = nil
-	playlist := new(Playlist)
-	playlist.name = "test"
-	defer delete(playlist.tracks)
-	append(
-		&playlist.tracks,
-		Track{title = "first", path = MUSIC_PLAYBACK_TEST_TONE_PATH},
-		Track{title = "second", path = MUSIC_PLAYBACK_TEST_TONE_PATH},
-	)
+	playlist := sound_test_playlist("test")
+	first_track := sound_test_track("first", MUSIC_PLAYBACK_TEST_TONE_PATH)
+	second_track := sound_test_track("second", MUSIC_PLAYBACK_TEST_TONE_PATH)
+	sound_test_attach(playlist, first_track)
+	sound_test_attach(playlist, second_track)
 
-	first := music_playback_start_playlist_track(playlist, &playlist.tracks[0], 0.5, 0)
+	first := music_playback_start_playlist_track(playlist, first_track, 0.5, 0)
 	ensure(first != nil)
-	second := music_crossfade(playlist, &playlist.tracks[1], 0.5, 0, 2)
-	testing.expect(t, gm.sound_settings.music_playback_primary == second)
+	second := music_crossfade(playlist, second_track, 0.5, 0, 2)
+	testing.expect(t, gm.music_primary == second.entity)
 	testing.expect_value(t, second.volume_point_count, u8(1))
 	testing.expect_value(t, first.volume_point_count, u8(2))
 	testing.expect_value(t, first.volume_points[1].value, f32(0))

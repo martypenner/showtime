@@ -71,16 +71,20 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 	testing.expect_value(t, sound.duck_gain, f32(1))
 	sound.use_house_music = true
 	sound.fade_in_time = 3.5
-	sound.music_track_bounds["music.mp3"] = {
-		file_hash  = "hash",
-		start_time = 2,
-		end_time   = 10,
-	}
-	append(
-		&sound.playlists,
-		Playlist{tracks = [dynamic]Track{{path = "music.mp3", played = true}}},
-	)
+	sound.fade_out_time = 2.5
+	sound.start_next_time = 1.5
+	sound.shuffle = false
+	sound.loop = false
+	sound.normalize_volume = false
+	sound.target_loudness = -12
 	gm.sound_settings = &sound
+	track_handle := entity_track_create("music.mp3", "Music")
+	track := entity_must_get(track_handle)
+	track.track.played = true
+	track.track.duration_s = 30
+	track.track.file_hash = "hash"
+	track.track.bounds_start_s = 2
+	track.track.bounds_end_s = 10
 	defer gm.sound_settings = nil
 	video := entity_must_get(video_entity_ensure())
 	video.video.settings.pages = map[string]VideoPlaybackMode {
@@ -91,14 +95,22 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 	settings_save()
 
 	loaded_sound := sound_settings_load_from_disk()
+	persisted: App_Settings
+	settings_load(&persisted)
 	loaded_video: VideoSettings
 	settings_load(&loaded_video)
 	testing.expect_value(t, loaded_sound.use_house_music, true)
 	testing.expect_value(t, loaded_sound.fade_in_time, f32(3.5))
-	testing.expect_value(t, loaded_sound.music_track_bounds["music.mp3"].file_hash, "hash")
-	testing.expect_value(t, loaded_sound.music_track_bounds["music.mp3"].start_time, f32(2))
-	testing.expect_value(t, loaded_sound.music_track_bounds["music.mp3"].end_time, f32(10))
-	testing.expect_value(t, loaded_sound.played_track_paths["music.mp3"], true)
+	testing.expect_value(t, loaded_sound.fade_out_time, f32(2.5))
+	testing.expect_value(t, loaded_sound.start_next_time, f32(1.5))
+	testing.expect_value(t, loaded_sound.shuffle, false)
+	testing.expect_value(t, loaded_sound.loop, false)
+	testing.expect_value(t, loaded_sound.normalize_volume, false)
+	testing.expect_value(t, loaded_sound.target_loudness, f32(-12))
+	testing.expect_value(t, persisted.music_track_bounds["music.mp3"].file_hash, "hash")
+	testing.expect_value(t, persisted.music_track_bounds["music.mp3"].start_time, f32(2))
+	testing.expect_value(t, persisted.music_track_bounds["music.mp3"].end_time, f32(10))
+	testing.expect_value(t, persisted.played_track_paths["music.mp3"], true)
 	testing.expect_value(t, loaded_video.pages["opener"], VideoPlaybackMode.Loop)
 	testing.expect_value(t, loaded_video.pages["halftime"], VideoPlaybackMode.Once)
 	testing.expect_value(t, loaded_video.pages["outro"], VideoPlaybackMode.Still)
@@ -108,14 +120,90 @@ settings_roundtrip_preserves_sound_and_video :: proc(t: ^testing.T) {
 	video.video.settings.pages["opener"] = .Still
 	settings_save()
 	loaded_sound = sound_settings_load_from_disk()
+	persisted = {}
+	settings_load(&persisted)
 	loaded_video = {}
 	settings_load(&loaded_video)
 	testing.expect_value(t, loaded_sound.fade_in_time, f32(6))
-	testing.expect_value(t, loaded_sound.played_track_paths["music.mp3"], true)
+	testing.expect_value(t, persisted.played_track_paths["music.mp3"], true)
 	testing.expect_value(t, loaded_video.pages["opener"], VideoPlaybackMode.Still)
 	testing.expect_value(t, loaded_video.pages["halftime"], VideoPlaybackMode.Once)
 	testing.expect_value(t, loaded_video.pages["outro"], VideoPlaybackMode.Still)
+
+	// Resetting bounds on the track entity must drop the persisted entry while
+	// keeping the played path.
+	track_bounds_delete("music.mp3")
+	settings_save()
+	loaded_sound = sound_settings_load_from_disk()
+	persisted = {}
+	settings_load(&persisted)
+	_, has_bounds := persisted.music_track_bounds["music.mp3"]
+	testing.expect(t, !has_bounds)
+	testing.expect_value(t, persisted.played_track_paths["music.mp3"], true)
 	testing.expect_value(t, sound.settings_save_time_left, f32(0))
+}
+
+@(test)
+settings_roundtrip_keeps_bounds_of_unavailable_track :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+
+	dir, dir_err := os.make_directory_temp("", "showtime-settings-*", context.temp_allocator)
+	ensure(dir_err == nil)
+	previous_dir, cwd_err := os.get_working_directory(context.temp_allocator)
+	ensure(cwd_err == nil)
+	ensure(os.set_working_directory(dir) == nil)
+	defer {
+		os.remove(SETTINGS_FILENAME)
+		os.set_working_directory(previous_dir)
+		os.remove(dir)
+	}
+
+	// First session: both tracks exist and carry trims.
+	gm = game_memory_make()
+	sound := DefaultSoundSettings
+	gm.sound_settings = &sound
+	defer gm.sound_settings = nil
+	video_entity_ensure()
+	for path, index in ([2]string{"here.mp3", "gone.mp3"}) {
+		track := &entity_must_get(entity_track_create(path, path)).track
+		track.duration_s = 30
+		track.file_hash = path
+		track.bounds_start_s = f32(index + 2)
+		track.bounds_end_s = 20
+		track.played = true
+	}
+	settings_save()
+
+	// Second session: only here.mp3 is on disk.
+	gm = game_memory_make()
+	gm.sound_settings = &sound
+	video_entity_ensure()
+	gm.tracks["here.mp3"] = {
+		file_hash        = "here.mp3",
+		duration_seconds = 30,
+	}
+	here := entity_track_create("here.mp3", "here")
+	entity_must_get(here).track.duration_s = 30
+	track_settings_load(&sound)
+	testing.expect_value(t, entity_must_get(here).track.bounds_start_s, f32(2))
+	testing.expect(t, entity_must_get(here).track.played)
+	gone := entity_track_handle_for_path("gone.mp3")
+	testing.expect(t, gone != ENTITY_HANDLE_NIL, "saved-only bounds hydrate a dormant track")
+	testing.expect_value(t, len(gm.entities.track), 2)
+	testing.expect_value(t, len(gm.entities.playlist), 0)
+
+	settings_save()
+	persisted: App_Settings
+	settings_load(&persisted)
+	testing.expect_value(t, persisted.music_track_bounds["here.mp3"].start_time, f32(2))
+	testing.expect_value(t, persisted.music_track_bounds["gone.mp3"].file_hash, "gone.mp3")
+	testing.expect_value(t, persisted.music_track_bounds["gone.mp3"].start_time, f32(3))
+	testing.expect_value(t, persisted.music_track_bounds["gone.mp3"].end_time, f32(20))
+	testing.expect_value(t, persisted.played_track_paths["here.mp3"], true)
+	_, gone_played := persisted.played_track_paths["gone.mp3"]
+	testing.expect(t, !gone_played, "played history still prunes missing tracks")
 }
 
 @(test)
@@ -262,7 +350,11 @@ video_playing_survives_score_show_hide :: proc(t: ^testing.T) {
 		video_update()
 		time.sleep(time.Millisecond * 5)
 	}
-	testing.expect(t, entity.video.active.frames > frames, "the video should keep playing under the score")
+	testing.expect(
+		t,
+		entity.video.active.frames > frames,
+		"the video should keep playing under the score",
+	)
 
 	// Hiding the score hands the projection back to the playing video.
 	score_projection_hide()
