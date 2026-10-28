@@ -331,7 +331,7 @@ music_entity_alloc :: proc() -> ^Entity {
 		entity, ok := entity_get(handle)
 		if ok && entity.music.playback == nil do return entity
 	}
-	return entity_must_get(entity_create({.Music}, "Music"))
+	return entity_must_get(entity_create({.Music}, ""))
 }
 
 music_playback_track :: proc(playback: ^MusicPlayback) -> ^Entity_Track {
@@ -623,9 +623,10 @@ music_track_bounds_resolve_entity :: proc(
 	}
 	ensure(!math.is_nan(track.bounds_start_s) && !math.is_inf(track.bounds_start_s, 0))
 	ensure(!math.is_nan(track.bounds_end_s) && !math.is_inf(track.bounds_end_s, 0))
-	ensure(track.bounds_start_s >= 0 && track.bounds_start_s < track.bounds_end_s)
 	ensure(track.bounds_end_s <= duration + 0.1)
-	track.bounds_end_s = min(track.bounds_end_s, duration)
+	bounds_end := min(track.bounds_end_s, duration)
+	ensure(track.bounds_start_s >= 0 && track.bounds_start_s < bounds_end)
+	track.bounds_end_s = bounds_end
 	return MusicTrackBounds {
 			file_hash = track.file_hash,
 			start_time = track.bounds_start_s,

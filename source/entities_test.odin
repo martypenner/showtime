@@ -150,3 +150,31 @@ entity_fade_samples_single_segment_through_envelope :: proc(t: ^testing.T) {
 	testing.expect_value(t, entity_fade_value_at(entity), f32(1))
 	testing.expect(t, !entity_fade_tick(entity, 1), "spent fades stay spent")
 }
+
+@(test)
+entity_destroy_releases_track_and_playlist_keys :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	playlist := entity_playlist_create("Mix")
+	track := entity_track_create("a.mp3", "A")
+	entity_destroy(playlist)
+	entity_destroy(track)
+	testing.expect_value(t, entity_playlist_handle_for_label("Mix"), ENTITY_HANDLE_NIL)
+	testing.expect_value(t, entity_track_handle_for_path("a.mp3"), ENTITY_HANDLE_NIL)
+
+	recreated_playlist := entity_playlist_create("Mix")
+	recreated_track := entity_track_create("a.mp3", "A")
+	testing.expect(t, recreated_playlist != playlist)
+	testing.expect(t, recreated_track != track)
+	testing.expect_value(t, entity_playlist_handle_for_label("Mix"), recreated_playlist)
+	testing.expect_value(t, entity_track_handle_for_path("a.mp3"), recreated_track)
+
+	// An unregistered track sharing the path must not evict the registered one.
+	unregistered := entity_create({.Track}, "")
+	entity_must_get(unregistered).track.path = "a.mp3"
+	entity_destroy(unregistered)
+	testing.expect_value(t, entity_track_handle_for_path("a.mp3"), recreated_track)
+}

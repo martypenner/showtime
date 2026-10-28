@@ -264,7 +264,7 @@ music_bounds_reject_negative_start_with_matching_hash :: proc(t: ^testing.T) {
 	}
 	testing.expect_assert_message(
 		t,
-		"track.bounds_start_s >= 0 && track.bounds_start_s < track.bounds_end_s",
+		"track.bounds_start_s >= 0 && track.bounds_start_s < bounds_end",
 	)
 	_, _ = music_track_bounds_resolve_entity(&track, generated)
 	testing.fail_now(t, "invalid matching-hash bounds must not resolve")
@@ -282,6 +282,26 @@ music_bounds_reject_end_past_duration_with_matching_hash :: proc(t: ^testing.T) 
 		duration_seconds = 30,
 	}
 	testing.expect_assert_message(t, "track.bounds_end_s <= duration + 0.1")
+	_, _ = music_track_bounds_resolve_entity(&track, generated)
+	testing.fail_now(t, "invalid matching-hash bounds must not resolve")
+}
+
+@(test)
+music_bounds_reject_start_at_clamped_end_with_matching_hash :: proc(t: ^testing.T) {
+	// start < end before clamping, but the end clamps down onto the start.
+	track := Entity_Track {
+		file_hash      = "hash",
+		bounds_start_s = 120,
+		bounds_end_s   = 120.05,
+	}
+	generated := GeneratedTrack {
+		file_hash        = "hash",
+		duration_seconds = 120,
+	}
+	testing.expect_assert_message(
+		t,
+		"track.bounds_start_s >= 0 && track.bounds_start_s < bounds_end",
+	)
 	_, _ = music_track_bounds_resolve_entity(&track, generated)
 	testing.fail_now(t, "invalid matching-hash bounds must not resolve")
 }
@@ -859,5 +879,74 @@ music_crossfade_starts_next_and_fades_current :: proc(t: ^testing.T) {
 	testing.expect_value(t, first.volume_points[1].value, f32(0))
 	music_playback_stop(second)
 	music_playback_stop(first)
+	music_playback_test_destroy(&dummy, mixer_value)
+}
+
+@(test)
+music_transitions_reuse_slots_after_outgoing_destruction :: proc(t: ^testing.T) {
+	arena: GameTestArena
+	context.allocator = game_test_arena_init(&arena)
+	defer context.allocator = game_test_arena_destroy(&arena)
+	gm = game_memory_make()
+
+	music_playback_test_tone_write()
+	defer os.remove(MUSIC_PLAYBACK_TEST_TONE_PATH)
+	gm.tracks = make(map[string]GeneratedTrack)
+	defer delete(gm.tracks)
+	gm.tracks[MUSIC_PLAYBACK_TEST_TONE_PATH] = {
+		file_hash        = "test",
+		duration_seconds = 30,
+	}
+	dummy, mixer_value := music_playback_test_make({{0, 0}})
+	settings := SoundSettings {
+		mixer = mixer_value,
+	}
+	gm.sound_settings = &settings
+	defer gm.sound_settings = nil
+	playlist := sound_test_playlist("test")
+	track := sound_test_track("tone", MUSIC_PLAYBACK_TEST_TONE_PATH)
+	sound_test_attach(playlist, track)
+	slots := &settings.music_playbacks
+
+	// The outgoing playback is destroyed mid-fade; its successor stays primary.
+	first := music_playback_start_playlist_track(playlist, track, 0.5, 0)
+	first_handle := first.entity
+	second := music_crossfade(playlist, track, 0.5, 0, 2)
+	second_handle := second.entity
+	testing.expect(t, first == &slots[0] && second == &slots[1])
+	testing.expect(t, first.stopping)
+	music_playback_stop(first)
+	_, first_alive := entity_get(first_handle)
+	testing.expect(t, !first_alive)
+	testing.expect(t, slots[0].mixer_track == nil)
+	testing.expect_value(t, gm.music_primary, second_handle)
+	testing.expect_value(t, slots[1].entity, second_handle)
+	testing.expect(t, entity_must_get(second_handle).music.playback == &slots[1])
+	testing.expect(t, mixer.TrackPlaying(slots[1].mixer_track))
+
+	// The next transition takes the free slot.
+	third := music_crossfade(playlist, track, 0.5, 0, 2)
+	third_handle := third.entity
+	testing.expect(t, third == &slots[0])
+	testing.expect(t, third_handle != first_handle)
+	testing.expect(t, slots[1].stopping)
+
+	// With both slots busy, the next transition reclaims the stopping slot.
+	fourth := music_crossfade(playlist, track, 0.5, 0, 2)
+	testing.expect(t, fourth == &slots[1])
+	_, second_alive := entity_get(second_handle)
+	testing.expect(t, !second_alive)
+	testing.expect(t, fourth.entity != second_handle)
+	testing.expect_value(t, gm.music_primary, fourth.entity)
+	testing.expect(t, entity_must_get(fourth.entity).music.playback == fourth)
+	testing.expect_value(t, slots[0].entity, third_handle)
+	testing.expect(t, entity_must_get(third_handle).music.playback == &slots[0])
+	testing.expect(t, slots[0].stopping)
+	testing.expect_value(t, len(gm.entities.music), 2)
+
+	music_playback_stop(&slots[0])
+	music_playback_stop(&slots[1])
+	testing.expect_value(t, len(gm.entities.music), 0)
+	testing.expect_value(t, gm.music_primary, ENTITY_HANDLE_NIL)
 	music_playback_test_destroy(&dummy, mixer_value)
 }

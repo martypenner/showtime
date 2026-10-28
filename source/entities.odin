@@ -253,8 +253,14 @@ entity_destroy :: proc(handle: Entity_Handle) {
 		entity_domain_remove(&store.music, handle)
 	}
 	if .Score in caps do entity_domain_remove(&store.score, handle)
-	if .Playlist in caps do entity_domain_remove(&store.playlist, handle)
-	if .Track in caps do entity_domain_remove(&store.track, handle)
+	if .Playlist in caps {
+		entity_domain_remove(&store.playlist, handle)
+		if store.playlist_handles[entity.label] == handle do delete_key(&store.playlist_handles, entity.label)
+	}
+	if .Track in caps {
+		entity_domain_remove(&store.track, handle)
+		if store.track_handles[entity.track.path] == handle do delete_key(&store.track_handles, entity.track.path)
+	}
 	found, err := hm.remove(&store.entities, handle)
 	ensure(found && err == nil)
 }
