@@ -12,6 +12,50 @@ See The Legend of Tuna repository for an example project that also uses Box2D: <
 
 I used this kind of hot reloading while developing my game [CAT & ONION](https://store.steampowered.com/app/2781210/CAT__ONION/).
 
+## Amp orbs
+
+1. Amp runs `.agents/setup` on fresh Debian x86_64 orbs.
+   It installs Odin `dev-2026-10`, odinfmt, OLS, SDL3, SDL3_mixer, Vulkan software rendering, FFmpeg, and the pinned ImGui SDL3 backends, then generates the asset metadata and builds the debug executable.
+   Run `./.agents/setup` from the repository root to repeat setup; installed dependencies and native build outputs are reused.
+2. Open the **Desktop** tab to start Showtime with hot reloading.
+   `.agents/desktop/resume` starts it once per Desktop session, without opening duplicate windows when rerun.
+   After editing source, run `./scripts/build_hot_reload.sh` to reload the running app.
+   The Desktop hook runs the app directly rather than leaving a watcher running after its window closes.
+   This is a native desktop app, not a web portal; the legacy Raylib web build is not configured by orb setup.
+3. Run `./scripts/test.sh` for the test suite, `./scripts/build_debug.sh` for a debug build, or `./scripts/build_release.sh` for a release build.
+   No shell activation or additional credentials are required.
+   On a one-vCPU orb, close Showtime before running the tests: software rendering competes with the 1080p video test's three-second deadline.
+
+The orb compiler pin supports the named `thread.create` argument used by video playback.
+The older compiler pin in the macOS cross-build `Dockerfile` is unchanged.
+
+The repository excludes its private media.
+When the music or effects library is empty, `.agents/demo-assets` supplies synthetic tones under the names required by the app.
+Missing score backgrounds and the score font use labeled demo images and DejaVu Sans Bold; an empty video library gets a short test pattern.
+These are development fixtures, not the original show assets.
+Existing media and settings are preserved.
+After replacing demo files with real assets, run `./scripts/generate_enums.sh` and restart Showtime.
+
+The toolchains and libraries persist across orb pauses, so no general `.agents/resume` hook or background web service is needed.
+Desktop startup is handled by `.agents/desktop/resume` instead.
+
+### Orb dependency pins
+
+1. Odin uses the prebuilt `dev-2026-10` Linux x86_64 release, verified against its SHA-256 in `.agents/setup`.
+   OLS and odinfmt use revision `255b57b039eeec43e6f882592a155cc177ed12d4`, also verified by SHA-256.
+   The compiler binary avoids building Odin and LLVM during orb startup.
+2. SDL3 `3.4.18`, SDL3_mixer `3.2.4`, and ImGui `v1.92.8-docking` are exact-commit Git submodules under `vendor/`, alongside `vendor/odin-imgui`.
+   The repository's gitlinks pin their revisions; `.gitmodules` records their upstream URLs, not moving branches.
+   Setup builds these checkouts with CMake and reuses Ninja's incremental outputs rather than accepting an unrelated system library with the same version number.
+3. Setup initializes only the required top-level submodules, without downloading SDL3_mixer's unused optional codec submodules.
+   WAV, MP3, FLAC, and Ogg Vorbis use decoders included in the pinned source.
+   Debian system packages, including FFmpeg and Mesa, continue to receive distribution updates.
+
+To update a native dependency, check out the desired upstream commit in its submodule and stage that gitlink before rerunning `.agents/setup`.
+Keep `vendor/imgui` on the ImGui version specified by `vendor/odin-imgui/build.py`.
+Update the Odin release and its checksum together in `.agents/setup`.
+These pins configure the orb; the separate macOS/Homebrew/MacPorts build paths are unchanged.
+
 ## Hot reload quick start
 
 > [!NOTE]

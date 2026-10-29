@@ -1,3 +1,15 @@
 [submodule "vendor/odin-imgui"]
 	path = vendor/odin-imgui
 	url = https://gitlab.com/L-4/odin-imgui.git
+[submodule "vendor/SDL3"]
+	path = vendor/SDL3
+	url = https://github.com/libsdl-org/SDL.git
+	shallow = true
+[submodule "vendor/SDL3_mixer"]
+	path = vendor/SDL3_mixer
+	url = https://github.com/libsdl-org/SDL_mixer.git
+	shallow = true
+[submodule "vendor/imgui"]
+	path = vendor/imgui
+	url = https://github.com/ocornut/imgui.git
+	shallow = true

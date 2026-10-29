@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(realpath "$(dirname "${BASH_SOURCE[0]}")/..")"
+cd "$repo_root"
+
+mkdir -p assets/sound/music assets/sound/fx assets/fonts assets/images assets/videos
+font=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+if [[ ! -e assets/fonts/college.ttf ]]; then
+	cp "$font" assets/fonts/college.ttf
+fi
+
+has_audio() {
+	[[ -n "$(find "$1" \( -type f -o -type l \) \( -name '*.wav' -o -name '*.mp3' -o -name '*.ogg' -o -name '*.flac' \) -print -quit)" ]]
+}
+
+make_tone() {
+	local path="$1" frequency="$2" duration="$3"
+	if [[ ! -e "$path" ]]; then
+		ffmpeg -nostdin -v error -y -f lavfi -i "sine=frequency=$frequency:duration=$duration:sample_rate=48000" \
+			-af volume=0.3 "$path.pending.wav"
+		mv "$path.pending.wav" "$path"
+	fi
+}
+
+if ! has_audio assets/sound/music; then
+	touch assets/sound/music/.orb-demo-in-progress
+fi
+if [[ -f assets/sound/music/.orb-demo-in-progress ]]; then
+	playlists=(
+		"Kids on Bikes 80s Explore" "Arena Pre-show" "Show Starters" "Needle Droppers"
+		"Ave Maria" "Sex With Me" "Mood Heroic EPIC" "Sounds Like a Song"
+	)
+	for playlist in "${playlists[@]}"; do
+		mkdir -p "assets/sound/music/$playlist"
+		make_tone "assets/sound/music/$playlist/Orb demo.wav" 440 12
+	done
+	rm assets/sound/music/.orb-demo-in-progress
+	echo "Created synthetic demo music, not the original show tracks."
+fi
+
+if ! has_audio assets/sound/fx; then
+	touch assets/sound/fx/.orb-demo-in-progress
+fi
+if [[ -f assets/sound/fx/.orb-demo-in-progress ]]; then
+	effects=(
+		Glass_Breaking_Sound_Effect_HD_Glass_Shattering_Sound_Effect_TcnufvBffcY
+		Single_Gunshot_54_40780 Woman_Screaming_Sfx_Screaming_Sound_Effect_320169
+		Fireworks_13_419033 Train_Horn_337875 Ticktickding Ding_126626 Lightning_237994
+		Calming_Rain_257596 Cat_Meow Yeeeeaaaaaaaahh _244932_Kwahmah_02_Short_Buzzer
+		_495367_Kirkpatricklive_Coach_Whistle_35_Long _276687_Comedy_Rimshot
+		Double_Orchestral_Hits_C _502152_Game_Show_Brass_Intro_Sting Dun_Dun_Dun _810166_Long_Brass_Stab
+	)
+	for effect in "${effects[@]}"; do
+		make_tone "assets/sound/fx/$effect.wav" 660 0.6
+	done
+	rm assets/sound/fx/.orb-demo-in-progress
+	echo "Created synthetic demo tones, not the original sound effects."
+fi
+
+for board in 1 2 3; do
+	image="assets/images/score_background_$board.png"
+	if [[ ! -e "$image" ]]; then
+		ffmpeg -nostdin -v error -y -f lavfi -i 'color=c=0x182030:s=1280x720' \
+			-vf "drawtext=fontfile=$font:text='ORB DEMO $board':fontcolor=white:fontsize=64:x=(w-tw)/2:y=80" \
+			-frames:v 1 -update 1 "$image.pending.png"
+		mv "$image.pending.png" "$image"
+	fi
+done
+
+if [[ -z "$(find assets/videos -maxdepth 1 -name '*.mp4' -print -quit)" ]]; then
+	ffmpeg -nostdin -v error -y -f lavfi -i 'testsrc2=size=640x360:rate=24:duration=4' \
+		-vf "drawtext=fontfile=$font:text='ORB DEMO':fontcolor=white:fontsize=40:x=(w-tw)/2:y=24" \
+		-c:v libx264 -preset ultrafast -pix_fmt yuv420p -f mp4 assets/videos/01-orb-demo.pending
+	mv assets/videos/01-orb-demo.pending assets/videos/01-orb-demo.mp4
+fi

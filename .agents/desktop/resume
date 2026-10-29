@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(realpath "$(dirname "${BASH_SOURCE[0]}")/../..")"
+cd "$repo_root"
+mkdir -p build
+exec 9>build/orb-desktop.lock
+flock -w 5 9 || exit 0
+
+./scripts/build_hot_reload.sh 9>&-
+
+./build/game_hot_reload.bin 9>&- &
+game_pid=$!
+trap 'kill "$game_pid" 2>/dev/null || true' EXIT
+
+if control="$(timeout 20s xdotool search --sync --onlyvisible --name '^Showtime Control$')"; then
+	sleep 0.5
+	xdotool windowactivate --sync "${control%%$'\n'*}"
+fi
+
+wait "$game_pid"
+trap - EXIT

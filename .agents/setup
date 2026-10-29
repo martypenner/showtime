@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(realpath "$(dirname "${BASH_SOURCE[0]}")/..")"
+cd "$repo_root"
+
+if [[ "$(uname -s)-$(uname -m)" != Linux-x86_64 ]]; then
+	echo "Showtime orb setup requires Debian Linux x86_64." >&2
+	exit 1
+fi
+
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/showtime"
+mkdir -p "$cache"
+jobs="$(nproc)"
+
+step() {
+	printf '\n[showtime setup +%ss] %s\n' "$SECONDS" "$1"
+}
+
+unpack() {
+	local url="$1" directory="$2" checksum="$3"
+	if [[ -f "$directory/.unpacked" && "$(<"$directory/.unpacked")" == "$checksum" ]]; then
+		return
+	fi
+	local archive="$directory.tar.gz"
+	if [[ ! -f "$archive" ]]; then
+		curl -fLSs --retry 3 --connect-timeout 30 --max-time 180 "$url" -o "$archive.download"
+		mv "$archive.download" "$archive"
+	fi
+	printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --status
+	mkdir -p "$directory"
+	tar -xzf "$archive" --strip-components=1 -C "$directory"
+	printf '%s\n' "$checksum" >"$directory/.unpacked"
+}
+
+step "Checking system dependencies"
+packages=(
+	build-essential ca-certificates clang cmake curl ffmpeg fonts-dejavu-core git
+	grim inotify-tools libc++-dev libc++abi-dev libasound2-dev libgl1-mesa-dev
+	libpulse-dev libvulkan-dev libx11-dev libxcursor-dev libxext-dev libxfixes-dev
+	libxi-dev libxrandr-dev libxss-dev libxtst-dev mesa-vulkan-drivers ninja-build
+	pkg-config python3 shellcheck vulkan-tools wf-recorder xauth xdotool xvfb
+)
+missing=()
+for package in "${packages[@]}"; do
+	if [[ "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)" != "install ok installed" ]]; then
+		missing+=("$package")
+	fi
+done
+if ((${#missing[@]})); then
+	sudo -n apt-get update
+	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+fi
+
+step "Initializing pinned native dependencies"
+git submodule update --init --depth 1 -- vendor/SDL3 vendor/SDL3_mixer vendor/imgui vendor/odin-imgui
+git submodule status -- vendor/SDL3 vendor/SDL3_mixer vendor/imgui vendor/odin-imgui
+
+step "Installing Odin"
+odin_version=dev-2026-10
+odin_dir="$cache/odin-$odin_version"
+unpack "https://github.com/odin-lang/Odin/releases/download/$odin_version/odin-linux-amd64-$odin_version.tar.gz" \
+	"$odin_dir" c3c8b095621fd0c75f7f73e3a0829f1b4d45324225f20ba11ed8dc4da310a8ab
+sudo -n ln -sfn "$odin_dir/odin" /usr/local/bin/odin
+odin version
+
+step "Building Odin's STB libraries"
+for library in image image_write image_resize truetype rect_pack vorbis sprintf; do
+	if [[ ! -f "$odin_dir/vendor/stb/lib/stb_$library.a" ]]; then
+		bash "$odin_dir/vendor/stb/src/build_stb.sh" unix
+		break
+	fi
+done
+
+step "Installing the Odin formatter and language server"
+ols_revision=255b57b039eeec43e6f882592a155cc177ed12d4
+ols_dir="$cache/ols-$ols_revision-$odin_version"
+unpack "https://github.com/DanielGavin/ols/archive/$ols_revision.tar.gz" \
+	"$ols_dir" cc290ea6a88d2a42be1a27436ce6078ba93cdd9da1faa64a094cbf22c059f4e4
+if [[ ! -x "$ols_dir/odinfmt" ]]; then
+	odin build "$ols_dir/tools/odinfmt/main.odin" -file \
+		-collection:src="$ols_dir/src" -out:"$ols_dir/odinfmt" -o:speed
+fi
+if [[ ! -x "$ols_dir/ols" ]]; then
+	odin build "$ols_dir/src" -collection:src="$ols_dir/src" \
+		-out:"$ols_dir/ols" -o:speed -define:VERSION="$ols_revision"
+fi
+sudo -n ln -sfn "$ols_dir/odinfmt" /usr/local/bin/odinfmt
+sudo -n ln -sfn "$ols_dir/ols" /usr/local/bin/ols
+
+step "Building pinned SDL3"
+cmake -S vendor/SDL3 -B "$cache/SDL3-build" -G Ninja \
+	-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_INSTALL_MESSAGE=LAZY \
+	-DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_EXAMPLES=OFF \
+	-DSDL_WAYLAND=OFF -DSDL_X11=ON -DSDL_VULKAN=ON
+cmake --build "$cache/SDL3-build" --parallel "$jobs"
+sudo -n cmake --install "$cache/SDL3-build"
+
+step "Building pinned SDL3_mixer"
+cmake -S vendor/SDL3_mixer -B "$cache/SDL3_mixer-build" -G Ninja \
+	-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_INSTALL_MESSAGE=LAZY \
+	-DSDL3_DIR=/usr/local/lib/cmake/SDL3 -DSDLMIXER_VENDORED=OFF \
+	-DSDLMIXER_TESTS=OFF -DSDLMIXER_EXAMPLES=OFF \
+	-DSDLMIXER_FLAC_LIBFLAC=OFF -DSDLMIXER_MP3_MPG123=OFF \
+	-DSDLMIXER_VORBIS_VORBISFILE=OFF -DSDLMIXER_GME=OFF \
+	-DSDLMIXER_MOD=OFF -DSDLMIXER_MIDI=OFF -DSDLMIXER_OPUS=OFF -DSDLMIXER_WAVPACK=OFF
+cmake --build "$cache/SDL3_mixer-build" --parallel "$jobs"
+sudo -n cmake --install "$cache/SDL3_mixer-build"
+sudo -n ldconfig
+pkg-config --modversion sdl3 sdl3-mixer
+
+step "Building the pinned ImGui SDL3 backends"
+cmake -S .agents/imgui -B "$cache/imgui-build" -G Ninja \
+	-DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++ \
+	-DSDL3_DIR=/usr/local/lib/cmake/SDL3 \
+	-DIMGUI_SOURCE_DIR="$repo_root/vendor/imgui" -DIMGUI_BINDINGS_DIR="$repo_root/vendor/odin-imgui"
+cmake --build "$cache/imgui-build" --parallel "$jobs"
+imgui_exclude="$(git -C vendor/odin-imgui rev-parse --git-path info/exclude)"
+if [[ "$imgui_exclude" != /* ]]; then
+	imgui_exclude="$repo_root/vendor/odin-imgui/$imgui_exclude"
+fi
+if ! grep -Fqx '/imgui_linux_x64.a' "$imgui_exclude"; then
+	printf '\n/imgui_linux_x64.a\n' >>"$imgui_exclude"
+fi
+
+step "Preparing demo media when private assets are absent"
+./.agents/demo-assets
+./scripts/generate_enums.sh
+
+step "Building Showtime"
+./scripts/build_debug.sh
+step "Setup finished; open Desktop to start Showtime with hot reloading"
