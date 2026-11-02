@@ -5,3 +5,6 @@ linux/**
 game_hot_reload.*
 **/*generated*
 .envrc
+.amp/portals/
+/settings.sjson
+/source.bin
