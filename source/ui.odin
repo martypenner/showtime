@@ -75,7 +75,7 @@ controls_button :: proc(label: cstring, kind: UI_Type, width: f32) -> bool {
 	return clicked
 }
 
-controls_group_begin :: proc(label: cstring, position: imgui.Vec2, width: f32) {
+controls_group_begin :: proc(label: cstring, position: imgui.Vec2, width: f32, height: f32 = 0) {
 	parent_draw_list := imgui.GetWindowDrawList()
 	clip_min := imgui.DrawList_GetClipRectMin(parent_draw_list)
 	clip_max := imgui.DrawList_GetClipRectMax(parent_draw_list)
@@ -93,8 +93,11 @@ controls_group_begin :: proc(label: cstring, position: imgui.Vec2, width: f32) {
 	if !imgui.IsMouseHoveringRect(clip_min, clip_max) do flags += {.NoMouseInputs}
 	imgui.SetNextWindowPos(position)
 	// Measured heights can exceed the viewport; the layout handles scrolling.
-	height := imgui.Storage_GetFloat(imgui.GetStateStorage(), imgui.GetID("Height"))
-	imgui.SetNextWindowSize({width, height})
+	window_height := height
+	if window_height == 0 {
+		window_height = imgui.Storage_GetFloat(imgui.GetStateStorage(), imgui.GetID("Height"))
+	}
+	imgui.SetNextWindowSize({width, window_height})
 	imgui.Begin(label, nil, flags)
 	// Window decorations and widgets share the layout's visible bounds.
 	draw_list := imgui.GetWindowDrawList()
@@ -127,7 +130,11 @@ controls_group_end :: proc() {
 
 controls_layout_begin :: proc(label: cstring, size: imgui.Vec2 = {0, 0}) {
 	imgui.BeginChild(label, size, window_flags = {.NoScrollWithMouse})
-	if imgui.IsMouseHoveringRect(
+}
+
+controls_layout_end :: proc(scroll_with_mouse: bool = true) {
+	if scroll_with_mouse &&
+	   imgui.IsMouseHoveringRect(
 		   imgui.GetWindowPos(),
 		   imgui.GetWindowPos() + imgui.GetWindowSize(),
 	   ) &&
@@ -137,6 +144,7 @@ controls_layout_begin :: proc(label: cstring, size: imgui.Vec2 = {0, 0}) {
 			imgui.GetIO().MouseWheel * imgui.GetTextLineHeightWithSpacing() * 5,
 		)
 	}
+	imgui.EndChild()
 }
 
 controls_list_begin :: proc(label: cstring, height: f32) -> bool {
@@ -1099,15 +1107,25 @@ controls_draw :: proc() {
 			ensure(video_entity_get() != nil && gm.scores != nil)
 			list_row_height := imgui.GetTextLineHeightWithSpacing()
 			list_padding := imgui.GetStyle().FramePadding.y * 2
-			music_list_height :=
-				f32(max(1, len(gm.entities.playlist))) * list_row_height + list_padding
 			video_list_height :=
 				f32(max(1, len(video_entity_get().video.pages))) * list_row_height + list_padding
 			media_origin := imgui.GetCursorScreenPos()
 			media_width := (left_width - spacing.x) * 0.5
+			imgui.PushID("Score slide")
+			score_height := imgui.Storage_GetFloat(
+				imgui.GetStateStorage(),
+				imgui.GetID("Height"),
+				imgui.GetFrameHeightWithSpacing() * 4 +
+				list_row_height * f32(len(gm.entities.score)) +
+				imgui.GetStyle().WindowPadding.y * 2 +
+				imgui.GetFrameHeight(),
+			)
+			imgui.PopID()
+			media_height := max(200, imgui.GetContentRegionAvail().y - score_height - spacing.y)
+			media_list_hovered := false
 
 			{
-				controls_group_begin("Music", media_origin, media_width)
+				controls_group_begin("Music", media_origin, media_width, media_height)
 
 				{
 					if _, primary_ok := music_primary_playback(); primary_ok {
@@ -1124,7 +1142,10 @@ controls_draw :: proc() {
 					}
 				}
 
-				if controls_list_begin("Playlists##ControlList", music_list_height) {
+				if controls_list_begin(
+					"Playlists##ControlList",
+					max(list_row_height, imgui.GetContentRegionAvail().y),
+				) {
 					for playlist_handle, index in gm.entities.playlist {
 						playlist := entity_must_get(playlist_handle)
 						_, primary_ok := music_primary_playback()
@@ -1162,6 +1183,7 @@ controls_draw :: proc() {
 						}
 					}
 				}
+				media_list_hovered = imgui.IsWindowHovered() && imgui.GetScrollMaxY() > 0
 				imgui.EndChild()
 
 				controls_group_end()
@@ -1173,9 +1195,22 @@ controls_draw :: proc() {
 					"Video",
 					{media_origin.x + media_width + spacing.x, media_origin.y},
 					media_width,
+					media_height,
 				)
 
-				video_controls_draw(video_list_height)
+				status_height := imgui.GetTextLineHeightWithSpacing()
+				if video_entity_get().video.active != nil {
+					status_height += imgui.GetFrameHeightWithSpacing()
+				}
+				video_list_available := max(
+					list_row_height,
+					imgui.GetContentRegionAvail().y - status_height,
+				)
+				video_controls_draw(video_list_available)
+				media_list_hovered ||=
+					video_list_height > video_list_available &&
+					imgui.IsWindowHovered(imgui.HoveredFlags_ChildWindows) &&
+					!imgui.IsWindowHovered()
 
 				controls_group_end()
 			}
@@ -1187,7 +1222,7 @@ controls_draw :: proc() {
 				controls_group_end()
 			}
 
-			imgui.EndChild()
+			controls_layout_end(!media_list_hovered)
 			imgui.SameLine()
 			timers_draw()
 
@@ -1257,7 +1292,7 @@ controls_draw :: proc() {
 			wave_editor()
 
 			controls_group_end()
-			imgui.EndChild()
+			controls_layout_end()
 
 			imgui.EndTabItem()
 		}
