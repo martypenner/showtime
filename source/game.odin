@@ -66,8 +66,6 @@ GameMemory :: struct {
 		socket:         Maybe(net.UDP_Socket),
 		endpoint:       net.Endpoint,
 		fx_osc_address: [LightingFxKind]string,
-		// Lighting picker color, edited in the controls window.
-		color:          [3]f32,
 	},
 	active_tab:            Tab,
 	timer_serial_next:     int,
@@ -347,7 +345,6 @@ game_memory_make :: proc() -> ^GameMemory {
 	memory^ = GameMemory {
 		should_run = true,
 		timer_ui = {seconds_input = DEFAULT_TIMER_SECONDS},
-		lighting = {color = {1, 1, 1}},
 	}
 	entity_store_init(&memory.entities)
 	return memory

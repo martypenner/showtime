@@ -75,13 +75,68 @@ controls_button :: proc(label: cstring, kind: UI_Type, width: f32) -> bool {
 	return clicked
 }
 
-controls_group_begin :: proc(label: cstring) {
-	imgui.BeginChild(label, child_flags = {.AutoResizeY, .Borders, .NavFlattened})
-	imgui.TextUnformatted(label)
+controls_group_begin :: proc(label: cstring, position: imgui.Vec2, width: f32) {
+	parent_draw_list := imgui.GetWindowDrawList()
+	clip_min := imgui.DrawList_GetClipRectMin(parent_draw_list)
+	clip_max := imgui.DrawList_GetClipRectMax(parent_draw_list)
+	imgui.PushID(label)
+	flags: imgui.WindowFlags = {
+		.NoMove,
+		.NoResize,
+		.NoCollapse,
+		.NoSavedSettings,
+		.NoDocking,
+		.NoScrollbar,
+		.NoScrollWithMouse,
+		.AlwaysAutoResize,
+	}
+	if !imgui.IsMouseHoveringRect(clip_min, clip_max) do flags += {.NoMouseInputs}
+	imgui.SetNextWindowPos(position)
+	// Measured heights can exceed the viewport; the layout handles scrolling.
+	height := imgui.Storage_GetFloat(imgui.GetStateStorage(), imgui.GetID("Height"))
+	imgui.SetNextWindowSize({width, height})
+	imgui.Begin(label, nil, flags)
+	// Window decorations and widgets share the layout's visible bounds.
+	draw_list := imgui.GetWindowDrawList()
+	for &command in ([^]imgui.DrawCmd)(draw_list.CmdBuffer.Data)[:draw_list.CmdBuffer.Size] {
+		command.ClipRect = {
+			max(command.ClipRect.x, clip_min.x),
+			max(command.ClipRect.y, clip_min.y),
+			min(command.ClipRect.z, clip_max.x),
+			min(command.ClipRect.w, clip_max.y),
+		}
+	}
+	imgui.PushClipRect(clip_min, clip_max, true)
 }
 
 controls_group_end :: proc() {
-	imgui.EndChild()
+	position := imgui.GetWindowPos()
+	size := imgui.GetWindowSize()
+	content_height :=
+		imgui.GetCursorPos().y - imgui.GetStyle().ItemSpacing.y + imgui.GetStyle().WindowPadding.y
+	has_content := imgui.GetCursorPos().y > imgui.GetCursorStartPos().y
+	imgui.PopClipRect()
+	imgui.End()
+	if has_content {
+		imgui.Storage_SetFloat(imgui.GetStateStorage(), imgui.GetID("Height"), content_height)
+	}
+	imgui.PopID()
+	imgui.SetCursorScreenPos(position)
+	imgui.Dummy(size)
+}
+
+controls_layout_begin :: proc(label: cstring, size: imgui.Vec2 = {0, 0}) {
+	imgui.BeginChild(label, size, window_flags = {.NoScrollWithMouse})
+	if imgui.IsMouseHoveringRect(
+		   imgui.GetWindowPos(),
+		   imgui.GetWindowPos() + imgui.GetWindowSize(),
+	   ) &&
+	   !imgui.IsPopupOpen(nil, imgui.PopupFlags_AnyPopup) {
+		imgui.SetScrollY(
+			imgui.GetScrollY() -
+			imgui.GetIO().MouseWheel * imgui.GetTextLineHeightWithSpacing() * 5,
+		)
+	}
 }
 
 controls_list_begin :: proc(label: cstring, height: f32) -> bool {
@@ -758,13 +813,14 @@ controls_draw :: proc() {
 			)
 			button_width := imgui.CalcTextSize(xs).x + imgui.GetStyle().FramePadding.x * 2
 
-			left_width := max(
+			layout_width := max(
 				imgui.GetContentRegionAvail().x -
 				TIMER_PANEL_WIDTH -
 				imgui.GetStyle().ItemSpacing.x,
 				100,
 			)
-			imgui.BeginChild("ControlsMain", {left_width, 0})
+			controls_layout_begin("ControlsLayout", {layout_width, 0})
+			left_width := imgui.GetContentRegionAvail().x
 
 			{
 				if imgui.Checkbox("Use house music", &gm.sound_settings.use_house_music) {
@@ -795,8 +851,11 @@ controls_draw :: proc() {
 				imgui.PopItemWidth()
 			}
 
+			origin := imgui.GetCursorScreenPos()
+			spacing := imgui.GetStyle().ItemSpacing
+
 			{
-				controls_group_begin("Show")
+				controls_group_begin("Show", imgui.GetCursorScreenPos(), left_width)
 
 				if controls_button("Pre-show", .SoundAndLighting, button_width) {
 					show_pre_show()
@@ -845,7 +904,7 @@ controls_draw :: proc() {
 			}
 
 			{
-				controls_group_begin("Games")
+				controls_group_begin("Games", imgui.GetCursorScreenPos(), left_width)
 
 				if controls_button("Innuendo", .Innuendo, button_width) {
 					game_innuendo()
@@ -875,7 +934,7 @@ controls_draw :: proc() {
 			}
 
 			{
-				controls_group_begin("Lighting")
+				controls_group_begin("Lighting", imgui.GetCursorScreenPos(), left_width)
 
 				if controls_button("House (b)##Lighting", .Lighting, button_width) {
 					lighting_house()
@@ -961,59 +1020,11 @@ controls_draw :: proc() {
 					}
 				}
 
-				{
-					origin := imgui.GetCursorScreenPos()
-					w := imgui.GetFrameHeight() * 4
-					imgui.SetNextItemAllowOverlap()
-					imgui.InvisibleButton("##lights-start", {w, w})
-					imgui.SameLine()
-
-					draw_list := imgui.GetWindowDrawList()
-					r := w / 3
-
-					imgui.DrawList_AddRectFilled(
-						draw_list,
-						origin,
-						{origin.x + w, origin.y + w},
-						imgui.GetColorU32ImVec4({0.3, 0.3, 0.3, 1}),
-					)
-
-					imgui.DrawList_AddCircleFilled(
-						draw_list,
-						{origin.x + w / 2, origin.y + w / 2},
-						r,
-						imgui.GetColorU32ImVec4(
-							{gm.lighting.color[0], gm.lighting.color[1], gm.lighting.color[2], 1},
-						),
-					)
-
-					picker_button_w: f32 = 20
-					imgui.SetCursorScreenPos({origin.x + w - picker_button_w, origin.y})
-					if imgui.ColorButton(
-						"colorpicker",
-						{gm.lighting.color[0], gm.lighting.color[1], gm.lighting.color[2], 1},
-						size = {picker_button_w, picker_button_w},
-					) {
-						imgui.OpenPopup("##lights-color")
-					}
-
-					if imgui.BeginPopup("##lights-color") {
-						imgui.PushItemWidth(imgui.GetFrameHeight() * 8)
-						imgui.ColorPicker3(
-							"##lights-color-value",
-							&gm.lighting.color,
-							{.NoSidePreview, .PickerHueWheel},
-						)
-						imgui.PopItemWidth()
-						imgui.EndPopup()
-					}
-				}
-
 				controls_group_end()
 			}
 
 			{
-				controls_group_begin("Sounds")
+				controls_group_begin("Sounds", imgui.GetCursorScreenPos(), left_width)
 
 				if controls_button("Break glass (1)", .Sound, button_width) {
 					sound_play_break_glass()
@@ -1088,55 +1099,18 @@ controls_draw :: proc() {
 			ensure(video_entity_get() != nil && gm.scores != nil)
 			list_row_height := imgui.GetTextLineHeightWithSpacing()
 			list_padding := imgui.GetStyle().FramePadding.y * 2
-			list_height_min := list_row_height * 6 + list_padding
-			music_height_needed := max(
-				list_height_min,
-				f32(len(gm.entities.playlist)) * list_row_height + list_padding,
-			)
-			video_height_needed := max(
-				list_height_min,
-				f32(len(video_entity_get().video.pages)) * list_row_height + list_padding,
-			)
-			score_height_needed :=
-				imgui.GetFrameHeightWithSpacing() * 4 +
-				list_row_height * (f32(len(gm.entities.score)) + 1) +
-				imgui.GetStyle().WindowPadding.y * 2 +
-				imgui.GetStyle().ItemSpacing.y * 2 +
-				1
-			// Reserve section headings, padding, gaps, video status/mode, and scores.
-			sections_height :=
-				imgui.GetFrameHeight() +
-				imgui.GetTextLineHeight() * 2 +
-				imgui.GetStyle().WindowPadding.y * 4 +
-				imgui.GetStyle().ItemSpacing.y * 4 +
-				score_height_needed
-			if video_entity_get().video.active != nil {
-				sections_height += imgui.GetFrameHeightWithSpacing()
-			}
-			list_height_extra := max(
-				0,
-				imgui.GetContentRegionAvail().y - sections_height - list_height_min * 2,
-			)
-			music_height_extra := min(music_height_needed - list_height_min, list_height_extra / 2)
-			video_height_extra := min(
-				video_height_needed - list_height_min,
-				list_height_extra - music_height_extra,
-			)
-			music_height_extra = min(
-				music_height_needed - list_height_min,
-				list_height_extra - video_height_extra,
-			)
+			music_list_height :=
+				f32(max(1, len(gm.entities.playlist))) * list_row_height + list_padding
+			video_list_height :=
+				f32(max(1, len(video_entity_get().video.pages))) * list_row_height + list_padding
+			media_origin := imgui.GetCursorScreenPos()
+			media_width := (left_width - spacing.x) * 0.5
 
 			{
-				imgui.BeginChild("Music", child_flags = {.AutoResizeY, .Borders})
-
-				imgui.AlignTextToFramePadding()
-				imgui.TextUnformatted("Music")
+				controls_group_begin("Music", media_origin, media_width)
 
 				{
 					if _, primary_ok := music_primary_playback(); primary_ok {
-						imgui.SameLine()
-
 						style := button_styles[.Sound]
 						imgui.PushStyleVarX(.FramePadding, 16)
 						imgui.PushStyleColorImVec4(.Button, style.base)
@@ -1150,10 +1124,7 @@ controls_draw :: proc() {
 					}
 				}
 
-				if controls_list_begin(
-					"Playlists##ControlList",
-					list_height_min + music_height_extra,
-				) {
+				if controls_list_begin("Playlists##ControlList", music_list_height) {
 					for playlist_handle, index in gm.entities.playlist {
 						playlist := entity_must_get(playlist_handle)
 						_, primary_ok := music_primary_playback()
@@ -1195,17 +1166,23 @@ controls_draw :: proc() {
 
 				controls_group_end()
 			}
+			music_bottom := imgui.GetCursorScreenPos().y
 
 			{
-				controls_group_begin("Video")
+				controls_group_begin(
+					"Video",
+					{media_origin.x + media_width + spacing.x, media_origin.y},
+					media_width,
+				)
 
-				video_controls_draw(list_height_min + video_height_extra)
+				video_controls_draw(video_list_height)
 
 				controls_group_end()
 			}
+			imgui.SetCursorScreenPos({origin.x, max(music_bottom, imgui.GetCursorScreenPos().y)})
 
 			{
-				controls_group_begin("Score slide")
+				controls_group_begin("Score slide", imgui.GetCursorScreenPos(), left_width)
 				score_controls_draw()
 				controls_group_end()
 			}
@@ -1221,9 +1198,17 @@ controls_draw :: proc() {
 			music_tab_selected = true
 			gm.active_tab = .Music
 
-			imgui.BeginGroup()
-			imgui.Text("Playlist")
-			if imgui.BeginChild("Playlist##List", {300, 0}, {.FrameStyle}) {
+			controls_layout_begin("MusicEditorLayout")
+			origin := imgui.GetCursorScreenPos()
+			size := imgui.GetContentRegionAvail()
+			playlist_width: f32 = 300
+			spacing := imgui.GetStyle().ItemSpacing.x
+			controls_group_begin("Playlist", origin, playlist_width)
+			if imgui.BeginChild(
+				"Playlist##List",
+				{0, 0},
+				{.FrameStyle, .AutoResizeY, .AlwaysAutoResize},
+			) {
 				for playlist_handle, index in gm.entities.playlist {
 					playlist := entity_must_get(playlist_handle)
 					if imgui.Selectable(
@@ -1238,23 +1223,18 @@ controls_draw :: proc() {
 				}
 			}
 			imgui.EndChild()
-			imgui.EndGroup()
+			controls_group_end()
 
-			imgui.SameLine()
-
-			imgui.BeginGroup()
-			imgui.Text("Track")
+			controls_group_begin(
+				"Track",
+				{origin.x + playlist_width + spacing, origin.y},
+				size.x - playlist_width - spacing,
+			)
 			playlist := entity_must_get(music_browser_playlist_selected())
 			if imgui.BeginChild(
 				"Track##List",
-				{
-					0,
-					-(WAVEFORM_HEIGHT +
-						imgui.GetFrameHeightWithSpacing() +
-						WAVEFORM_HANDLE_RADIUS +
-						imgui.GetStyle().ItemSpacing.y),
-				},
-				child_flags = {.FrameStyle},
+				{0, 0},
+				child_flags = {.FrameStyle, .AutoResizeY, .AlwaysAutoResize},
 			) {
 				for track_handle, index in playlist.playlist_tracks {
 					track := entity_must_get(track_handle)
@@ -1276,7 +1256,8 @@ controls_draw :: proc() {
 			}
 			wave_editor()
 
-			imgui.EndGroup()
+			controls_group_end()
+			imgui.EndChild()
 
 			imgui.EndTabItem()
 		}
