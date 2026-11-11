@@ -75,30 +75,60 @@ controls_button :: proc(label: cstring, kind: UI_Type, width: f32) -> bool {
 	return clicked
 }
 
-controls_group_begin :: proc(label: cstring, position: imgui.Vec2, width: f32, height: f32 = 0) {
+controls_group_begin :: proc(
+	label: cstring,
+	position: imgui.Vec2,
+	width: f32,
+	height: f32 = 0,
+	initial_height: f32 = 0,
+) {
+	layout := imgui.GetCurrentWindow()
+	focus_scope := imgui.GetCurrentFocusScope()
 	parent_draw_list := imgui.GetWindowDrawList()
 	clip_min := imgui.DrawList_GetClipRectMin(parent_draw_list)
 	clip_max := imgui.DrawList_GetClipRectMax(parent_draw_list)
 	imgui.PushID(label)
 	flags: imgui.WindowFlags = {
 		.NoMove,
-		.NoResize,
 		.NoCollapse,
 		.NoSavedSettings,
 		.NoDocking,
 		.NoScrollbar,
 		.NoScrollWithMouse,
-		.AlwaysAutoResize,
 	}
 	if !imgui.IsMouseHoveringRect(clip_min, clip_max) do flags += {.NoMouseInputs}
 	imgui.SetNextWindowPos(position)
-	// Measured heights can exceed the viewport; the layout handles scrolling.
-	window_height := height
-	if window_height == 0 {
-		window_height = imgui.Storage_GetFloat(imgui.GetStateStorage(), imgui.GetID("Height"))
-	}
+	storage := imgui.GetStateStorage()
+	resize_id := imgui.GetID("ResizeHeight")
+	content_height := imgui.Storage_GetFloat(storage, imgui.GetID("Height"))
+	minimum_height := height > 0 ? f32(200) : max(content_height, imgui.GetFrameHeight())
+	maximum_height := height > 0 ? height : f32(1e6)
+	window_height := clamp(
+		imgui.Storage_GetFloat(
+			storage,
+			resize_id,
+			initial_height > 0 ? initial_height : height > 0 ? height : content_height,
+		),
+		minimum_height,
+		maximum_height,
+	)
+	// Column widths stay aligned; content and the score reservation bound height resizing.
+	imgui.SetNextWindowSizeConstraints({width, minimum_height}, {width, maximum_height})
 	imgui.SetNextWindowSize({width, window_height})
 	imgui.Begin(label, nil, flags)
+	imgui.PushItemWidth(imgui.GetFontSize() * 16)
+	if resized_height := imgui.GetWindowHeight(); resized_height != window_height {
+		imgui.Storage_SetFloat(storage, resize_id, resized_height)
+	}
+	// Independent panel windows share the layout's keyboard navigation scope.
+	window := imgui.GetCurrentWindow()
+	window.ChildFlags += {.NavFlattened}
+	imgui.UpdateWindowParentAndRootLinks(window, window.Flags, layout)
+	imgui.PushFocusScope(focus_scope)
+	if imgui.IsWindowFocused() {
+		imgui.SetNavFocusScope(focus_scope)
+		if imgui.GetFocusID() == 0 do imgui.NavInitWindow(window, true)
+	}
 	// Window decorations and widgets share the layout's visible bounds.
 	draw_list := imgui.GetWindowDrawList()
 	for &command in ([^]imgui.DrawCmd)(draw_list.CmdBuffer.Data)[:draw_list.CmdBuffer.Size] {
@@ -118,12 +148,32 @@ controls_group_end :: proc() {
 	content_height :=
 		imgui.GetCursorPos().y - imgui.GetStyle().ItemSpacing.y + imgui.GetStyle().WindowPadding.y
 	has_content := imgui.GetCursorPos().y > imgui.GetCursorStartPos().y
+	focus_id :=
+		imgui.IsWindowFocused({.ChildWindows}) && imgui.GetIO().NavVisible ? imgui.GetFocusID() : 0
 	imgui.PopClipRect()
+	imgui.PopItemWidth()
+	imgui.PopFocusScope()
 	imgui.End()
 	if has_content {
 		imgui.Storage_SetFloat(imgui.GetStateStorage(), imgui.GetID("Height"), content_height)
 	}
+	// Reserve the settled height so reflow does not move a resize grip during a drag.
+	if !imgui.IsMouseDown(.Left) {
+		imgui.Storage_SetFloat(imgui.GetStateStorage(), imgui.GetID("LayoutHeight"), size.y)
+	}
 	imgui.PopID()
+	if focus_id != 0 {
+		storage := imgui.GetStateStorage()
+		key := imgui.GetID("FocusID")
+		if imgui.Storage_GetInt(storage, key) != i32(focus_id) {
+			imgui.Storage_SetInt(storage, key, i32(focus_id))
+			imgui.ScrollToRect(
+				imgui.GetCurrentWindow(),
+				{position, position + size},
+				{.KeepVisibleEdgeY},
+			)
+		}
+	}
 	imgui.SetCursorScreenPos(position)
 	imgui.Dummy(size)
 }
@@ -133,7 +183,9 @@ controls_layout_begin :: proc(label: cstring, size: imgui.Vec2 = {0, 0}) {
 }
 
 controls_layout_end :: proc(scroll_with_mouse: bool = true) {
+	imgui.Storage_SetInt(imgui.GetStateStorage(), imgui.GetID("FocusID"), i32(imgui.GetFocusID()))
 	if scroll_with_mouse &&
+	   imgui.GetIO().MouseWheel != 0 &&
 	   imgui.IsMouseHoveringRect(
 		   imgui.GetWindowPos(),
 		   imgui.GetWindowPos() + imgui.GetWindowSize(),
@@ -149,7 +201,7 @@ controls_layout_end :: proc(scroll_with_mouse: bool = true) {
 
 controls_list_begin :: proc(label: cstring, height: f32) -> bool {
 	ensure(height > 0)
-	return imgui.BeginChild(label, {0, height}, {.FrameStyle})
+	return imgui.BeginChild(label, {0, height}, {.FrameStyle, .NavFlattened})
 }
 
 music_browser_playlist_selected :: proc() -> Entity_Handle {
@@ -1120,6 +1172,10 @@ controls_draw :: proc() {
 				imgui.GetStyle().WindowPadding.y * 2 +
 				imgui.GetFrameHeight(),
 			)
+			score_height = max(
+				score_height,
+				imgui.Storage_GetFloat(imgui.GetStateStorage(), imgui.GetID("LayoutHeight")),
+			)
 			imgui.PopID()
 			media_height := max(200, imgui.GetContentRegionAvail().y - score_height - spacing.y)
 			media_list_hovered := false
@@ -1242,7 +1298,7 @@ controls_draw :: proc() {
 			if imgui.BeginChild(
 				"Playlist##List",
 				{0, 0},
-				{.FrameStyle, .AutoResizeY, .AlwaysAutoResize},
+				{.FrameStyle, .AutoResizeY, .AlwaysAutoResize, .NavFlattened},
 			) {
 				for playlist_handle, index in gm.entities.playlist {
 					playlist := entity_must_get(playlist_handle)
@@ -1269,7 +1325,7 @@ controls_draw :: proc() {
 			if imgui.BeginChild(
 				"Track##List",
 				{0, 0},
-				child_flags = {.FrameStyle, .AutoResizeY, .AlwaysAutoResize},
+				child_flags = {.FrameStyle, .AutoResizeY, .AlwaysAutoResize, .NavFlattened},
 			) {
 				for track_handle, index in playlist.playlist_tracks {
 					track := entity_must_get(track_handle)

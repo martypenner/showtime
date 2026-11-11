@@ -142,14 +142,18 @@ timers_update :: proc(dt: f32) {
 }
 
 timers_draw :: proc() {
-	imgui.PushStyleColorImVec4(.Border, {0.7, 0.15, 0.15, 1})
-	imgui.BeginChild("TimersPanel", {TIMER_PANEL_WIDTH, 0}, child_flags = {.Borders})
-	imgui.PopStyleColor(1)
-	defer imgui.EndChild()
+	controls_layout_begin("TimersLayout", {TIMER_PANEL_WIDTH, 0})
+	defer controls_layout_end()
+	available_height := imgui.GetContentRegionAvail().y
+	controls_group_begin(
+		"Timers",
+		imgui.GetCursorScreenPos(),
+		imgui.GetContentRegionAvail().x,
+		max(200, available_height - 200 - imgui.GetStyle().ItemSpacing.y),
+		initial_height = math.floor(available_height * 0.6),
+	)
 
 	imgui.AlignTextToFramePadding()
-	imgui.TextColored({0.95, 0.25, 0.25, 1}, "Timers")
-	imgui.SameLine()
 	imgui.Text("%d", timers_active_count())
 
 	imgui.SameLine()
@@ -179,30 +183,28 @@ timers_draw :: proc() {
 
 	imgui.Separator()
 
-	if imgui.BeginChild(
-		"TimerList",
-		{0, imgui.GetContentRegionAvail().y * 0.55},
-		child_flags = {.FrameStyle},
-	) {
-		defer imgui.EndChild()
-
+	if imgui.BeginChild("TimerList", {0, 0}, child_flags = {.FrameStyle, .NavFlattened}) {
 		for _, i in gm.entities.timer {
 			timers_timer_row_draw(i)
 		}
 	}
+	imgui.EndChild()
 
-	imgui.Separator()
+	controls_group_end()
+	controls_group_begin(
+		"Marks",
+		imgui.GetCursorScreenPos(),
+		imgui.GetContentRegionAvail().x,
+		max(200, imgui.GetContentRegionAvail().y),
+	)
+	defer controls_group_end()
 
 	imgui.AlignTextToFramePadding()
-	imgui.TextColored({0.95, 0.25, 0.25, 1}, "Marks")
-	imgui.SameLine()
 	imgui.Text("%d", timers_marks_count())
 	imgui.SameLine()
 	if imgui.Button("Clear") do timers_marks_clear()
 
-	if imgui.BeginChild("MarksList", {0, 0}, child_flags = {.FrameStyle}) {
-		defer imgui.EndChild()
-
+	if imgui.BeginChild("MarksList", {0, 0}, child_flags = {.FrameStyle, .NavFlattened}) {
 		for handle in gm.entities.mark {
 			mark, ok := entity_get(handle)
 			ensure(ok)
@@ -218,6 +220,7 @@ timers_draw :: proc() {
 			)
 		}
 	}
+	imgui.EndChild()
 }
 
 timer_blink_alpha :: proc(flash_remaining_s: f32, tick_ms: u64) -> f32 {
